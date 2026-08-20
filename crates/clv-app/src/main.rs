@@ -10,12 +10,9 @@ use app::{shell::AppShell, ClvApp};
 use gpui::*;
 use gpui_component::*;
 use theme::apply_clv_theme;
-use tracing_subscriber::EnvFilter;
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("clv_app=info".parse().unwrap()))
-        .init();
+    init_tracing();
 
     Application::new()
         .with_assets(assets::Assets)
@@ -39,3 +36,15 @@ fn main() {
             .detach();
         });
 }
+
+#[cfg(debug_assertions)]
+fn init_tracing() {
+    use tracing_subscriber::EnvFilter;
+
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env().add_directive("clv_app=info".parse().unwrap()))
+        .init();
+}
+
+#[cfg(not(debug_assertions))]
+fn init_tracing() {}

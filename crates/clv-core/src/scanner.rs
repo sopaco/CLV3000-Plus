@@ -286,13 +286,57 @@ fn dir_size(path: &Path) -> u64 {
     if path.is_file() {
         return path.metadata().map(|m| m.len()).unwrap_or(0);
     }
-    WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter_map(|e| e.metadata().ok())
-        .map(|m| m.len())
-        .sum()
+    dir_size_dir(path)
+}
+
+const DIR_SIZE_MAX_ENTRIES: usize = 100_000;
+const SKIP_DIR_NAMES: &[&str] = &[".git", ".svn", ".hg"];
+
+fn dir_size_dir(root: &Path) -> u64 {
+    let mut total = 0u64;
+    let mut entries_seen = 0usize;
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let read_dir = match std::fs::read_dir(&dir) {
+            Ok(read_dir) => read_dir,
+            Err(_) => continue,
+        };
+
+        for entry in read_dir.filter_map(|e| e.ok()) {
+            entries_seen += 1;
+            if entries_seen > DIR_SIZE_MAX_ENTRIES {
+                return total;
+            }
+
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(_) => continue,
+            };
+
+            if file_type.is_dir() {
+                if should_skip_dir(&path) {
+                    continue;
+                }
+                stack.push(path);
+            } else if file_type.is_file() {
+                total += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            } else if file_type.is_symlink() {
+                if let Ok(meta) = entry.metadata() {
+                    total += meta.len();
+                }
+            }
+        }
+    }
+
+    total
+}
+
+fn should_skip_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| SKIP_DIR_NAMES.contains(&name))
 }
 
 fn last_modified(path: &Path) -> Option<DateTime<Utc>> {

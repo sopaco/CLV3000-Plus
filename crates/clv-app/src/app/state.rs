@@ -73,7 +73,6 @@ pub struct AppStore {
 
 impl AppStore {
     pub fn new(settings: AppSettings, _cx: &mut Context<Self>) -> Self {
-        let (disk_total, disk_used) = disk_usage();
         Self {
             settings,
             page: AppPage::Dashboard,
@@ -89,10 +88,25 @@ impl AppStore {
             search_query: String::new(),
             expanded_item: None,
             last_cleanup_freed: None,
-            disk_total,
-            disk_used,
+            disk_total: 0,
+            disk_used: 0,
             startup_count: 0,
         }
+    }
+
+    pub fn refresh_disk_usage_async(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |weak, cx| {
+            let usage = std::thread::spawn(disk_usage)
+                .join()
+                .unwrap_or(default_disk_usage());
+            weak.update(cx, |store, cx| {
+                store.disk_total = usage.0;
+                store.disk_used = usage.1;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn set_page(&mut self, page: AppPage, cx: &mut Context<Self>) {
@@ -243,9 +257,7 @@ impl AppStore {
                         store.scan_current_path = None;
                         store.last_report = Some(report);
                         store.status_message = Some("扫描完成".into());
-                        let (t, u) = disk_usage();
-                        store.disk_total = t;
-                        store.disk_used = u;
+                        store.refresh_disk_usage_sync();
                         store.startup_count = clv_platform::list_startup_items().len();
                         cx.notify();
                     })
@@ -325,9 +337,7 @@ impl AppStore {
                                 );
                             }
 
-                            let (t, u) = disk_usage();
-                            store.disk_total = t;
-                            store.disk_used = u;
+                            store.refresh_disk_usage_sync();
                             cx.notify();
                         })
                         .ok();
@@ -387,6 +397,18 @@ fn truncate_path_display(path: &Path, max_chars: usize) -> String {
     }
 }
 
+impl AppStore {
+    fn refresh_disk_usage_sync(&mut self) {
+        let (total, used) = disk_usage();
+        self.disk_total = total;
+        self.disk_used = used;
+    }
+}
+
+fn default_disk_usage() -> (u64, u64) {
+    (512_u64 * 1024 * 1024 * 1024, 400_u64 * 1024 * 1024 * 1024)
+}
+
 fn disk_usage() -> (u64, u64) {
     let disks = Disks::new_with_refreshed_list();
     let mut total = 0u64;
@@ -398,6 +420,6 @@ fn disk_usage() -> (u64, u64) {
     if total > 0 {
         (total, total.saturating_sub(available))
     } else {
-        (512_u64 * 1024 * 1024 * 1024, 400_u64 * 1024 * 1024 * 1024)
+        default_disk_usage()
     }
 }

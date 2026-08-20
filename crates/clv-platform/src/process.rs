@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProcessSort {
@@ -36,10 +36,31 @@ pub struct ProcessInfo {
     pub category: ProcessCategory,
 }
 
+/// Reusable process enumerator — avoids allocating a new `System` on every poll.
+pub struct ProcessEnumerator {
+    sys: System,
+}
+
+impl ProcessEnumerator {
+    pub fn new() -> Self {
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        Self { sys }
+    }
+
+    pub fn list(&mut self, sort: ProcessSort) -> Vec<ProcessInfo> {
+        self.sys.refresh_all();
+        collect_processes(&self.sys, sort)
+    }
+}
+
 pub fn list_processes(sort: ProcessSort) -> Vec<ProcessInfo> {
     let mut sys = System::new_all();
     sys.refresh_all();
+    collect_processes(&sys, sort)
+}
 
+fn collect_processes(sys: &System, sort: ProcessSort) -> Vec<ProcessInfo> {
     let mut processes: Vec<ProcessInfo> = sys
         .processes()
         .iter()
@@ -69,9 +90,9 @@ pub fn list_processes(sort: ProcessSort) -> Vec<ProcessInfo> {
 }
 
 pub fn kill_process(pid: u32) -> anyhow::Result<()> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let mut sys = System::new();
     let pid = Pid::from_u32(pid);
+    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), false);
     if let Some(process) = sys.process(pid) {
         if !process.kill() {
             anyhow::bail!("failed to kill process {pid}");

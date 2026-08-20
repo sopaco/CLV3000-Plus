@@ -2,8 +2,9 @@ use crate::app::state::{AppPage, AppStore};
 use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::format_bytes;
-use clv_platform::{kill_process, list_processes, ProcessInfo, ProcessSort};
+use clv_platform::{kill_process, ProcessEnumerator, ProcessInfo, ProcessSort};
 use gpui::{Subscription, UniformListScrollHandle};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const PROCESS_ROW_H: f32 = 52.;
@@ -18,6 +19,7 @@ pub struct ProcessView {
     scroll_handle: UniformListScrollHandle,
     poll_generation: u64,
     visible: bool,
+    enumerator: Option<Arc<Mutex<ProcessEnumerator>>>,
 }
 
 impl ProcessView {
@@ -39,7 +41,21 @@ impl ProcessView {
             scroll_handle: UniformListScrollHandle::new(),
             poll_generation: 0,
             visible: false,
+            enumerator: None,
         }
+    }
+
+    fn processes_from_enumerator(
+        enumerator: &Arc<Mutex<ProcessEnumerator>>,
+        sort: ProcessSort,
+    ) -> Vec<ProcessInfo> {
+        enumerator
+            .lock()
+            .expect("process enumerator lock")
+            .list(sort)
+            .into_iter()
+            .take(MAX_PROCESSES)
+            .collect()
     }
 
     pub fn on_show(&mut self, cx: &mut Context<Self>) {
@@ -48,10 +64,9 @@ impl ProcessView {
         }
         self.visible = true;
         self.poll_generation = self.poll_generation.wrapping_add(1);
-        self.processes = list_processes(self.sort)
-            .into_iter()
-            .take(MAX_PROCESSES)
-            .collect();
+        let enumerator = Arc::new(Mutex::new(ProcessEnumerator::new()));
+        self.processes = Self::processes_from_enumerator(&enumerator, self.sort);
+        self.enumerator = Some(enumerator);
         cx.notify();
         self.spawn_poll_loop(cx);
     }
@@ -62,19 +77,27 @@ impl ProcessView {
         }
         self.visible = false;
         self.poll_generation = self.poll_generation.wrapping_add(1);
+        self.enumerator = None;
         cx.notify();
     }
 
     fn refresh_now(&mut self, cx: &mut Context<Self>) {
+        let Some(enumerator) = self.enumerator.clone() else {
+            return;
+        };
         let poll_gen = self.poll_generation;
         let sort = self.sort;
         cx.spawn(async move |weak, cx| {
-            let processes = list_processes(sort);
+            let processes = std::thread::spawn(move || {
+                Self::processes_from_enumerator(&enumerator, sort)
+            })
+            .join()
+            .unwrap_or_default();
             weak.update(cx, |view, cx| {
                 if view.poll_generation != poll_gen || !view.visible {
                     return;
                 }
-                view.processes = processes.into_iter().take(MAX_PROCESSES).collect();
+                view.processes = processes;
                 cx.notify();
             })
             .ok();
@@ -84,6 +107,9 @@ impl ProcessView {
 
     fn spawn_poll_loop(&mut self, cx: &mut Context<Self>) {
         let poll_gen = self.poll_generation;
+        let Some(enumerator) = self.enumerator.clone() else {
+            return;
+        };
         cx.spawn(async move |weak, cx| {
             loop {
                 cx.background_executor()
@@ -100,14 +126,19 @@ impl ProcessView {
                 let sort = weak
                     .read_with(cx, |view, _| view.sort)
                     .unwrap_or(ProcessSort::Memory);
-                let processes = list_processes(sort);
+                let enumerator = enumerator.clone();
+                let processes = std::thread::spawn(move || {
+                    Self::processes_from_enumerator(&enumerator, sort)
+                })
+                .join()
+                .unwrap_or_default();
 
                 let still_valid = weak
                     .update(cx, |view, cx| {
                         if !view.visible || view.poll_generation != poll_gen {
                             false
                         } else {
-                            view.processes = processes.into_iter().take(MAX_PROCESSES).collect();
+                            view.processes = processes;
                             cx.notify();
                             true
                         }

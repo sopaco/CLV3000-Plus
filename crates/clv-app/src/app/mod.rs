@@ -12,26 +12,20 @@ use state::{AppPage, AppStore};
 
 pub struct ClvApp {
     store: Entity<AppStore>,
-    dashboard: Entity<DashboardView>,
-    cleanup: Entity<CleanupView>,
-    agent: Entity<AgentView>,
-    startup: Entity<StartupView>,
-    process: Entity<ProcessView>,
-    settings: Entity<SettingsView>,
-    onboarding: Entity<OnboardingView>,
+    dashboard: Option<Entity<DashboardView>>,
+    cleanup: Option<Entity<CleanupView>>,
+    agent: Option<Entity<AgentView>>,
+    startup: Option<Entity<StartupView>>,
+    process: Option<Entity<ProcessView>>,
+    settings: Option<Entity<SettingsView>>,
+    onboarding: Option<Entity<OnboardingView>>,
 }
 
 impl ClvApp {
     pub fn new(window: &Window, cx: &mut Context<Self>) -> Self {
         let settings = load_settings();
         let store = cx.new(|cx| AppStore::new(settings, cx));
-        let dashboard = cx.new(|cx| DashboardView::new(store.clone(), cx));
-        let cleanup = cx.new(|cx| CleanupView::new(store.clone(), cx));
-        let agent = cx.new(|cx| AgentView::new(store.clone(), cx));
-        let startup = cx.new(|cx| StartupView::new(store.clone(), cx));
-        let process = cx.new(|cx| ProcessView::new(store.clone(), cx));
-        let settings_view = cx.new(|cx| SettingsView::new(store.clone(), cx));
-        let onboarding = cx.new(|cx| OnboardingView::new(store.clone(), cx));
+        store.update(cx, |s, cx| s.refresh_disk_usage_async(cx));
 
         if !store.read(cx).settings.onboarding_done {
             store.update(cx, |s, cx| {
@@ -43,14 +37,77 @@ impl ClvApp {
         let _ = window;
         Self {
             store,
-            dashboard,
-            cleanup,
-            agent,
-            startup,
-            process,
-            settings: settings_view,
-            onboarding,
+            dashboard: None,
+            cleanup: None,
+            agent: None,
+            startup: None,
+            process: None,
+            settings: None,
+            onboarding: None,
         }
+    }
+
+    fn dashboard(&mut self, cx: &mut Context<Self>) -> Entity<DashboardView> {
+        if let Some(view) = &self.dashboard {
+            return view.clone();
+        }
+        let view = cx.new(|cx| DashboardView::new(self.store.clone(), cx));
+        self.dashboard = Some(view.clone());
+        view
+    }
+
+    fn cleanup(&mut self, cx: &mut Context<Self>) -> Entity<CleanupView> {
+        if let Some(view) = &self.cleanup {
+            return view.clone();
+        }
+        let view = cx.new(|cx| CleanupView::new(self.store.clone(), cx));
+        self.cleanup = Some(view.clone());
+        view
+    }
+
+    fn agent(&mut self, cx: &mut Context<Self>) -> Entity<AgentView> {
+        if let Some(view) = &self.agent {
+            return view.clone();
+        }
+        let view = cx.new(|cx| AgentView::new(self.store.clone(), cx));
+        self.agent = Some(view.clone());
+        view
+    }
+
+    fn startup(&mut self, cx: &mut Context<Self>) -> Entity<StartupView> {
+        if let Some(view) = &self.startup {
+            return view.clone();
+        }
+        let view = cx.new(|cx| StartupView::new(self.store.clone(), cx));
+        self.startup = Some(view.clone());
+        view
+    }
+
+    fn process(&mut self, cx: &mut Context<Self>) -> Entity<ProcessView> {
+        if let Some(view) = &self.process {
+            return view.clone();
+        }
+        let view = cx.new(|cx| ProcessView::new(self.store.clone(), cx));
+        self.process = Some(view.clone());
+        view
+    }
+
+    fn settings_view(&mut self, cx: &mut Context<Self>) -> Entity<SettingsView> {
+        if let Some(view) = &self.settings {
+            return view.clone();
+        }
+        let view = cx.new(|cx| SettingsView::new(self.store.clone(), cx));
+        self.settings = Some(view.clone());
+        view
+    }
+
+    fn onboarding(&mut self, cx: &mut Context<Self>) -> Entity<OnboardingView> {
+        if let Some(view) = &self.onboarding {
+            return view.clone();
+        }
+        let view = cx.new(|cx| OnboardingView::new(self.store.clone(), cx));
+        self.onboarding = Some(view.clone());
+        view
     }
 
     fn nav_icon(
@@ -75,15 +132,15 @@ impl ClvApp {
         self.store.read(cx).page
     }
 
-    fn render_page(&self, page: AppPage) -> impl IntoElement {
+    fn render_page(&mut self, page: AppPage, cx: &mut Context<Self>) -> impl IntoElement {
         match page {
-            AppPage::Dashboard => self.dashboard.clone().into_any_element(),
-            AppPage::Cleanup => self.cleanup.clone().into_any_element(),
-            AppPage::Agent => self.agent.clone().into_any_element(),
-            AppPage::Startup => self.startup.clone().into_any_element(),
-            AppPage::Process => self.process.clone().into_any_element(),
-            AppPage::Settings => self.settings.clone().into_any_element(),
-            AppPage::Onboarding => self.onboarding.clone().into_any_element(),
+            AppPage::Dashboard => self.dashboard(cx).into_any_element(),
+            AppPage::Cleanup => self.cleanup(cx).into_any_element(),
+            AppPage::Agent => self.agent(cx).into_any_element(),
+            AppPage::Startup => self.startup(cx).into_any_element(),
+            AppPage::Process => self.process(cx).into_any_element(),
+            AppPage::Settings => self.settings_view(cx).into_any_element(),
+            AppPage::Onboarding => self.onboarding(cx).into_any_element(),
         }
     }
 }
@@ -96,10 +153,9 @@ impl Render for ClvApp {
             return div()
                 .size_full()
                 .bg(ui::hero_gradient_alt())
-                .child(self.onboarding.clone());
+                .child(self.onboarding(cx));
         }
 
-        let page_content = self.render_page(page);
         let show_scan_bar = self.store.read(cx).scanning;
         let scan_phase = self.store.read(cx).scan_phase.clone();
         let scan_items_found = self.store.read(cx).scan_items_found;
@@ -219,7 +275,7 @@ impl Render for ClvApp {
                                     .flex_1()
                                     .min_h_0()
                                     .min_w_0()
-                                    .child(page_content),
+                                    .child(self.render_page(page, cx)),
                             ),
                     )
                     .child(self.render_status_bar(cx)),
