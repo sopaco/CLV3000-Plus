@@ -1,0 +1,6 @@
+/target
+**/.terrain/agent/repomix*
+**/.terrain/.meta/
+**/.terrain/env/
+.DS_Store
+.codegraph/
