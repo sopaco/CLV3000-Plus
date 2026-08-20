@@ -1,30 +1,42 @@
+use crate::app::state::{AppPage, AppStore};
 use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::format_bytes;
 use clv_platform::{kill_process, list_processes, ProcessInfo, ProcessSort};
-use gpui::{size, Pixels, Size};
-use gpui_component::v_virtual_list;
-use std::ops::Range;
-use std::rc::Rc;
+use gpui::{Subscription, UniformListScrollHandle};
 use std::time::Duration;
 
 const PROCESS_ROW_H: f32 = 52.;
 const MAX_PROCESSES: usize = 50;
 
 pub struct ProcessView {
+    store: Entity<AppStore>,
+    #[allow(dead_code)]
+    _store_subscription: Subscription,
     processes: Vec<ProcessInfo>,
     sort: ProcessSort,
-    row_sizes: Rc<Vec<Size<Pixels>>>,
+    scroll_handle: UniformListScrollHandle,
     poll_generation: u64,
     visible: bool,
 }
 
 impl ProcessView {
-    pub fn new(_cx: &mut Context<Self>) -> Self {
+    pub fn new(store: Entity<AppStore>, cx: &mut Context<Self>) -> Self {
+        let store_subscription = cx.observe(&store, |view, store, cx| {
+            let active = store.read(cx).page == AppPage::Process;
+            if active && !view.visible {
+                view.on_show(cx);
+            } else if !active && view.visible {
+                view.on_hide(cx);
+            }
+        });
+
         Self {
+            store,
+            _store_subscription: store_subscription,
             processes: Vec::new(),
             sort: ProcessSort::Memory,
-            row_sizes: Rc::new(Vec::new()),
+            scroll_handle: UniformListScrollHandle::new(),
             poll_generation: 0,
             visible: false,
         }
@@ -36,7 +48,11 @@ impl ProcessView {
         }
         self.visible = true;
         self.poll_generation = self.poll_generation.wrapping_add(1);
-        self.refresh_now(cx);
+        self.processes = list_processes(self.sort)
+            .into_iter()
+            .take(MAX_PROCESSES)
+            .collect();
+        cx.notify();
         self.spawn_poll_loop(cx);
     }
 
@@ -59,7 +75,6 @@ impl ProcessView {
                     return;
                 }
                 view.processes = processes.into_iter().take(MAX_PROCESSES).collect();
-                view.sync_row_sizes();
                 cx.notify();
             })
             .ok();
@@ -93,7 +108,6 @@ impl ProcessView {
                             false
                         } else {
                             view.processes = processes.into_iter().take(MAX_PROCESSES).collect();
-                            view.sync_row_sizes();
                             cx.notify();
                             true
                         }
@@ -112,13 +126,9 @@ impl ProcessView {
             return;
         }
         self.sort = sort;
+        self.scroll_handle.scroll_to_item(0, gpui::ScrollStrategy::Top);
         self.refresh_now(cx);
         cx.notify();
-    }
-
-    fn sync_row_sizes(&mut self) {
-        let count = self.processes.len();
-        self.row_sizes = Rc::new(vec![size(px(0.), px(PROCESS_ROW_H)); count]);
     }
 
     fn render_row(
@@ -185,9 +195,14 @@ impl ProcessView {
 
 impl Render for ProcessView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.store.read(cx).page == AppPage::Process && !self.visible {
+            self.on_show(cx);
+        }
+
         let sort = self.sort;
-        let row_sizes = self.row_sizes.clone();
-        let view = cx.entity();
+        let count = self.processes.len();
+        let scroll_handle = self.scroll_handle.clone();
+        let _ = &self.store;
 
         div()
             .id("process-view")
@@ -254,40 +269,40 @@ impl Render for ProcessView {
                     ),
             )
             .child(
-                div()
-                    .id("process-list-pane")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_hidden()
-                    .px_6()
-                    .pb_6()
-                    .when(self.processes.is_empty(), |this| {
-                        this.flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                div()
-                                    .text_base()
-                                    .text_color(colors::text_muted())
-                                    .child("正在加载进程列表…"),
-                            )
-                    })
-                    .when(!self.processes.is_empty(), |this| {
-                        this.child(
-                            v_virtual_list(
-                                view.clone(),
-                                "process-list",
-                                row_sizes,
-                                move |this, visible_range: Range<usize>, window, cx| {
+                ui::list_body(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .flex_col()
+                        .px_6()
+                        .pb_6()
+                        .when(count == 0, |this| {
+                            this.flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    div()
+                                        .text_base()
+                                        .text_color(colors::text_muted())
+                                        .child(SharedString::from("正在加载进程列表…")),
+                                )
+                        })
+                        .when(count > 0, |this| {
+                            this.child(ui::uniform_list_pane(
+                                "process-rows",
+                                count,
+                                scroll_handle,
+                                cx,
+                                move |this, visible_range, window, cx| {
+                                    let view = cx.entity();
                                     visible_range
                                         .map(|ix| this.render_row(ix, view.clone(), window, cx))
-                                        .collect::<Vec<_>>()
+                                        .collect()
                                 },
-                            )
-                            .size_full()
-                            .overflow_hidden(),
-                        )
-                    }),
+                            ))
+                        }),
+                ),
             )
     }
 }

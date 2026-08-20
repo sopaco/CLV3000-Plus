@@ -2,14 +2,133 @@ use crate::app::state::{AppPage, AppStore};
 use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::RiskLevel;
+use gpui::UniformListScrollHandle;
+
+const AGENT_ROW_H: f32 = 168.;
 
 pub struct AgentView {
     store: Entity<AppStore>,
+    scroll_handle: UniformListScrollHandle,
 }
 
 impl AgentView {
     pub fn new(store: Entity<AppStore>, _cx: &mut Context<Self>) -> Self {
-        Self { store }
+        Self {
+            store,
+            scroll_handle: UniformListScrollHandle::new(),
+        }
+    }
+
+    fn render_row(
+        &self,
+        project: &clv_core::AgentProject,
+        store: Entity<AppStore>,
+        scanning: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let stacks: String = project
+            .stacks
+            .iter()
+            .map(|s| s.label())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let inactive = project
+            .days_inactive
+            .map(|d| format!("{d} 天未使用"))
+            .unwrap_or_else(|| "未知".into());
+        let risk = if project.days_inactive.unwrap_or(0) > 14 {
+            RiskLevel::Safe
+        } else {
+            RiskLevel::Caution
+        };
+        let path = project.path.clone();
+        let store_clean = store.clone();
+        let clean_id = eid(format!("agent-clean-{}", project.name));
+        let open_id = eid(format!("agent-open-{}", project.name));
+
+        ui::soft_card()
+            .h(px(AGENT_ROW_H))
+            .p_4()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                h_flex()
+                    .justify_between()
+                    .items_start()
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(colors::text_primary())
+                            .truncate()
+                            .child(project.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_lg()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(colors::accent_blue())
+                            .child(project.size_human()),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(ui::risk_badge(risk))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(colors::text_muted())
+                            .truncate()
+                            .child(stacks),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(colors::text_muted())
+                            .child(inactive),
+                    ),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(colors::text_secondary())
+                    .truncate()
+                    .child(project.reason.clone()),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(ui::open_path_button(open_id, &path))
+                    .child(
+                        ui::action_button(
+                            clean_id,
+                            "清理此项目缓存",
+                            Some(ui::ACTION_CLEAN),
+                            true,
+                            cx,
+                        )
+                        .disabled(scanning)
+                        .on_click({
+                            let store = store_clean.clone();
+                            let project_path = path.clone();
+                            move |_, _, cx| {
+                                store.update(cx, |s, cx| {
+                                    if let Some(report) = &mut s.last_report {
+                                        for item in &mut report.items {
+                                            if item.project_root.as_ref() == Some(&project_path) {
+                                                item.selected = true;
+                                            }
+                                        }
+                                    }
+                                    s.set_page(AppPage::Cleanup, cx);
+                                });
+                            }
+                        }),
+                    ),
+            )
     }
 }
 
@@ -23,18 +142,25 @@ impl Render for AgentView {
             .unwrap_or_default();
         let store = self.store.clone();
         let scanning = store_ref.scanning;
+        let count = projects.len();
+        let scroll_handle = self.scroll_handle.clone();
 
         div()
+            .id("agent-view")
             .size_full()
             .flex()
             .flex_col()
             .min_h_0()
-            .child(ui::scroll_y(
+            .overflow_hidden()
+            .child(
                 div()
-                    .p_6()
+                    .flex_shrink_0()
+                    .px_6()
+                    .pt_6()
+                    .pb_4()
                     .flex()
                     .flex_col()
-                    .gap_5()
+                    .gap_4()
                     .child(ui::page_banner(
                         "Agent 试验项目",
                         "识别 Codex / Claude / Cursor 等 Agent 可能创建的项目",
@@ -58,119 +184,46 @@ impl Render for AgentView {
                                     }
                                 }),
                             ),
-                    )
-                    .when(projects.is_empty(), |this| {
-                        this.child(ui::empty_state(
-                            ui::EMPTY_AGENT,
-                            "暂无 Agent 项目",
-                            "点击上方「扫描 Agent 项目」，将识别含 .agents / .claude 等标记的目录",
-                        ))
-                    })
-                    .children(projects.iter().map(|project| {
-                        let stacks: String = project
-                            .stacks
-                            .iter()
-                            .map(|s| s.label())
-                            .collect::<Vec<_>>()
-                            .join(" · ");
-                        let inactive = project
-                            .days_inactive
-                            .map(|d| format!("{d} 天未使用"))
-                            .unwrap_or_else(|| "未知".into());
-                        let risk = if project.days_inactive.unwrap_or(0) > 14 {
-                            RiskLevel::Safe
-                        } else {
-                            RiskLevel::Caution
-                        };
-                        let path = project.path.clone();
-                        let store_clean = store.clone();
-                        let clean_id = eid(format!("agent-clean-{}", project.name));
-                        let open_id = eid(format!("agent-open-{}", project.name));
-
-                        ui::card()
-                            .p_5()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .child(
-                                h_flex()
-                                    .justify_between()
-                                    .items_start()
-                                    .child(
-                                        div()
-                                            .text_lg()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(colors::text_primary())
-                                            .child(project.name.clone()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_lg()
-                                            .font_weight(FontWeight::BOLD)
-                                            .text_color(colors::accent_blue())
-                                            .child(project.size_human()),
-                                    ),
-                            )
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(ui::risk_badge(risk))
-                                    .child(
-                                        div()
-                                            .text_base()
-                                            .text_color(colors::text_muted())
-                                            .child(stacks),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_base()
-                                            .text_color(colors::text_muted())
-                                            .child(inactive),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_base()
-                                    .text_color(colors::text_secondary())
-                                    .child(project.reason.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_base()
-                                    .text_color(colors::text_muted())
-                                    .child(format!("包含 {} 个可清理子项", project.items.len())),
-                            )
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(ui::open_path_button(open_id, &path))
-                                    .child(
-                                        ui::action_button(
-                                            clean_id,
-                                            "清理此项目缓存",
-                                            Some(ui::ACTION_CLEAN),
-                                            true,
-                                            cx,
-                                        )
-                                        .on_click({
-                                            let store = store_clean.clone();
-                                            let project_path = path.clone();
-                                            move |_, _, cx| {
-                                                store.update(cx, |s, cx| {
-                                                    if let Some(report) = &mut s.last_report {
-                                                        for item in &mut report.items {
-                                                            if item.project_root.as_ref() == Some(&project_path) {
-                                                                item.selected = true;
-                                                            }
-                                                        }
-                                                    }
-                                                    s.set_page(AppPage::Cleanup, cx);
-                                                });
-                                            }
-                                        }),
-                                    ),
-                            )
-                    })),
-            ))
+                    ),
+            )
+            .child(
+                ui::list_body(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .flex_col()
+                        .px_6()
+                        .pb_6()
+                        .when(count == 0, |this| {
+                            this.flex()
+                                .items_center()
+                                .justify_center()
+                                .child(ui::empty_state(
+                                    ui::EMPTY_AGENT,
+                                    "暂无 Agent 项目",
+                                    "点击上方「扫描 Agent 项目」，将识别含 .agents / .claude 等标记的目录",
+                                ))
+                        })
+                        .when(count > 0, |this| {
+                            let projects = projects.clone();
+                            this.child(ui::uniform_list_pane(
+                                "agent-rows",
+                                count,
+                                scroll_handle,
+                                cx,
+                                move |this, visible_range, _window, cx| {
+                                    visible_range
+                                        .filter_map(|ix| {
+                                            projects.get(ix).map(|project| {
+                                                this.render_row(project, store.clone(), scanning, cx)
+                                            })
+                                        })
+                                        .collect()
+                                },
+                            ))
+                        }),
+                ),
+            )
     }
 }

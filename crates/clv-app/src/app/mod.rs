@@ -29,7 +29,7 @@ impl ClvApp {
         let cleanup = cx.new(|cx| CleanupView::new(store.clone(), cx));
         let agent = cx.new(|cx| AgentView::new(store.clone(), cx));
         let startup = cx.new(|cx| StartupView::new(store.clone(), cx));
-        let process = cx.new(|cx| ProcessView::new(cx));
+        let process = cx.new(|cx| ProcessView::new(store.clone(), cx));
         let settings_view = cx.new(|cx| SettingsView::new(store.clone(), cx));
         let onboarding = cx.new(|cx| OnboardingView::new(store.clone(), cx));
 
@@ -64,17 +64,10 @@ impl ClvApp {
     ) -> impl IntoElement {
         let active = self.store.read(cx).page == page;
         let store = self.store.clone();
-        let process = self.process.clone();
-        let prev_page = self.store.read(cx).page;
         ui::nav_icon(id, icon, label, active, window, cx, move |_, _, cx| {
             store.update(cx, |s, cx| {
                 s.set_page(page, cx);
             });
-            if page == AppPage::Process {
-                process.update(cx, |view, cx| view.on_show(cx));
-            } else if prev_page == AppPage::Process {
-                process.update(cx, |view, cx| view.on_hide(cx));
-            }
         })
     }
 
