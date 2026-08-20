@@ -18,22 +18,3 @@
 
 cargo run -p clv-app
 ```
-
-## 项目结构
-
-```
-crates/
-  clv-core/      # 扫描规则、Agent 识别、清理执行
-  clv-platform/  # 启动项、进程（macOS / Windows）
-  clv-app/       # GPUI 界面
-```
-
-## 平台
-
-- macOS 12+
-- Windows 10+（启动项/进程已实现基础支持）
-
-## 依赖
-
-- [GPUI](https://gpui.rs) 0.2
-- [gpui-component](https://github.com/longbridge/gpui-component) 0.5
