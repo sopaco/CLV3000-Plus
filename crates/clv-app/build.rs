@@ -43,5 +43,5 @@ fn embed_windows_icon() {
     let mut rc = fs::File::create(&rc_path).expect("create app-icon.rc");
     writeln!(rc, r#"1 ICON "{}""#, ico.display()).expect("write app-icon.rc");
 
-    embed_resource::compile(rc_path, embed_resource::NONE);
+    let _ = embed_resource::compile(rc_path, embed_resource::NONE);
 }

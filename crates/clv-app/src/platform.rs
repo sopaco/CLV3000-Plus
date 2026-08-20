@@ -1,7 +1,9 @@
 //! Platform-specific application icon (dock / taskbar).
 
+#[cfg(target_os = "macos")]
 use rust_embed::RustEmbed;
 
+#[cfg(target_os = "macos")]
 #[derive(RustEmbed)]
 #[folder = "assets/"]
 struct AppIcons;
@@ -38,7 +40,6 @@ pub fn apply_app_icon() {
         // `platform` ivar that only exists on GPUI's GPUIApplication subclass.
         let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
         let _: () = msg_send![app, setApplicationIconImage: image];
-        let _ = nil;
     }
 }
 

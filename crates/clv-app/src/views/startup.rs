@@ -13,6 +13,7 @@ pub struct StartupView {
     items: Vec<clv_platform::StartupItem>,
     scroll_handle: UniformListScrollHandle,
     loaded: bool,
+    last_error: Option<String>,
 }
 
 impl StartupView {
@@ -29,6 +30,7 @@ impl StartupView {
             items: Vec::new(),
             scroll_handle: UniformListScrollHandle::new(),
             loaded: false,
+            last_error: None,
         }
     }
 
@@ -41,6 +43,12 @@ impl StartupView {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.last_error = None;
+        self.reload_items(cx);
+    }
+
+    /// 重新枚举启动项，保持开关与系统真实状态一致
+    fn reload_items(&mut self, cx: &mut Context<Self>) {
         self.items = list_startup_items();
         let count = self.items.len();
         self.store.update(cx, |store, cx| {
@@ -52,9 +60,13 @@ impl StartupView {
 
     fn toggle_item(&mut self, id: &str, enabled: bool, cx: &mut Context<Self>) {
         match set_startup_enabled(id, enabled) {
-            Ok(()) => self.refresh(cx),
-            Err(e) => tracing::warn!("startup toggle: {e}"),
+            Ok(()) => self.last_error = None,
+            Err(e) => {
+                tracing::warn!("startup toggle: {e}");
+                self.last_error = Some(format!("启动项操作失败：{e}"));
+            }
         }
+        self.reload_items(cx);
     }
 
     fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> Div {
@@ -184,6 +196,21 @@ impl Render for StartupView {
                             ),
                     ),
             )
+            .when_some(self.last_error.clone(), |this, error| {
+                this.child(
+                    div()
+                        .flex_shrink_0()
+                        .mx_6()
+                        .mb_2()
+                        .px_4()
+                        .py_2()
+                        .rounded(corner_sm())
+                        .bg(colors::red().opacity(0.12))
+                        .text_color(colors::red())
+                        .text_sm()
+                        .child(error),
+                )
+            })
             .child(
                 ui::list_body(
                     div()
