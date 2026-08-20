@@ -19,6 +19,13 @@ impl StartupView {
     fn refresh(&mut self) {
         self.items = list_startup_items();
     }
+
+    fn toggle_item(&mut self, id: &str, enabled: bool) {
+        match set_startup_enabled(id, enabled) {
+            Ok(()) => self.refresh(),
+            Err(e) => tracing::warn!("startup toggle: {e}"),
+        }
+    }
 }
 
 impl Render for StartupView {
@@ -132,11 +139,13 @@ impl Render for StartupView {
                                         Switch::new(sw_id)
                                             .checked(enabled)
                                             .cursor_pointer()
-                                            .on_click(move |checked, _, _| {
-                                                if let Err(e) = set_startup_enabled(&id, *checked) {
-                                                    tracing::warn!("startup toggle: {e}");
+                                            .on_click(cx.listener({
+                                                let id = id.clone();
+                                                move |this, checked, _, cx| {
+                                                    this.toggle_item(&id, *checked);
+                                                    cx.notify();
                                                 }
-                                            }),
+                                            })),
                                     ),
                             )
                     })),

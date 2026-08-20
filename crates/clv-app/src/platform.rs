@@ -14,28 +14,31 @@ pub fn apply_app_icon() {
     };
 
     unsafe {
-        use cocoa::appkit::NSApplication;
-        use cocoa::base::{id, nil};
-        use cocoa::foundation::NSData;
+        use objc::runtime::Object;
         use objc::{class, msg_send, sel, sel_impl};
+        use std::ptr;
 
-        let data = NSData::dataWithBytes_length_(
-            nil,
-            bytes.data.as_ref().as_ptr() as *const std::ffi::c_void,
-            bytes.data.len() as u64,
-        );
-        if data == nil {
+        let nil = ptr::null_mut::<Object>();
+        let data: *mut Object = msg_send![
+            class!(NSData),
+            dataWithBytes: bytes.data.as_ptr() as *const std::ffi::c_void
+            length: bytes.data.len() as u64
+        ];
+        if data.is_null() {
             return;
         }
 
-        let image: id = msg_send![class!(NSImage), alloc];
-        let image: id = msg_send![image, initWithData: data];
-        if image == nil {
+        let image: *mut Object = msg_send![class!(NSImage), alloc];
+        let image: *mut Object = msg_send![image, initWithData: data];
+        if image.is_null() {
             return;
         }
 
-        let app = NSApplication::sharedApplication(nil);
+        // Use raw msg_send — cocoa::NSApplication::sharedApplication expects a
+        // `platform` ivar that only exists on GPUI's GPUIApplication subclass.
+        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
         let _: () = msg_send![app, setApplicationIconImage: image];
+        let _ = nil;
     }
 }
 

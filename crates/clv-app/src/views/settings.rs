@@ -72,7 +72,7 @@ impl Render for SettingsView {
                     ))
                     .child(ui::setting_row(
                         "Agent 项目识别",
-                        "根据目录名与 .cursor/.claude 等标记识别 Agent 试验项目",
+                        "根据目录名与 .agents/.claude/.cursor 等标记识别 Agent 试验项目",
                         Switch::new("agent-heuristics")
                             .checked(settings.include_agent_heuristics)
                             .cursor_pointer()

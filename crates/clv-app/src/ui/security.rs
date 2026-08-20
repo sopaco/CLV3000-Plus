@@ -503,15 +503,7 @@ pub fn sidebar_logo() -> Div {
         .flex()
         .flex_col()
         .items_center()
-        .gap_2()
         .child(brand_logo(52.))
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::BOLD)
-                .text_color(colors::accent_cyan())
-                .child("CLV"),
-        )
 }
 
 pub fn page_banner(title: impl Into<SharedString>, subtitle: impl Into<SharedString>) -> Div {

@@ -106,7 +106,8 @@ impl Scanner {
         };
 
         if self.settings.include_agent_heuristics {
-            report.agent_projects = crate::agent::detect_agent_projects(&report.items);
+            report.agent_projects =
+                crate::agent::detect_agent_projects(&report.items, &self.settings.scan_paths);
             self.tag_agent_items(&mut report);
         }
 

@@ -117,26 +117,34 @@ mod macos {
             };
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("plist") {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+
+                let (plist_path, enabled) = if file_name.ends_with(".plist.disabled") {
+                    let stem = file_name.trim_end_matches(".disabled");
+                    let original = path.parent().unwrap().join(stem);
+                    (original, false)
+                } else if path.extension().and_then(|e| e.to_str()) == Some("plist") {
+                    (path.clone(), true)
+                } else {
                     continue;
-                }
-                let name = path
+                };
+
+                let name = plist_path
                     .file_stem()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| "Unknown".into());
-                let disabled = path.with_extension("plist.disabled").exists();
-                let display = path.display().to_string();
+                let display = plist_path.display().to_string();
                 items.push(StartupItem {
-                    id: format!("launchagent:{}", path.display()),
+                    id: format!("launchagent:{}", plist_path.display()),
                     name: name.clone(),
-                    enabled: !disabled,
+                    enabled,
                     impact: guess_impact(&name),
                     kind: if user {
                         StartupKind::LaunchAgent
                     } else {
                         StartupKind::LaunchDaemon
                     },
-                    path: Some(path),
+                    path: Some(plist_path),
                     description: format!("LaunchAgent: {display}"),
                 });
             }
@@ -174,7 +182,7 @@ mod macos {
     pub fn set_startup_enabled(id: &str, enabled: bool) -> anyhow::Result<()> {
         if let Some(path) = id.strip_prefix("launchagent:") {
             let path = PathBuf::from(path);
-            let disabled = path.with_extension("plist.disabled");
+            let disabled = PathBuf::from(format!("{}.disabled", path.display()));
             if enabled {
                 if disabled.exists() {
                     fs::rename(&disabled, &path)?;
@@ -185,8 +193,23 @@ mod macos {
             return Ok(());
         }
 
-        if id.starts_with("loginitem:") {
-            anyhow::bail!("登录项请在系统设置中管理（暂不支持自动禁用）");
+        if let Some(name) = id.strip_prefix("loginitem:") {
+            if enabled {
+                anyhow::bail!("登录项请在系统设置中重新添加");
+            }
+            let script = format!(
+                "tell application \"System Events\" to delete login item \"{name}\""
+            );
+            let output = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(&script)
+                .output()?;
+            if output.status.success() {
+                return Ok(());
+            }
+            anyhow::bail!(
+                "无法禁用登录项「{name}」，请在系统设置 → 通用 → 登录项中手动管理"
+            );
         }
 
         anyhow::bail!("unknown startup item id")

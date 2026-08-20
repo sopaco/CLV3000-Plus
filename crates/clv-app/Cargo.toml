@@ -8,6 +8,9 @@ license.workspace = true
 name = "clv3000-plus"
 path = "src/main.rs"
 
+[lints.rust]
+unexpected_cfgs = "allow"
+
 [dependencies]
 clv-core = { path = "../clv-core" }
 clv-platform = { path = "../clv-platform" }
@@ -27,7 +30,6 @@ gpui-component.workspace = true
 gpui-component-assets.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.26"
 objc = "0.2"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]

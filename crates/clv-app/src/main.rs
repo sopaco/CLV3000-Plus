@@ -17,13 +17,12 @@ fn main() {
         .with_env_filter(EnvFilter::from_default_env().add_directive("clv_app=info".parse().unwrap()))
         .init();
 
-    platform::apply_app_icon();
-
     Application::new()
         .with_assets(assets::Assets)
         .run(|cx| {
             gpui_component::init(cx);
             apply_clv_theme(cx);
+            platform::apply_app_icon();
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::centered(size(px(1280.), px(720.)), cx)),
                 ..WindowOptions::default()

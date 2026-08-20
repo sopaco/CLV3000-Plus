@@ -441,6 +441,7 @@ pub fn agent_name_patterns() -> &'static [&'static str] {
 
 pub fn agent_marker_files() -> &'static [&'static str] {
     &[
+        ".agents",
         ".cursor",
         ".claude",
         ".aider",

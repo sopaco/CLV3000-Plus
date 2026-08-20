@@ -885,7 +885,6 @@ dependencies = [
  "chrono",
  "clv-core",
  "clv-platform",
- "cocoa 0.26.0",
  "directories",
  "embed-resource",
  "gpui",

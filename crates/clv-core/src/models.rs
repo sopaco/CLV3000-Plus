@@ -74,6 +74,53 @@ impl RiskLevel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanupBucket {
+    SystemRuntime,
+    AiGenerated,
+    AppCache,
+}
+
+impl CleanupBucket {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::SystemRuntime => "系统运行时缓存",
+            Self::AiGenerated => "AI 生成物缓存",
+            Self::AppCache => "应用缓存",
+        }
+    }
+}
+
+pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
+    if item.stack == TechStack::Agent {
+        return CleanupBucket::AiGenerated;
+    }
+
+    let path = item.path.to_string_lossy().to_lowercase();
+    for marker in [
+        ".claude",
+        ".agents",
+        ".cursor",
+        ".aider",
+        ".copilot",
+        ".windsurf",
+    ] {
+        if path.contains(marker) {
+            return CleanupBucket::AiGenerated;
+        }
+    }
+
+    if item.category == "全局缓存" || item.stack == TechStack::System {
+        return CleanupBucket::SystemRuntime;
+    }
+
+    match item.category.as_str() {
+        "编译缓存" | "字节码缓存" | "中间产物" | "Xcode 缓存" | "构建目录" | "测试缓存"
+        | "工具缓存" => CleanupBucket::SystemRuntime,
+        _ => CleanupBucket::AppCache,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanItem {
     pub id: String,

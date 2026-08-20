@@ -62,8 +62,8 @@ impl Render for AgentView {
                     .when(projects.is_empty(), |this| {
                         this.child(ui::empty_state(
                             ui::EMPTY_AGENT,
-                            "暂无 Agent 项目数据",
-                            "先运行一次「立即体检」",
+                            "暂无 Agent 项目",
+                            "点击上方「扫描 Agent 项目」，将识别含 .agents / .claude 等标记的目录",
                         ))
                     })
                     .children(projects.iter().map(|project| {

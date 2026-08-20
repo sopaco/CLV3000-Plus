@@ -34,11 +34,11 @@ mod tests {
     }
 
     #[test]
-    fn agent_name_detection() {
+    fn agent_marker_directory_detection() {
         let temp = tempfile::tempdir().unwrap();
-        let agent_dir = temp.path().join("claude-todo-app");
-        std::fs::create_dir_all(&agent_dir).unwrap();
-        let (is_agent, _) = crate::scanner::is_agent_project_path(&agent_dir);
+        let project = temp.path().join("my-project");
+        std::fs::create_dir_all(project.join(".agents")).unwrap();
+        let (is_agent, _) = crate::scanner::is_agent_project_path(&project);
         assert!(is_agent);
     }
 }

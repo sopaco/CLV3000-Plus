@@ -1,7 +1,9 @@
 use crate::app::state::{AppStore, CleanupFilter};
 use crate::prelude::*;
-use crate::theme::colors;
-use clv_core::{format_bytes, TechStack};
+use crate::theme::{colors, corner_md};
+use clv_core::format_bytes;
+use gpui_component::Icon;
+use std::path::{Path, PathBuf};
 
 pub struct CleanupView {
     store: Entity<AppStore>,
@@ -30,7 +32,6 @@ impl Render for CleanupView {
             .flex()
             .min_h_0()
             .child(
-                // Filter sidebar
                 div()
                     .w(px(200.))
                     .h_full()
@@ -57,32 +58,26 @@ impl Render for CleanupView {
                         cx,
                     ))
                     .child(filter_btn(
-                        "filter-agent",
-                        "Agent 相关",
-                        CleanupFilter::Agent,
+                        "filter-system",
+                        "系统运行时缓存",
+                        CleanupFilter::SystemRuntime,
                         &store,
                         cx,
                     ))
-                    .child(
-                        div()
-                            .mt_2()
-                            .px_2()
-                            .text_sm()
-                            .text_color(colors::text_muted())
-                            .child("按技术栈"),
-                    )
-                    .children(TechStack::all().iter().filter_map(|stack| {
-                        if matches!(stack, TechStack::Other | TechStack::System) {
-                            return None;
-                        }
-                        Some(filter_btn(
-                            eid(format!("stack-{}", stack.label())),
-                            stack.label(),
-                            CleanupFilter::Stack(*stack),
-                            &store,
-                            cx,
-                        ))
-                    })),
+                    .child(filter_btn(
+                        "filter-ai",
+                        "AI 生成物缓存",
+                        CleanupFilter::AiGenerated,
+                        &store,
+                        cx,
+                    ))
+                    .child(filter_btn(
+                        "filter-app",
+                        "应用缓存",
+                        CleanupFilter::AppCache,
+                        &store,
+                        cx,
+                    )),
             )
             .child(ui::panel_divider().h_full().w(px(1.)))
             .child(
@@ -141,7 +136,7 @@ impl Render for CleanupView {
                                     .child(
                                         ui::action_button(
                                             "rescan",
-                                            "重新扫描",
+                                            if has_report { "重新扫描" } else { "开始扫描" },
                                             Some(ui::ACTION_SCAN),
                                             false,
                                             cx,
@@ -162,7 +157,7 @@ impl Render for CleanupView {
                                             true,
                                             cx,
                                         )
-                                        .disabled(selected_count == 0 || cleaning)
+                                        .disabled(selected_count == 0 || cleaning || !has_report)
                                         .on_click({
                                             let store = store.clone();
                                             move |_, window, cx| {
@@ -201,10 +196,13 @@ impl Render for CleanupView {
                             .flex_col()
                             .gap_3()
                             .when(!has_report && !scanning, |this| {
+                                this.child(cleanup_scan_prompt(&store, cx))
+                            })
+                            .when(has_report && items.is_empty() && !scanning, |this| {
                                 this.child(ui::empty_state(
                                     ui::EMPTY_SCAN,
-                                    "尚未扫描",
-                                    "点击「重新扫描」或首页「立即体检」",
+                                    "当前筛选下暂无项目",
+                                    "尝试切换左侧筛选条件，或重新扫描",
                                 ))
                             })
                             .when(scanning, |this| {
@@ -215,9 +213,15 @@ impl Render for CleanupView {
                                 this.child(ui::empty_state_loading(
                                     "正在扫描",
                                     if let Some(p) = path {
-                                        format!("{phase} · 已发现 {found} 项（{bytes}）\n{p}", bytes = format_bytes(bytes))
+                                        format!(
+                                            "{phase} · 已发现 {found} 项（{bytes}）\n{p}",
+                                            bytes = format_bytes(bytes)
+                                        )
                                     } else {
-                                        format!("{phase} · 已发现 {found} 项（{bytes}）", bytes = format_bytes(bytes))
+                                        format!(
+                                            "{phase} · 已发现 {found} 项（{bytes}）",
+                                            bytes = format_bytes(bytes)
+                                        )
                                     },
                                 ))
                             })
@@ -235,9 +239,11 @@ impl Render for CleanupView {
                                 let store_toggle = store.clone();
                                 let store_expand = store.clone();
                                 let item_path = item.path.clone();
+                                let item_name = item.name.clone();
+                                let item_description = item.description.clone();
                                 let cb_id = eid(format!("cb-{id}"));
                                 let exp_id = eid(format!("exp-{id}"));
-                                let open_id = eid(format!("open-{id}"));
+                                let path_id = eid(format!("path-{id}"));
 
                                 ui::card()
                                     .p_4()
@@ -278,15 +284,18 @@ impl Render for CleanupView {
                                                     .gap_1()
                                                     .child(
                                                         h_flex()
+                                                            .flex_1()
+                                                            .min_w_0()
                                                             .justify_between()
+                                                            .gap_3()
+                                                            .child(clickable_folder_path(
+                                                                path_id,
+                                                                &item_path,
+                                                                path_display,
+                                                            ))
                                                             .child(
                                                                 div()
-                                                                    .font_weight(FontWeight::MEDIUM)
-                                                                    .text_color(colors::text_primary())
-                                                                    .child(path_display),
-                                                            )
-                                                            .child(
-                                                                div()
+                                                                    .flex_shrink_0()
                                                                     .text_base()
                                                                     .text_color(colors::accent_blue())
                                                                     .font_weight(FontWeight::SEMIBOLD)
@@ -317,30 +326,47 @@ impl Render for CleanupView {
                                                         .ghost()
                                                         .label(if expanded { "收起" } else { "详情" }),
                                                 )
-                                                    .on_click({
-                                                        let id = id.clone();
-                                                        let store = store_expand.clone();
-                                                        move |_, _, cx| {
-                                                            store.update(cx, |s, cx| {
-                                                                if s.expanded_item.as_deref() == Some(&id) {
-                                                                    s.expanded_item = None;
-                                                                } else {
-                                                                    s.expanded_item = Some(id.clone());
-                                                                }
-                                                                cx.notify();
-                                                            });
-                                                        }
-                                                    }),
+                                                .on_click({
+                                                    let id = id.clone();
+                                                    let store = store_expand.clone();
+                                                    move |_, _, cx| {
+                                                        store.update(cx, |s, cx| {
+                                                            if s.expanded_item.as_deref() == Some(&id) {
+                                                                s.expanded_item = None;
+                                                            } else {
+                                                                s.expanded_item = Some(id.clone());
+                                                            }
+                                                            cx.notify();
+                                                        });
+                                                    }
+                                                }),
                                             ),
                                     )
                                     .when(expanded, |this| {
                                         this.child(
                                             div()
-                                                .text_base()
-                                                .text_color(colors::text_secondary())
-                                                .child(item.description.clone()),
+                                                .ml(px(36.))
+                                                .pt_3()
+                                                .mt_1()
+                                                .border_t_1()
+                                                .border_color(colors::panel_divider())
+                                                .flex()
+                                                .flex_col()
+                                                .gap_2()
+                                                .child(
+                                                    div()
+                                                        .text_base()
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .text_color(colors::text_primary())
+                                                        .child(item_name),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_base()
+                                                        .text_color(colors::text_secondary())
+                                                        .child(item_description),
+                                                ),
                                         )
-                                        .child(h_flex().gap_2().child(ui::open_path_button(open_id, &item_path)))
                                     })
                             })),
                     ))
@@ -360,6 +386,108 @@ impl Render for CleanupView {
                             ),
                     ),
             )
+    }
+}
+
+fn cleanup_scan_prompt(store: &Entity<AppStore>, cx: &App) -> Div {
+    let store = store.clone();
+    div()
+        .flex_1()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_5()
+        .py_12()
+        .child(
+            div()
+                .size(px(72.))
+                .rounded(corner_md())
+                .bg(colors::accent_blue_bg())
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    gpui_component::Icon::new(ui::EMPTY_SCAN)
+                        .with_size(px(36.))
+                        .text_color(colors::accent_blue()),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_xl()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(colors::text_primary())
+                        .child("还没有扫描结果"),
+                )
+                .child(
+                    div()
+                        .text_base()
+                        .text_color(colors::text_secondary())
+                        .child("扫描后将列出可安全清理的缓存与构建产物"),
+                ),
+        )
+        .child(
+            ui::action_button("cleanup-first-scan", "立即扫描", Some(ui::ACTION_SCAN), true, cx)
+                .on_click(move |_, _, cx| {
+                    store.update(cx, |s, cx| s.start_scan(cx));
+                }),
+        )
+}
+
+fn clickable_folder_path(
+    id: impl Into<SharedString>,
+    path: &Path,
+    label: impl Into<SharedString>,
+) -> impl IntoElement {
+    let open_path = folder_open_target(path);
+    let label: SharedString = label.into();
+    let id: SharedString = id.into();
+
+    h_flex()
+        .id(id)
+        .gap_2()
+        .items_center()
+        .flex_1()
+        .min_w_0()
+        .cursor_pointer()
+        .on_click(move |_, _, _| {
+            open::that(&open_path).ok();
+        })
+        .hover(|s| s.bg(colors::accent_blue_bg().opacity(0.45)))
+        .rounded(corner_md())
+        .px_2()
+        .py_1()
+        .child(
+            Icon::new(ui::ACTION_OPEN_FOLDER)
+                .with_size(px(18.))
+                .text_color(colors::accent_blue()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_base()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(colors::text_primary())
+                .overflow_hidden()
+                .child(label),
+        )
+}
+
+fn folder_open_target(path: &Path) -> PathBuf {
+    if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| path.to_path_buf())
     }
 }
 

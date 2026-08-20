@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use clv_core::{
-    cleanup::CleanupExecutor, detect_agent_projects, save_settings, AppSettings, RiskLevel,
-    ScanProgress, ScanReport, Scanner, TechStack,
+    cleanup::CleanupExecutor, detect_agent_projects, item_cleanup_bucket, save_settings,
+    AppSettings, CleanupBucket, RiskLevel, ScanProgress, ScanReport, Scanner,
 };
 use sysinfo::Disks;
 use std::path::Path;
@@ -45,9 +45,10 @@ impl AppPage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupFilter {
     All,
-    Agent,
-    Stack(TechStack),
     SafeOnly,
+    SystemRuntime,
+    AiGenerated,
+    AppCache,
 }
 
 pub struct AppStore {
@@ -62,7 +63,6 @@ pub struct AppStore {
     pub scan_current_path: Option<String>,
     pub status_message: Option<String>,
     pub cleanup_filter: CleanupFilter,
-    pub stack_filter: Option<TechStack>,
     pub search_query: String,
     pub expanded_item: Option<String>,
     pub last_cleanup_freed: Option<u64>,
@@ -88,7 +88,6 @@ impl AppStore {
             scan_current_path: None,
             status_message: None,
             cleanup_filter: CleanupFilter::All,
-            stack_filter: None,
             search_query: String::new(),
             expanded_item: None,
             last_cleanup_freed: None,
@@ -127,16 +126,16 @@ impl AppStore {
                 }
                 match self.cleanup_filter {
                     CleanupFilter::All => true,
-                    CleanupFilter::Agent => item.stack == TechStack::Agent,
-                    CleanupFilter::Stack(stack) => item.stack == stack,
                     CleanupFilter::SafeOnly => item.risk == RiskLevel::Safe,
-                }
-            })
-            .filter(|item| {
-                if let Some(stack) = self.stack_filter {
-                    item.stack == stack
-                } else {
-                    true
+                    CleanupFilter::SystemRuntime => {
+                        item_cleanup_bucket(item) == CleanupBucket::SystemRuntime
+                    }
+                    CleanupFilter::AiGenerated => {
+                        item_cleanup_bucket(item) == CleanupBucket::AiGenerated
+                    }
+                    CleanupFilter::AppCache => {
+                        item_cleanup_bucket(item) == CleanupBucket::AppCache
+                    }
                 }
             })
             .filter(|item| {
@@ -315,8 +314,10 @@ impl AppStore {
                                 current
                                     .items
                                     .retain(|i| !removed.contains(&i.path));
-                                current.agent_projects =
-                                    detect_agent_projects(&current.items);
+                                current.agent_projects = detect_agent_projects(
+                                    &current.items,
+                                    &store.settings.scan_paths,
+                                );
                             }
 
                             let (t, u) = disk_usage();
