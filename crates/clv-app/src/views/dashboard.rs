@@ -104,8 +104,7 @@ impl Render for DashboardView {
                                     let store = store_entity.clone();
                                     move |_, _, cx| {
                                         store.update(cx, |s, cx| {
-                                            s.page = AppPage::Cleanup;
-                                            cx.notify();
+                                            s.set_page(AppPage::Cleanup, cx);
                                         });
                                     }
                                 },
@@ -120,8 +119,7 @@ impl Render for DashboardView {
                                     let store = store_entity.clone();
                                     move |_, _, cx| {
                                         store.update(cx, |s, cx| {
-                                            s.page = AppPage::Agent;
-                                            cx.notify();
+                                            s.set_page(AppPage::Agent, cx);
                                         });
                                     }
                                 },
@@ -136,8 +134,7 @@ impl Render for DashboardView {
                                     let store = store_entity.clone();
                                     move |_, _, cx| {
                                         store.update(cx, |s, cx| {
-                                            s.page = AppPage::Startup;
-                                            cx.notify();
+                                            s.set_page(AppPage::Startup, cx);
                                         });
                                     }
                                 },

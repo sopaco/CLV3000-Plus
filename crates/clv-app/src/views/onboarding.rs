@@ -163,9 +163,8 @@ impl Render for OnboardingView {
                                         let expert = expert;
                                         move |_, _, cx| {
                                             store.update(cx, |s, cx| {
-                                                s.finish_onboarding(expert, vec![]);
+                                                s.finish_onboarding(expert, vec![], cx);
                                                 s.start_scan(cx);
-                                                cx.notify();
                                             });
                                         }
                                     })

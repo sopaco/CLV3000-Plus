@@ -164,8 +164,7 @@ impl Render for AgentView {
                                                             }
                                                         }
                                                     }
-                                                    s.page = AppPage::Cleanup;
-                                                    cx.notify();
+                                                    s.set_page(AppPage::Cleanup, cx);
                                                 });
                                             }
                                         }),

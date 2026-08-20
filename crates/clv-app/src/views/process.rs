@@ -2,26 +2,26 @@ use crate::app::state::AppStore;
 use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::format_bytes;
-use clv_platform::{kill_process, list_processes, ProcessSort};
+use clv_platform::{kill_process, ProcessSort};
+
 pub struct ProcessView {
     store: Entity<AppStore>,
-    sort: ProcessSort,
 }
 
 impl ProcessView {
     pub fn new(store: Entity<AppStore>, _cx: &mut Context<Self>) -> Self {
-        Self {
-            store,
-            sort: ProcessSort::Memory,
-        }
+        Self { store }
     }
 }
 
 impl Render for ProcessView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let _ = self.store.read(cx).process_refresh_tick;
-        let processes = list_processes(self.sort);
-        let top = processes.iter().take(50).cloned().collect::<Vec<_>>();
+        let (sort, top) = {
+            let store = self.store.read(cx);
+            let sort = store.process_sort;
+            let top = store.processes.iter().take(50).cloned().collect::<Vec<_>>();
+            (sort, top)
+        };
 
         div()
             .size_full()
@@ -47,32 +47,37 @@ impl Render for ProcessView {
                                         "sort-mem",
                                         "按内存",
                                         ProcessSort::Memory,
-                                        &mut self.sort,
+                                        sort,
+                                        self.store.clone(),
                                         cx,
                                     ))
                                     .child(sort_button(
                                         "sort-cpu",
                                         "按 CPU",
                                         ProcessSort::Cpu,
-                                        &mut self.sort,
+                                        sort,
+                                        self.store.clone(),
                                         cx,
                                     ))
                                     .child(sort_button(
                                         "sort-name",
                                         "按名称",
                                         ProcessSort::Name,
-                                        &mut self.sort,
+                                        sort,
+                                        self.store.clone(),
                                         cx,
                                     ))
                                     .child(
                                         ui::action_button("proc-refresh", "刷新", None, false, cx)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.store.update(cx, |s, cx| {
-                                                    s.refresh_processes();
+                                            .on_click({
+                                                let store = self.store.clone();
+                                                cx.listener(move |_, _, _, cx| {
+                                                    store.update(cx, |s, cx| {
+                                                        s.refresh_processes(cx);
+                                                    });
                                                     cx.notify();
-                                                });
-                                                cx.notify();
-                                            })),
+                                                })
+                                            }),
                                     ),
                             ),
                     ),
@@ -106,6 +111,7 @@ impl Render for ProcessView {
                         let cpu = format!("{:.1}%", proc.cpu_percent);
                         let cat = proc.category.label();
                         let kill_id = eid(format!("kill-{pid}"));
+                        let store = self.store.clone();
 
                         ui::card()
                             .px_4()
@@ -132,15 +138,22 @@ impl Render for ProcessView {
                                         )
                                             .on_click(move |_, window, cx| {
                                                 let pid = pid;
+                                                let store = store.clone();
                                                 window.open_dialog(cx, move |dialog, _window, _cx| {
                                                     dialog
                                                         .title("结束进程")
                                                         .child(format!("确定结束 PID {pid}？"))
                                                         .confirm()
-                                                        .on_ok(move |_, window, cx| {
-                                                            kill_process(pid).ok();
-                                                            window.close_dialog(cx);
-                                                            true
+                                                        .on_ok({
+                                                            let store = store.clone();
+                                                            move |_, window, cx| {
+                                                                kill_process(pid).ok();
+                                                                store.update(cx, |s, cx| {
+                                                                    s.refresh_processes(cx);
+                                                                });
+                                                                window.close_dialog(cx);
+                                                                true
+                                                            }
                                                         })
                                                 });
                                             }),
@@ -172,14 +185,17 @@ fn sort_button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     sort: ProcessSort,
-    current: &mut ProcessSort,
+    current: ProcessSort,
+    store: Entity<AppStore>,
     cx: &mut Context<ProcessView>,
 ) -> Button {
-    let active = *current == sort;
+    let active = current == sort;
     let id: SharedString = id.into();
     let label: SharedString = label.into();
-    ui::ghost_pill(id, label, active, cx).on_click(cx.listener(move |this, _, _, cx| {
-        this.sort = sort;
+    ui::ghost_pill(id, label, active, cx).on_click(cx.listener(move |_, _, _, cx| {
+        store.update(cx, |s, cx| {
+            s.set_process_sort(sort, cx);
+        });
         cx.notify();
     }))
 }

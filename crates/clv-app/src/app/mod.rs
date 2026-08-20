@@ -66,8 +66,7 @@ impl ClvApp {
         let store = self.store.clone();
         ui::nav_icon(id, icon, label, active, window, cx, move |_, _, cx| {
             store.update(cx, |s, cx| {
-                s.page = page;
-                cx.notify();
+                s.set_page(page, cx);
             });
         })
     }

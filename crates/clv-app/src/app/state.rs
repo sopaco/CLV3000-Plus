@@ -3,6 +3,7 @@ use clv_core::{
     cleanup::CleanupExecutor, detect_agent_projects, item_cleanup_bucket, save_settings,
     AppSettings, CleanupBucket, RiskLevel, ScanProgress, ScanReport, Scanner,
 };
+use clv_platform::{list_processes, ProcessInfo, ProcessSort};
 use sysinfo::Disks;
 use std::path::Path;
 use std::sync::mpsc;
@@ -68,14 +69,15 @@ pub struct AppStore {
     pub last_cleanup_freed: Option<u64>,
     pub disk_total: u64,
     pub disk_used: u64,
-    pub process_refresh_tick: u64,
+    pub processes: Vec<ProcessInfo>,
+    pub process_sort: ProcessSort,
+    process_poll_generation: u64,
     pub startup_count: usize,
 }
 
 impl AppStore {
     pub fn new(settings: AppSettings, _cx: &mut Context<Self>) -> Self {
         let (disk_total, disk_used) = disk_usage();
-        let startup_count = clv_platform::list_startup_items().len();
         Self {
             settings,
             page: AppPage::Dashboard,
@@ -93,9 +95,111 @@ impl AppStore {
             last_cleanup_freed: None,
             disk_total,
             disk_used,
-            process_refresh_tick: 0,
-            startup_count,
+            processes: Vec::new(),
+            process_sort: ProcessSort::Memory,
+            process_poll_generation: 0,
+            startup_count: 0,
         }
+    }
+
+    pub fn set_page(&mut self, page: AppPage, cx: &mut Context<Self>) {
+        if self.page == page {
+            return;
+        }
+        let prev = self.page;
+        if prev == AppPage::Process {
+            self.process_poll_generation = self.process_poll_generation.wrapping_add(1);
+        }
+        self.page = page;
+        if page == AppPage::Process {
+            self.start_process_polling(cx);
+        }
+        cx.notify();
+    }
+
+    pub fn set_process_sort(&mut self, sort: ProcessSort, cx: &mut Context<Self>) {
+        if self.process_sort == sort {
+            return;
+        }
+        self.process_sort = sort;
+        if self.page == AppPage::Process {
+            self.spawn_process_fetch(cx);
+        }
+        cx.notify();
+    }
+
+    fn start_process_polling(&mut self, cx: &mut Context<Self>) {
+        self.process_poll_generation = self.process_poll_generation.wrapping_add(1);
+        self.spawn_process_fetch(cx);
+
+        let poll_gen = self.process_poll_generation;
+        cx.spawn(async move |weak, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_secs(1))
+                    .await;
+
+                let should_continue = weak
+                    .read_with(cx, |store, _| {
+                        store.page == AppPage::Process && store.process_poll_generation == poll_gen
+                    })
+                    .unwrap_or(false);
+                if !should_continue {
+                    break;
+                }
+
+                let sort = weak
+                    .read_with(cx, |store, _| store.process_sort)
+                    .unwrap_or(ProcessSort::Memory);
+                let processes = list_processes(sort);
+
+                let still_valid = weak
+                    .update(cx, |store, cx| {
+                        if store.page != AppPage::Process || store.process_poll_generation != poll_gen {
+                            false
+                        } else {
+                            store.processes = processes;
+                            cx.notify();
+                            true
+                        }
+                    })
+                    .unwrap_or(false);
+                if !still_valid {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn spawn_process_fetch(&mut self, cx: &mut Context<Self>) {
+        let poll_gen = self.process_poll_generation;
+        cx.spawn(async move |weak, cx| {
+            let sort = weak
+                .read_with(cx, |store, _| {
+                    if store.process_poll_generation != poll_gen {
+                        None
+                    } else {
+                        Some(store.process_sort)
+                    }
+                })
+                .ok()
+                .flatten();
+            let Some(sort) = sort else {
+                return;
+            };
+
+            let processes = list_processes(sort);
+            weak.update(cx, |store, cx| {
+                if store.process_poll_generation != poll_gen {
+                    return;
+                }
+                store.processes = processes;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn disk_free(&self) -> u64 {
@@ -350,18 +454,20 @@ impl AppStore {
         true
     }
 
-    pub fn refresh_processes(&mut self) {
-        self.process_refresh_tick += 1;
+    pub fn refresh_processes(&mut self, cx: &mut Context<Self>) {
+        if self.page == AppPage::Process {
+            self.spawn_process_fetch(cx);
+        }
     }
 
-    pub fn finish_onboarding(&mut self, expert: bool, paths: Vec<std::path::PathBuf>) {
+    pub fn finish_onboarding(&mut self, expert: bool, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
         self.settings.expert_mode = expert;
         if !paths.is_empty() {
             self.settings.scan_paths = paths;
         }
         self.settings.onboarding_done = true;
         let _ = save_settings(&self.settings);
-        self.page = AppPage::Dashboard;
+        self.set_page(AppPage::Dashboard, cx);
     }
 }
 

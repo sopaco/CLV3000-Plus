@@ -9,20 +9,28 @@ pub struct StartupView {
 }
 
 impl StartupView {
-    pub fn new(store: Entity<AppStore>, _cx: &mut Context<Self>) -> Self {
-        Self {
-            store,
-            items: list_startup_items(),
-        }
+    pub fn new(store: Entity<AppStore>, cx: &mut Context<Self>) -> Self {
+        let items = list_startup_items();
+        let count = items.len();
+        store.update(cx, |store, cx| {
+            store.startup_count = count;
+            cx.notify();
+        });
+        Self { store, items }
     }
 
-    fn refresh(&mut self) {
+    fn refresh(&mut self, cx: &mut Context<Self>) {
         self.items = list_startup_items();
+        let count = self.items.len();
+        self.store.update(cx, |store, cx| {
+            store.startup_count = count;
+            cx.notify();
+        });
     }
 
-    fn toggle_item(&mut self, id: &str, enabled: bool) {
+    fn toggle_item(&mut self, id: &str, enabled: bool, cx: &mut Context<Self>) {
         match set_startup_enabled(id, enabled) {
-            Ok(()) => self.refresh(),
+            Ok(()) => self.refresh(cx),
             Err(e) => tracing::warn!("startup toggle: {e}"),
         }
     }
@@ -63,7 +71,7 @@ impl Render for StartupView {
                             .child(
                                 ui::action_button("startup-refresh", "刷新", None, false, cx)
                                     .on_click(cx.listener(|this, _, _, cx| {
-                                        this.refresh();
+                                        this.refresh(cx);
                                         cx.notify();
                                     })),
                             ),
@@ -142,7 +150,7 @@ impl Render for StartupView {
                                             .on_click(cx.listener({
                                                 let id = id.clone();
                                                 move |this, checked, _, cx| {
-                                                    this.toggle_item(&id, *checked);
+                                                    this.toggle_item(&id, *checked, cx);
                                                     cx.notify();
                                                 }
                                             })),
