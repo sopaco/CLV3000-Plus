@@ -137,7 +137,12 @@ pub fn action_button(
     let label: SharedString = label.into();
     let mut btn = std_button(Button::new(id).label(label));
     if let Some(name) = icon {
-        btn = btn.icon(Icon::new(name).with_size(px(20.)));
+        let icon_color = if primary {
+            colors::text_primary()
+        } else {
+            colors::accent_blue()
+        };
+        btn = btn.icon(Icon::new(name).with_size(px(20.)).text_color(icon_color));
     }
     if primary {
         lg_button(btn.primary())
@@ -169,7 +174,7 @@ pub fn ghost_pill(
                 .color(colors::accent_blue_bg())
                 .foreground(colors::accent_blue())
                 .border(colors::accent_blue())
-                .hover(colors::accent_blue_bg().lighten(0.08))
+                .hover(colors::accent_blue_bg())
                 .active(colors::accent_blue_bg()),
         )
     } else {

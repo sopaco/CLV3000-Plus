@@ -42,7 +42,7 @@ impl Render for AppShell {
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(colors::accent_cyan())
+                                .text_color(colors::accent_blue())
                                 .child("CLV3000 Plus"),
                         )
                         .when(page != AppPage::Onboarding, |this| {

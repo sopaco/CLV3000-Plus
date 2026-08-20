@@ -28,6 +28,19 @@ pub fn font_base() -> Pixels {
     px(16.)
 }
 
+fn hex(v: u32) -> Hsla {
+    rgb(v).into()
+}
+
+/// Primary accent — icons, progress, selected states.
+const ACCENT: u32 = 0x3AA0E0;
+/// Accent surface — hover / active backgrounds.
+const ACCENT_BG: u32 = 0x113247;
+/// Pressed primary controls (slightly darker than accent).
+const ACCENT_ACTIVE: u32 = 0x2D8BC4;
+/// Lifted accent background for nested list/secondary hover.
+const ACCENT_BG_HOVER: u32 = 0x1A4360;
+
 /// Design token colors.
 pub mod colors {
     use gpui::Hsla;
@@ -51,13 +64,14 @@ pub mod colors {
         super::hex(0x152238)
     }
     pub fn accent_blue() -> Hsla {
-        super::hex(0x38bdf8)
+        super::hex(super::ACCENT)
     }
+    /// Alias — progress rings, spinners, and legacy call sites use the same accent.
     pub fn accent_cyan() -> Hsla {
-        super::hex(0x22d3ee)
+        accent_blue()
     }
     pub fn accent_blue_bg() -> Hsla {
-        super::hex(0x0c4a6e)
+        super::hex(super::ACCENT_BG)
     }
     pub fn safe_green() -> Hsla {
         super::hex(0x34d399)
@@ -92,12 +106,13 @@ pub mod colors {
     }
 }
 
-fn hex(v: u32) -> Hsla {
-    rgb(v).into()
-}
-
 fn build_palette() -> ThemeColor {
     let mut t = *ThemeColor::dark();
+    let accent = hex(ACCENT);
+    let accent_bg = hex(ACCENT_BG);
+    let accent_active = hex(ACCENT_ACTIVE);
+    let accent_bg_hover = hex(ACCENT_BG_HOVER);
+
     t.background = hex(0x0b1220);
     t.sidebar = hex(0x0a1628);
     t.foreground = hex(0xf0f9ff);
@@ -107,16 +122,20 @@ fn build_palette() -> ThemeColor {
     t.border = hex(0x1e3a5f);
     t.input = hex(0x1e3a5f);
     t.muted = hex(0x132337);
-    t.secondary = hex(0x0c4a6e);
+    t.secondary = accent_bg;
     t.secondary_foreground = hex(0x94a3b8);
-    t.secondary_hover = hex(0x155e75);
-    t.secondary_active = hex(0x0c4a6e);
-    t.primary = hex(0x0ea5e9);
+    t.secondary_hover = accent_bg_hover;
+    t.secondary_active = accent_bg;
+    t.primary = accent;
     t.primary_foreground = hex(0xffffff);
-    t.primary_hover = hex(0x38bdf8);
-    t.primary_active = hex(0x0284c7);
-    t.accent = hex(0x0c4a6e);
-    t.accent_foreground = hex(0x22d3ee);
+    t.primary_hover = accent_active;
+    t.primary_active = accent_active;
+    t.accent = accent_bg;
+    t.accent_foreground = accent;
+    t.info = accent;
+    t.info_foreground = hex(0xffffff);
+    t.info_hover = accent_active;
+    t.info_active = accent_active;
     t.success = hex(0x34d399);
     t.success_foreground = hex(0xffffff);
     t.success_hover = hex(0x4ade80);
@@ -125,23 +144,45 @@ fn build_palette() -> ThemeColor {
     t.danger_hover = hex(0xf87171);
     t.danger_active = hex(0x2a1416);
     t.sidebar_foreground = hex(0x94a3b8);
-    t.sidebar_accent = hex(0x0c4a6e);
-    t.sidebar_accent_foreground = hex(0x22d3ee);
-    t.sidebar_primary = hex(0x0ea5e9);
+    t.sidebar_accent = accent_bg;
+    t.sidebar_accent_foreground = accent;
+    t.sidebar_primary = accent;
     t.sidebar_primary_foreground = hex(0xffffff);
     t.sidebar_border = hex(0x152238);
     t.list = hex(0x132337);
-    t.list_hover = hex(0x0c4a6e);
-    t.list_active = hex(0x155e75);
+    t.list_hover = accent_bg;
+    t.list_active = accent_bg_hover;
+    t.list_active_border = accent;
     t.table = hex(0x132337);
     t.table_head = hex(0x0b1220);
+    t.table_hover = accent_bg;
+    t.table_active = accent_bg_hover;
+    t.table_active_border = accent;
     t.scrollbar = hex(0x0a1628);
     t.scrollbar_thumb = hex(0x1e3a5f);
-    t.scrollbar_thumb_hover = hex(0x38bdf8);
-    t.ring = hex(0x22d3ee);
-    t.link = hex(0x38bdf8);
-    t.link_hover = hex(0x7dd3fc);
-    t.progress_bar = hex(0x0ea5e9);
+    t.scrollbar_thumb_hover = accent;
+    t.ring = accent;
+    t.link = accent;
+    t.link_hover = accent;
+    t.link_active = accent;
+    t.progress_bar = accent;
+    t.selection = accent_bg;
+    t.caret = accent;
+    t.drag_border = accent;
+    t.drop_target = accent_bg;
+    t.switch = hex(0x1e3a5f);
+    t.switch_thumb = hex(0xffffff);
+    t.slider_bar = accent;
+    t.slider_thumb = hex(0xffffff);
+    t.chart_1 = accent;
+    t.chart_2 = accent_active;
+    t.chart_3 = accent_bg_hover;
+    t.chart_4 = accent_bg;
+    t.chart_5 = hex(0x1e3a5f);
+    t.blue = accent;
+    t.blue_light = accent;
+    t.cyan = accent;
+    t.cyan_light = accent;
     t.title_bar = hex(0x0c1a2e);
     t.title_bar_border = hex(0x152238);
     t

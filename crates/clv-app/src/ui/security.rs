@@ -15,7 +15,7 @@ pub fn hero_gradient() -> gpui::Background {
     linear_gradient(
         128.,
         linear_color_stop(colors::from_hex(0x1e3a5f), 0.0),
-        linear_color_stop(colors::from_hex(0x0891b2), 0.45),
+        linear_color_stop(colors::accent_blue_bg(), 0.45),
     )
 }
 
@@ -23,15 +23,15 @@ pub fn hero_gradient_alt() -> gpui::Background {
     linear_gradient(
         145.,
         linear_color_stop(colors::from_hex(0x0f172a), 0.0),
-        linear_color_stop(colors::from_hex(0x164e63), 1.0),
+        linear_color_stop(colors::accent_blue_bg(), 1.0),
     )
 }
 
 pub fn cta_gradient() -> gpui::Background {
     linear_gradient(
         100.,
-        linear_color_stop(colors::from_hex(0x67e8f9), 0.0),
-        linear_color_stop(colors::from_hex(0x0ea5e9), 0.55),
+        linear_color_stop(colors::accent_blue_bg(), 0.0),
+        linear_color_stop(colors::accent_blue(), 1.0),
     )
 }
 
@@ -39,7 +39,7 @@ pub fn warm_gradient() -> gpui::Background {
     linear_gradient(
         120.,
         linear_color_stop(colors::from_hex(0x818cf8), 0.0),
-        linear_color_stop(colors::from_hex(0x22d3ee), 1.0),
+        linear_color_stop(colors::accent_blue(), 1.0),
     )
 }
 
@@ -226,7 +226,7 @@ pub fn hero_banner(
         .shadow_lg()
         .child(glow_orb(200., colors::accent_cyan(), -50., -30.))
         .child(glow_orb(140., colors::from_hex(0xa78bfa), 30., 60.))
-        .child(glow_orb_left(100., colors::from_hex(0x38bdf8), -20., -30.))
+        .child(glow_orb_left(100., colors::accent_blue(), -20., -30.))
         .child(
             div()
                 .px_8()
@@ -249,8 +249,8 @@ pub fn hero_banner(
                                         .px(px(12.))
                                         .py(px(4.))
                                         .rounded(corner_sm())
-                                        .bg(colors::from_hex(0xffffff).opacity(0.15))
-                                        .text_color(colors::from_hex(0xe0f2fe))
+                                        .bg(colors::accent_blue_bg())
+                                        .text_color(colors::accent_blue())
                                         .child("实时守护中"),
                                 )
                                 .child(
@@ -263,7 +263,7 @@ pub fn hero_banner(
                                 .child(
                                     div()
                                         .text_base()
-                                        .text_color(colors::from_hex(0xbae6fd))
+                                        .text_color(colors::accent_blue().opacity(0.75))
                                         .child("智能找出 Agent 试验项目与开发缓存，一键释放空间"),
                                 )
                                 .child(
@@ -277,7 +277,7 @@ pub fn hero_banner(
                                         .child(
                                             div()
                                                 .text_sm()
-                                                .text_color(colors::from_hex(0x7dd3fc).opacity(0.9))
+                                                .text_color(colors::accent_blue().opacity(0.85))
                                                 .child("后台扫描，可继续操作其他功能"),
                                         ),
                                 ),
@@ -432,16 +432,16 @@ pub fn nav_icon(
     let hovered = window.use_keyed_state(id, cx, |_, _| false);
     let is_hovered = *hovered.read(cx);
     let icon_color = if active {
-        colors::text_primary()
+        colors::accent_blue()
     } else if is_hovered {
-        colors::accent_cyan()
+        colors::accent_blue()
     } else {
         colors::text_muted()
     };
     let label_color = if active {
-        colors::accent_cyan()
+        colors::accent_blue()
     } else if is_hovered {
-        colors::accent_cyan()
+        colors::accent_blue()
     } else {
         colors::text_muted()
     };
@@ -470,7 +470,11 @@ pub fn nav_icon(
                 .size(px(NAV_ICON_BOX))
                 .flex_shrink_0()
                 .rounded(corner_md())
-                .when(active, |el| el.bg(cta_gradient()).shadow_md())
+                .when(active, |el| {
+                    el.bg(colors::accent_blue_bg())
+                        .border_1()
+                        .border_color(colors::accent_blue().opacity(0.45))
+                })
                 .flex()
                 .items_center()
                 .justify_center()
@@ -520,7 +524,7 @@ pub fn page_banner(title: impl Into<SharedString>, subtitle: impl Into<SharedStr
                 .w(px(4.))
                 .h(px(36.))
                 .rounded(corner())
-                .bg(cta_gradient())
+                .bg(colors::accent_blue())
                 .mt(px(4.)),
         )
         .child(

@@ -31,7 +31,8 @@ source: .
   - Cargo.lock
   - README.md
   - .gitignore
+  - scripts/
+    - bundle-macos.sh
   - AGENTS.md
-  - .codegraph/
-    - codegraph.db
-    - .gitignore
+  - assets/
+    - icons/
