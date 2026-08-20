@@ -6,7 +6,7 @@ pub mod theme;
 pub mod ui;
 mod views;
 
-use app::ClvApp;
+use app::{shell::AppShell, ClvApp};
 use gpui::*;
 use gpui_component::*;
 use theme::apply_clv_theme;
@@ -25,12 +25,14 @@ fn main() {
             platform::apply_app_icon();
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::centered(size(px(1280.), px(720.)), cx)),
+                titlebar: Some(TitleBar::title_bar_options()),
                 ..WindowOptions::default()
             };
             cx.spawn(async move |cx| {
                 cx.open_window(options, |window, cx| {
-                    let view = cx.new(|cx| ClvApp::new(window, cx));
-                    cx.new(|cx| Root::new(view, window, cx))
+                    let app = cx.new(|cx| ClvApp::new(window, cx));
+                    let shell = cx.new(|cx| AppShell::new(app, window, cx));
+                    cx.new(|cx| Root::new(shell, window, cx))
                 })?;
                 Ok::<_, anyhow::Error>(())
             })

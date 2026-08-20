@@ -5,6 +5,9 @@ use clv_core::format_bytes;
 use gpui_component::Icon;
 use std::path::{Path, PathBuf};
 
+/// Path row height — keeps checkbox, path, and action button vertically centered together.
+const CLEANUP_PATH_ROW_H: f32 = 36.;
+
 pub struct CleanupView {
     store: Entity<AppStore>,
 }
@@ -255,38 +258,46 @@ impl Render for CleanupView {
                                             .items_start()
                                             .gap_3()
                                             .child(
-                                                Checkbox::new(cb_id)
-                                                    .checked(item.selected)
-                                                    .cursor_pointer()
-                                                    .on_click({
-                                                        let id = id.clone();
-                                                        let store = store_toggle.clone();
-                                                        move |checked, _, cx| {
-                                                            let selected = *checked;
-                                                            store.update(cx, |s, cx| {
-                                                                if let Some(report) = &mut s.last_report {
-                                                                    if let Some(item) =
-                                                                        report.items.iter_mut().find(|i| i.id == id)
-                                                                    {
-                                                                        item.selected = selected;
-                                                                    }
+                                                div()
+                                                    .flex()
+                                                    .flex_shrink_0()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .h(px(CLEANUP_PATH_ROW_H))
+                                                    .child(
+                                                        Checkbox::new(cb_id)
+                                                            .checked(item.selected)
+                                                            .cursor_pointer()
+                                                            .on_click({
+                                                                let id = id.clone();
+                                                                let store = store_toggle.clone();
+                                                                move |checked, _, cx| {
+                                                                    let selected = *checked;
+                                                                    store.update(cx, |s, cx| {
+                                                                        if let Some(report) = &mut s.last_report {
+                                                                            if let Some(item) =
+                                                                                report.items.iter_mut().find(|i| i.id == id)
+                                                                            {
+                                                                                item.selected = selected;
+                                                                            }
+                                                                        }
+                                                                        cx.notify();
+                                                                    });
                                                                 }
-                                                                cx.notify();
-                                                            });
-                                                        }
-                                                    }),
+                                                            }),
+                                                    ),
                                             )
                                             .child(
                                                 div()
                                                     .flex_1()
+                                                    .min_w_0()
                                                     .flex()
                                                     .flex_col()
                                                     .gap_1()
                                                     .child(
                                                         h_flex()
-                                                            .flex_1()
-                                                            .min_w_0()
-                                                            .justify_between()
+                                                            .min_h(px(CLEANUP_PATH_ROW_H))
+                                                            .items_center()
                                                             .gap_3()
                                                             .child(clickable_folder_path(
                                                                 path_id,
@@ -321,25 +332,32 @@ impl Render for CleanupView {
                                                     ),
                                             )
                                             .child(
-                                                ui::std_button(
-                                                    Button::new(exp_id)
-                                                        .ghost()
-                                                        .label(if expanded { "收起" } else { "详情" }),
-                                                )
-                                                .on_click({
-                                                    let id = id.clone();
-                                                    let store = store_expand.clone();
-                                                    move |_, _, cx| {
-                                                        store.update(cx, |s, cx| {
-                                                            if s.expanded_item.as_deref() == Some(&id) {
-                                                                s.expanded_item = None;
-                                                            } else {
-                                                                s.expanded_item = Some(id.clone());
+                                                div()
+                                                    .flex()
+                                                    .flex_shrink_0()
+                                                    .items_center()
+                                                    .h(px(CLEANUP_PATH_ROW_H))
+                                                    .child(
+                                                        ui::std_button(
+                                                            Button::new(exp_id)
+                                                                .ghost()
+                                                                .label(if expanded { "收起" } else { "详情" }),
+                                                        )
+                                                        .on_click({
+                                                            let id = id.clone();
+                                                            let store = store_expand.clone();
+                                                            move |_, _, cx| {
+                                                                store.update(cx, |s, cx| {
+                                                                    if s.expanded_item.as_deref() == Some(&id) {
+                                                                        s.expanded_item = None;
+                                                                    } else {
+                                                                        s.expanded_item = Some(id.clone());
+                                                                    }
+                                                                    cx.notify();
+                                                                });
                                                             }
-                                                            cx.notify();
-                                                        });
-                                                    }
-                                                }),
+                                                        }),
+                                                    ),
                                             ),
                                     )
                                     .when(expanded, |this| {

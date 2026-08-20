@@ -142,6 +142,8 @@ fn build_palette() -> ThemeColor {
     t.link = hex(0x38bdf8);
     t.link_hover = hex(0x7dd3fc);
     t.progress_bar = hex(0x0ea5e9);
+    t.title_bar = hex(0x0c1a2e);
+    t.title_bar_border = hex(0x152238);
     t
 }
 

@@ -417,6 +417,9 @@ pub fn metric_bar(label: &str, value_pct: f32, color: Hsla) -> Div {
 
 // ── Vertical icon navigation ─────────────────────────────────────────────────
 
+const NAV_ITEM_WIDTH: f32 = 72.;
+const NAV_ICON_BOX: f32 = 48.;
+
 pub fn nav_icon(
     id: &'static str,
     icon: impl Into<Icon>,
@@ -442,10 +445,11 @@ pub fn nav_icon(
     } else {
         colors::text_muted()
     };
+    let icon = icon.into().with_size(px(24.)).text_color(icon_color);
 
     div()
         .id(id)
-        .w_full()
+        .w(px(NAV_ITEM_WIDTH))
         .min_h(px(72.))
         .py(px(8.))
         .flex()
@@ -463,20 +467,19 @@ pub fn nav_icon(
         })
         .child(
             div()
-                .size(px(48.))
+                .size(px(NAV_ICON_BOX))
+                .flex_shrink_0()
                 .rounded(corner_md())
                 .when(active, |el| el.bg(cta_gradient()).shadow_md())
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(
-                    Icon::new(icon.into())
-                        .with_size(px(24.))
-                        .text_color(icon_color),
-                ),
+                .child(icon),
         )
         .child(
             div()
+                .w_full()
+                .text_center()
                 .text_sm()
                 .line_height(px(18.))
                 .font_weight(if active {
@@ -503,7 +506,7 @@ pub fn sidebar_logo() -> Div {
         .flex()
         .flex_col()
         .items_center()
-        .child(brand_logo(52.))
+        .child(brand_logo(48.))
 }
 
 pub fn page_banner(title: impl Into<SharedString>, subtitle: impl Into<SharedString>) -> Div {

@@ -1,0 +1,81 @@
+//! Window shell — custom title bar aligned with CLV visual style.
+
+use super::{state::AppPage, ClvApp};
+use crate::prelude::*;
+use crate::theme::{colors, corner_md};
+use gpui::{img, linear_color_stop, linear_gradient};
+use gpui_component::TitleBar;
+
+pub struct AppShell {
+    app: Entity<ClvApp>,
+}
+
+impl AppShell {
+    pub fn new(app: Entity<ClvApp>, _window: &Window, _cx: &mut Context<Self>) -> Self {
+        Self { app }
+    }
+}
+
+impl Render for AppShell {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let page = self.app.read(cx).current_page(cx);
+        let page_title = page.title();
+
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(colors::bg_app())
+            .child(
+                TitleBar::new().child(
+                    h_flex()
+                        .w_full()
+                        .h_full()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            img(ui::ICON_APP_LOGO)
+                                .size(px(22.))
+                                .rounded(corner_md()),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors::accent_cyan())
+                                .child("CLV3000 Plus"),
+                        )
+                        .when(page != AppPage::Onboarding, |this| {
+                            this.child(
+                                div()
+                                    .w(px(1.))
+                                    .h(px(14.))
+                                    .bg(colors::panel_divider()),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(colors::text_secondary())
+                                    .child(page_title),
+                            )
+                        }),
+                ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .bg(titlebar_content_gradient())
+                    .child(self.app.clone()),
+            )
+    }
+}
+
+fn titlebar_content_gradient() -> gpui::Background {
+    linear_gradient(
+        180.,
+        linear_color_stop(colors::bg_app(), 0.0),
+        linear_color_stop(colors::from_hex(0x0d1b2e), 1.0),
+    )
+}

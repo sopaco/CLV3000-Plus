@@ -1,3 +1,4 @@
+pub mod shell;
 pub mod state;
 
 use crate::prelude::*;
@@ -71,6 +72,10 @@ impl ClvApp {
         })
     }
 
+    pub fn current_page(&self, cx: &App) -> AppPage {
+        self.store.read(cx).page
+    }
+
     fn render_page(&self, page: AppPage) -> impl IntoElement {
         match page {
             AppPage::Dashboard => self.dashboard.clone().into_any_element(),
@@ -114,6 +119,7 @@ impl Render for ClvApp {
                     .h_full()
                     .flex()
                     .flex_col()
+                    .items_center()
                     .bg(ui::sidebar_gradient())
                     .border_r_1()
                     .border_color(colors::panel_divider())
@@ -121,10 +127,13 @@ impl Render for ClvApp {
                     .child(
                         div()
                             .flex_1()
+                            .w_full()
+                            .min_h_0()
                             .flex()
                             .flex_col()
+                            .items_center()
                             .gap_1()
-                            .px_2()
+                            .pt_1()
                             .child(self.nav_icon(
                                 "nav-home",
                                 ui::NAV_HOME,
@@ -168,7 +177,10 @@ impl Render for ClvApp {
                     )
                     .child(
                         div()
-                            .px_2()
+                            .w_full()
+                            .flex()
+                            .flex_col()
+                            .items_center()
                             .pb_3()
                             .child(self.nav_icon(
                                 "nav-settings",
