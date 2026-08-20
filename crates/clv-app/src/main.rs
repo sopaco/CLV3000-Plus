@@ -1,3 +1,7 @@
+// Windows 下以 GUI 子系统链接：双击启动不再弹出黑色终端窗口。
+// 从终端（cargo run）启动时 stdout 句柄仍会被继承，debug 日志输出不受影响。
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod app;
 mod assets;
 mod platform;
