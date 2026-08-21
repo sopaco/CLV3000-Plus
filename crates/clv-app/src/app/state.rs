@@ -69,6 +69,7 @@ pub struct AppStore {
     pub disk_total: u64,
     pub disk_used: u64,
     pub startup_count: usize,
+    pub process_refresh_trigger: u64,
 }
 
 impl AppStore {
@@ -91,7 +92,31 @@ impl AppStore {
             disk_total: 0,
             disk_used: 0,
             startup_count: 0,
+            process_refresh_trigger: 0,
         }
+    }
+
+    pub fn kill_process_pid(&mut self, pid: u32, cx: &mut Context<Self>) {
+        self.status_message = Some(format!("正在结束进程 {pid}…"));
+        cx.notify();
+
+        cx.spawn(async move |weak, cx| {
+            let result = std::thread::spawn(move || clv_platform::kill_process(pid)).join();
+            let result = match result {
+                Ok(r) => r,
+                Err(_) => Err(anyhow::anyhow!("结束进程时发生内部错误")),
+            };
+            weak.update(cx, |store, cx| {
+                store.process_refresh_trigger = store.process_refresh_trigger.wrapping_add(1);
+                store.status_message = Some(match result {
+                    Ok(()) => format!("已结束进程 {pid}"),
+                    Err(e) => format!("结束进程失败：{e}"),
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn refresh_disk_usage_async(&mut self, cx: &mut Context<Self>) {

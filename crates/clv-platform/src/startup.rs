@@ -106,6 +106,7 @@ pub fn set_startup_enabled(id: &str, enabled: bool) -> anyhow::Result<()> {
 mod macos {
     use super::*;
     use std::fs;
+    use std::path::Path;
 
     pub fn list_startup_items() -> Vec<StartupItem> {
         let mut items = Vec::new();
@@ -199,37 +200,123 @@ mod macos {
     pub fn set_startup_enabled(id: &str, enabled: bool) -> anyhow::Result<()> {
         if let Some(path) = id.strip_prefix("launchagent:") {
             let path = PathBuf::from(path);
-            let disabled = PathBuf::from(format!("{}.disabled", path.display()));
-            if enabled {
-                if disabled.exists() {
-                    fs::rename(&disabled, &path)?;
-                }
-            } else if path.exists() {
-                fs::rename(&path, &disabled)?;
-            }
-            return Ok(());
+            return set_launchagent_enabled(&path, enabled);
         }
 
         if let Some(name) = id.strip_prefix("loginitem:") {
-            if enabled {
-                anyhow::bail!("登录项请在系统设置中重新添加");
-            }
-            let script = format!(
-                "tell application \"System Events\" to delete login item \"{name}\""
-            );
-            let output = std::process::Command::new("osascript")
-                .arg("-e")
-                .arg(&script)
-                .output()?;
-            if output.status.success() {
-                return Ok(());
-            }
-            anyhow::bail!(
-                "无法禁用登录项「{name}」，请在系统设置 → 通用 → 登录项中手动管理"
-            );
+            return set_login_item_enabled(name, enabled);
         }
 
         anyhow::bail!("unknown startup item id")
+    }
+
+    fn disabled_agent_path(path: &Path) -> PathBuf {
+        PathBuf::from(format!("{}.disabled", path.display()))
+    }
+
+    fn gui_domain() -> String {
+        format!("gui/{}", unsafe { libc::getuid() })
+    }
+
+    fn plist_label(path: &Path) -> anyhow::Result<String> {
+        let bytes = fs::read(path)?;
+        let value: plist::Value = plist::from_bytes(&bytes)?;
+        match value {
+            plist::Value::Dictionary(dict) => dict
+                .get("Label")
+                .and_then(|v| v.as_string())
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow::anyhow!("plist 缺少 Label 字段：{}", path.display())),
+            _ => anyhow::bail!("无效的 plist：{}", path.display()),
+        }
+    }
+
+    fn launchctl(args: &[&str]) -> anyhow::Result<std::process::Output> {
+        std::process::Command::new("/bin/launchctl")
+            .args(args)
+            .output()
+            .map_err(|e| anyhow::anyhow!("无法执行 launchctl：{e}"))
+    }
+
+    fn launchctl_stderr_ok(output: &std::process::Output) -> bool {
+        if output.status.success() {
+            return true;
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+        stderr.contains("already loaded")
+            || stderr.contains("already bootstrapped")
+            || stderr.contains("no such process")
+            || stderr.contains("could not find service")
+            || stderr.contains("not found")
+    }
+
+    fn set_launchagent_enabled(path: &Path, enabled: bool) -> anyhow::Result<()> {
+        let disabled = disabled_agent_path(path);
+        let domain = gui_domain();
+
+        if enabled {
+            if disabled.exists() {
+                fs::rename(&disabled, path)?;
+            }
+            if !path.exists() {
+                anyhow::bail!("找不到 LaunchAgent 配置文件：{}", path.display());
+            }
+
+            let label = plist_label(path)?;
+            let service = format!("{domain}/{label}");
+            let enable = launchctl(&["enable", &service])?;
+            if !enable.status.success() {
+                let stderr = String::from_utf8_lossy(&enable.stderr);
+                anyhow::bail!("无法启用 LaunchAgent：{stderr}");
+            }
+            // 仅恢复“登录时启动”配置，不 bootstrap —— bootstrap 会立刻加载并运行该 Agent。
+            return Ok(());
+        }
+
+        if path.exists() {
+            if let Ok(label) = plist_label(path) {
+                let service = format!("{domain}/{label}");
+                let _ = launchctl(&["disable", &service]);
+            }
+            let bootout = launchctl(&["bootout", &domain, &path.to_string_lossy()]);
+            if let Ok(out) = bootout {
+                if !launchctl_stderr_ok(&out) {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    tracing::warn!("launchctl bootout: {stderr}");
+                }
+            }
+            fs::rename(path, &disabled)?;
+            return Ok(());
+        }
+
+        if disabled.exists() {
+            return Ok(());
+        }
+
+        anyhow::bail!("找不到 LaunchAgent 配置文件：{}", path.display())
+    }
+
+    fn set_login_item_enabled(name: &str, enabled: bool) -> anyhow::Result<()> {
+        if enabled {
+            anyhow::bail!("登录项请在系统设置 → 通用 → 登录项中重新添加");
+        }
+
+        let escaped = name.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            "tell application \"System Events\" to delete login item \"{escaped}\""
+        );
+        let output = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "无法禁用登录项「{name}」：{stderr}。请在系统设置 → 隐私与安全性 → 自动化 中授权本应用控制「System Events」，或在系统设置 → 通用 → 登录项中手动管理"
+        )
     }
 }
 

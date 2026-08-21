@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use sysinfo::System;
+use sysinfo::{ProcessStatus, System};
+
+#[cfg(target_os = "windows")]
+use sysinfo::{Pid, ProcessesToUpdate};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProcessSort {
@@ -60,19 +63,26 @@ pub fn list_processes(sort: ProcessSort) -> Vec<ProcessInfo> {
     collect_processes(&sys, sort)
 }
 
+fn is_listable_process(status: ProcessStatus) -> bool {
+    !matches!(status, ProcessStatus::Zombie | ProcessStatus::Dead)
+}
+
 fn collect_processes(sys: &System, sort: ProcessSort) -> Vec<ProcessInfo> {
     let mut processes: Vec<ProcessInfo> = sys
         .processes()
         .iter()
-        .map(|(pid, process)| {
+        .filter_map(|(pid, process)| {
+            if !is_listable_process(process.status()) {
+                return None;
+            }
             let name = process.name().to_string_lossy().to_string();
-            ProcessInfo {
+            Some(ProcessInfo {
                 pid: pid.as_u32(),
                 name: name.clone(),
                 cpu_percent: process.cpu_usage(),
                 memory_bytes: process.memory(),
                 category: categorize_process(&name),
-            }
+            })
         })
         .collect();
 
@@ -103,35 +113,36 @@ pub fn kill_process(pid: u32) -> anyhow::Result<()> {
 
 #[cfg(unix)]
 fn kill_process_unix(pid: u32) -> anyhow::Result<()> {
-    use std::time::Duration;
+    let pid_s = pid.to_string();
 
-    unsafe {
-        if libc::kill(pid as i32, 0) != 0 {
-            let err = std::io::Error::last_os_error();
-            anyhow::bail!("进程 {pid} 不存在或无法访问：{err}");
+    if let Ok(out) = std::process::Command::new("/bin/kill")
+        .args(["-9", &pid_s])
+        .output()
+    {
+        if out.status.success() {
+            return Ok(());
         }
-
-        if libc::kill(pid as i32, libc::SIGTERM) == 0 {
-            for _ in 0..10 {
-                std::thread::sleep(Duration::from_millis(50));
-                if libc::kill(pid as i32, 0) != 0 {
-                    return Ok(());
-                }
-            }
-        }
-
-        if libc::kill(pid as i32, libc::SIGKILL) != 0 {
-            let err = std::io::Error::last_os_error();
-            anyhow::bail!("无法结束进程 {pid}：{err}");
-        }
-
-        std::thread::sleep(Duration::from_millis(100));
-        if libc::kill(pid as i32, 0) == 0 {
-            anyhow::bail!("进程 {pid} 仍在运行，可能需要管理员权限");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if stderr.contains("No such process") {
+            return Ok(());
         }
     }
 
-    Ok(())
+    unsafe {
+        let pid_i32 = pid as i32;
+        let pgid = libc::getpgid(pid_i32);
+        if pgid > 0 {
+            let _ = libc::kill(-pgid, libc::SIGKILL);
+        }
+        if libc::kill(pid_i32, libc::SIGKILL) == 0 {
+            return Ok(());
+        }
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::ESRCH) {
+            return Ok(());
+        }
+        anyhow::bail!("无法结束进程 {pid}：{err}");
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -161,12 +172,14 @@ fn kill_process_windows(pid: u32) -> anyhow::Result<()> {
         }
     }
 
-    // Give the kernel a moment to reap the process, then verify.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    std::thread::sleep(std::time::Duration::from_millis(150));
     let mut sys = System::new();
     let pid_obj = Pid::from_u32(pid);
     sys.refresh_processes(ProcessesToUpdate::Some(&[pid_obj]), false);
-    if sys.process(pid_obj).is_some() {
+    if sys
+        .process(pid_obj)
+        .is_some_and(|process| is_listable_process(process.status()))
+    {
         anyhow::bail!("进程 {pid} 仍在运行，可能需要管理员权限");
     }
 
@@ -189,5 +202,45 @@ fn categorize_process(name: &str) -> ProcessCategory {
         ProcessCategory::System
     } else {
         ProcessCategory::User
+    }
+}
+
+#[cfg(test)]
+mod kill_tests {
+    use super::*;
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    #[test]
+    fn kill_sleep_process() {
+        let mut child = Command::new("sleep")
+            .arg("999")
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+        kill_process(pid).expect("kill should succeed");
+        std::thread::sleep(Duration::from_millis(100));
+        assert_ne!(child.try_wait().unwrap(), None, "child should have exited");
+    }
+
+    #[test]
+    fn collect_processes_hides_zombies_after_kill() {
+        let child = Command::new("sleep")
+            .arg("999")
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+        kill_process(pid).expect("kill");
+        std::thread::sleep(Duration::from_millis(200));
+
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let list = collect_processes(&sys, ProcessSort::Name);
+        assert!(
+            !list.iter().any(|p| p.pid == pid),
+            "zombie pid {pid} should not appear in process list"
+        );
     }
 }

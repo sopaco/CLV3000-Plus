@@ -2,7 +2,7 @@ use crate::app::state::{AppPage, AppStore};
 use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::format_bytes;
-use clv_platform::{kill_process, ProcessEnumerator, ProcessInfo, ProcessSort};
+use clv_platform::{ProcessEnumerator, ProcessInfo, ProcessSort};
 use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
 use gpui_component::input::{Input, InputEvent, InputState};
 use std::sync::{Arc, Mutex};
@@ -25,11 +25,20 @@ pub struct ProcessView {
     poll_generation: u64,
     visible: bool,
     enumerator: Option<Arc<Mutex<ProcessEnumerator>>>,
+    last_process_refresh_trigger: u64,
 }
 
 impl ProcessView {
     pub fn new(store: Entity<AppStore>, cx: &mut Context<Self>) -> Self {
         let store_subscription = cx.observe(&store, |view, store, cx| {
+            let trigger = store.read(cx).process_refresh_trigger;
+            if trigger != view.last_process_refresh_trigger {
+                view.last_process_refresh_trigger = trigger;
+                if view.visible {
+                    view.refresh_now(cx);
+                }
+            }
+
             let active = store.read(cx).page == AppPage::Process;
             if active && !view.visible {
                 view.on_show(cx);
@@ -50,6 +59,7 @@ impl ProcessView {
             poll_generation: 0,
             visible: false,
             enumerator: None,
+            last_process_refresh_trigger: 0,
         }
     }
 
@@ -218,9 +228,9 @@ impl ProcessView {
         &self,
         ix: usize,
         processes: &[ProcessInfo],
-        view: Entity<Self>,
+        store: Entity<AppStore>,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Div {
         let Some(proc) = processes.get(ix) else {
             return div().h(px(PROCESS_ROW_H));
@@ -255,32 +265,14 @@ impl ProcessView {
                     )
                     .child(
                         ui::std_button(Button::new(kill_id).danger().label("结束")).on_click(
-                            move |_, window, cx| {
-                                let view = view.clone();
-                                window.open_dialog(cx, move |dialog, _window, _cx| {
-                                    dialog
-                                        .title("结束进程")
-                                        .child(format!("确定结束 PID {pid}？"))
-                                        .confirm()
-                                        .on_ok({
-                                            let view = view.clone();
-                                            move |_, window, cx| {
-                                                if let Err(e) = kill_process(pid) {
-                                                    window.open_dialog(cx, move |dialog, _, _| {
-                                                        dialog
-                                                            .title("结束进程失败")
-                                                            .child(e.to_string())
-                                                            .confirm()
-                                                    });
-                                                } else {
-                                                    view.update(cx, |v, cx| v.refresh_now(cx));
-                                                }
-                                                window.close_dialog(cx);
-                                                true
-                                            }
-                                        })
-                                });
-                            },
+                            cx.listener({
+                                let store = store.clone();
+                                move |this, _, _, cx| {
+                                    this.all_processes.retain(|p| p.pid != pid);
+                                    cx.notify();
+                                    store.update(cx, |s, cx| s.kill_process_pid(pid, cx));
+                                }
+                            }),
                         ),
                     ),
             )
@@ -300,7 +292,7 @@ impl Render for ProcessView {
         let total = self.all_processes.len();
         let scroll_handle = self.scroll_handle.clone();
         let searching = !self.search_query.trim().is_empty();
-        let _ = &self.store;
+        let store = self.store.clone();
 
         div()
             .id("process-view")
@@ -407,11 +399,11 @@ impl Render for ProcessView {
                                 scroll_handle,
                                 cx,
                                 move |this, visible_range, window, cx| {
-                                    let view = cx.entity();
+                                    let store = store.clone();
                                     let processes = this.filtered_processes();
                                     visible_range
                                         .map(|ix| {
-                                            this.render_row(ix, &processes, view.clone(), window, cx)
+                                            this.render_row(ix, &processes, store.clone(), window, cx)
                                         })
                                         .collect()
                                 },
