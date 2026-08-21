@@ -46,9 +46,10 @@ impl AppPage {
 pub enum CleanupFilter {
     All,
     SafeOnly,
-    SystemRuntime,
+    ProjectBuildCache,
+    SharedToolCache,
+    DevEnvironment,
     AiGenerated,
-    AppCache,
 }
 
 pub struct AppStore {
@@ -171,14 +172,17 @@ impl AppStore {
                 match self.cleanup_filter {
                     CleanupFilter::All => true,
                     CleanupFilter::SafeOnly => item.risk == RiskLevel::Safe,
-                    CleanupFilter::SystemRuntime => {
-                        item_cleanup_bucket(item) == CleanupBucket::SystemRuntime
+                    CleanupFilter::ProjectBuildCache => {
+                        item_cleanup_bucket(item) == CleanupBucket::ProjectBuildCache
+                    }
+                    CleanupFilter::SharedToolCache => {
+                        item_cleanup_bucket(item) == CleanupBucket::SharedToolCache
+                    }
+                    CleanupFilter::DevEnvironment => {
+                        item_cleanup_bucket(item) == CleanupBucket::DevEnvironment
                     }
                     CleanupFilter::AiGenerated => {
                         item_cleanup_bucket(item) == CleanupBucket::AiGenerated
-                    }
-                    CleanupFilter::AppCache => {
-                        item_cleanup_bucket(item) == CleanupBucket::AppCache
                     }
                 }
             })

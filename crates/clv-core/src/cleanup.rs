@@ -1,4 +1,4 @@
-use crate::models::{format_bytes, ScanItem};
+use crate::models::{format_bytes, RiskLevel, ScanItem};
 use crate::settings::{trash_dir, AppSettings};
 use chrono::Utc;
 use std::fs;
@@ -47,6 +47,9 @@ impl CleanupExecutor {
 
         for item in items {
             if !item.selected {
+                continue;
+            }
+            if item.risk == RiskLevel::Protected && !self.settings.expert_mode {
                 continue;
             }
             let size = item.size_bytes;

@@ -1,27 +1,58 @@
 use crate::app::state::AppStore;
 use crate::prelude::*;
 use crate::theme::colors;
-use clv_core::save_settings;
+use clv_core::{format_scan_paths, parse_scan_paths, save_settings};
+use gpui::{Subscription, Window};
+use gpui_component::input::{Input, InputEvent, InputState};
 
 pub struct SettingsView {
     store: Entity<AppStore>,
+    scan_paths_input: Option<Entity<InputState>>,
+    _scan_paths_subscription: Option<Subscription>,
 }
 
 impl SettingsView {
     pub fn new(store: Entity<AppStore>, _cx: &mut Context<Self>) -> Self {
-        Self { store }
+        Self {
+            store,
+            scan_paths_input: None,
+            _scan_paths_subscription: None,
+        }
+    }
+
+    fn ensure_scan_paths_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        initial: String,
+    ) -> Entity<InputState> {
+        if let Some(input) = &self.scan_paths_input {
+            return input.clone();
+        }
+
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .default_value(initial)
+                .placeholder("每行一个目录路径，支持 ~/Projects")
+        });
+        let subscription = cx.subscribe(&input, |_view, _input, event, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.notify();
+            }
+        });
+        self._scan_paths_subscription = Some(subscription);
+        self.scan_paths_input = Some(input.clone());
+        input
     }
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = self.store.read(cx).settings.clone();
-        let paths = settings
-            .scan_paths
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let paths_text = format_scan_paths(&settings.scan_paths);
+        let scan_paths_input =
+            self.ensure_scan_paths_input(window, cx, paths_text);
         let store = self.store.clone();
 
         div()
@@ -38,7 +69,7 @@ impl Render for SettingsView {
                     .child(ui::page_header("设置", "个性化扫描与清理行为"))
                     .child(ui::setting_row(
                         "专家模式",
-                        "显示完整路径、更多可清理项与高级选项",
+                        "显示完整路径、受保护项与更多可清理项",
                         Switch::new("expert-mode")
                             .checked(settings.expert_mode)
                             .cursor_pointer()
@@ -92,7 +123,7 @@ impl Render for SettingsView {
                             .p_5()
                             .flex()
                             .flex_col()
-                            .gap_2()
+                            .gap_3()
                             .child(
                                 div()
                                     .font_weight(FontWeight::SEMIBOLD)
@@ -103,14 +134,48 @@ impl Render for SettingsView {
                                 div()
                                     .text_base()
                                     .text_color(colors::text_secondary())
-                                    .child("默认扫描以下目录（可在后续版本自定义编辑）"),
+                                    .child("每行一个路径，保存后下次扫描生效"),
                             )
                             .child(
                                 div()
-                                    .text_sm()
-                                    .font_family("monospace")
-                                    .text_color(colors::text_muted())
-                                    .child(paths),
+                                    .w_full()
+                                    .min_h(px(120.))
+                                    .child(Input::new(&scan_paths_input)),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        ui::std_button(
+                                            Button::new("save-scan-paths")
+                                                .label("保存扫描目录")
+                                                .on_click({
+                                                    let store = store.clone();
+                                                    let scan_paths_input =
+                                                        scan_paths_input.clone();
+                                                    move |_, _, cx| {
+                                                        let text = scan_paths_input
+                                                            .read(cx)
+                                                            .value()
+                                                            .to_string();
+                                                        let paths = parse_scan_paths(&text);
+                                                        store.update(cx, |s, cx| {
+                                                            if !paths.is_empty() {
+                                                                s.settings.scan_paths = paths;
+                                                            }
+                                                            let _ = save_settings(&s.settings);
+                                                            cx.notify();
+                                                        });
+                                                    }
+                                                }),
+                                        ),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(colors::text_muted())
+                                            .child("留空行会被忽略；支持 ~/ 展开"),
+                                    ),
                             ),
                     )
                     .child(
@@ -129,7 +194,9 @@ impl Render for SettingsView {
                                 div()
                                     .text_base()
                                     .text_color(colors::text_secondary())
-                                    .child("Rust · Node.js/Web · Android · iOS · Flutter · KMP · Java · Python · .NET · C/C++"),
+                                    .child(
+                                        "Rust · Node.js/Web · Android · iOS · Flutter · KMP · Java · Python · .NET · C/C++ · Go · Ruby · PHP · Unity · Terraform",
+                                    ),
                             ),
                     )
                     .child(

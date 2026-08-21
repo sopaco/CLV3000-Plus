@@ -1,7 +1,7 @@
 use crate::models::{RiskLevel, ScanItem, ScanProgress, ScanReport, TechStack};
 use crate::settings::{
     agent_marker_files, agent_name_patterns, global_cache_rules, is_protected_system_path,
-    project_marker_files, project_rules, AppSettings,
+    project_marker_files, project_rules, AppSettings, CleanupRule,
 };
 use chrono::{DateTime, Utc};
 use walkdir::WalkDir;
@@ -9,6 +9,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+
+/// Ignore scan hits smaller than this threshold to reduce list noise.
+pub const MIN_SCAN_ITEM_BYTES: u64 = 1024 * 1024;
 
 struct ProgressThrottle<F> {
     inner: F,
@@ -185,31 +188,27 @@ impl Scanner {
             let file_name = entry
                 .file_name()
                 .to_str()
-                .unwrap_or_default()
-                .to_string();
+                .unwrap_or_default();
 
             for rule in rules {
-                if file_name == rule.relative {
-                    let project_root = find_project_root(&path);
-                    self.try_add_rule_path(
-                        &path,
-                        project_root,
-                        rule,
-                        items,
-                        seen,
-                        on_progress,
-                    );
+                if !rule_matches_dir_name(file_name, rule) {
+                    continue;
                 }
-            }
-
-            // CMake build dirs pattern cmake-build-*
-            if file_name.starts_with("cmake-build-") {
+                if !rule_matches_parent(entry.path(), rule) {
+                    continue;
+                }
                 let project_root = find_project_root(&path);
-                let rule = project_rules()
-                    .iter()
-                    .find(|r| r.relative == "cmake-build-debug")
-                    .unwrap();
-                self.try_add_rule_path(&path, project_root, rule, items, seen, on_progress);
+                if !rule_matches_marker(project_root.as_deref(), rule) {
+                    continue;
+                }
+                self.try_add_rule_path(
+                    &path,
+                    project_root,
+                    rule,
+                    items,
+                    seen,
+                    on_progress,
+                );
             }
         }
     }
@@ -289,7 +288,7 @@ impl Scanner {
         }
 
         let size = dir_size(path);
-        if size == 0 {
+        if size < MIN_SCAN_ITEM_BYTES {
             return;
         }
 
@@ -403,6 +402,40 @@ fn should_skip_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| SKIP_DIR_NAMES.contains(&name))
+}
+
+pub fn rule_matches_dir_name(file_name: &str, rule: &CleanupRule) -> bool {
+    if let Some(pattern) = rule.relative_prefix {
+        if let Some(suffix) = pattern.strip_prefix('*') {
+            return file_name.ends_with(suffix);
+        }
+        return file_name.starts_with(pattern);
+    }
+    !rule.relative.is_empty() && file_name == rule.relative
+}
+
+pub fn rule_matches_parent(path: &Path, rule: &CleanupRule) -> bool {
+    let Some(required_parent) = rule.requires_parent else {
+        return true;
+    };
+    path.parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        == Some(required_parent)
+}
+
+pub fn rule_matches_marker(project_root: Option<&Path>, rule: &CleanupRule) -> bool {
+    let Some(marker) = rule.requires_marker else {
+        return true;
+    };
+    let Some(root) = project_root else {
+        return false;
+    };
+    if marker.contains('*') {
+        has_glob(root, marker)
+    } else {
+        root.join(marker).exists()
+    }
 }
 
 fn last_modified(path: &Path) -> Option<DateTime<Utc>> {

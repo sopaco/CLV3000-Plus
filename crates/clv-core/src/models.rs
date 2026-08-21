@@ -14,6 +14,11 @@ pub enum TechStack {
     Python,
     DotNet,
     Cpp,
+    Go,
+    Ruby,
+    Php,
+    Unity,
+    Infra,
     Agent,
     System,
     Other,
@@ -32,6 +37,11 @@ impl TechStack {
             Self::Python => "Python",
             Self::DotNet => ".NET",
             Self::Cpp => "C/C++",
+            Self::Go => "Go",
+            Self::Ruby => "Ruby",
+            Self::Php => "PHP",
+            Self::Unity => "Unity",
+            Self::Infra => "基础设施",
             Self::Agent => "Agent 项目",
             Self::System => "系统缓存",
             Self::Other => "其他",
@@ -50,6 +60,11 @@ impl TechStack {
             Self::Python,
             Self::DotNet,
             Self::Cpp,
+            Self::Go,
+            Self::Ruby,
+            Self::Php,
+            Self::Unity,
+            Self::Infra,
             Self::Agent,
             Self::System,
             Self::Other,
@@ -76,17 +91,32 @@ impl RiskLevel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupBucket {
-    SystemRuntime,
+    /// 各项目目录内的编译/构建临时文件，删后重新打开项目通常会再生成。
+    ProjectBuildCache,
+    /// npm、Cargo 等工具在用户目录下的共用下载缓存，删后需重新下载。
+    SharedToolCache,
+    /// 虚拟环境、工具链、项目依赖等，删后需重新安装或配置。
+    DevEnvironment,
+    /// Cursor / Claude 等 AI 工具的会话、缓存与试验项目相关文件。
     AiGenerated,
-    AppCache,
 }
 
 impl CleanupBucket {
     pub fn label(self) -> &'static str {
         match self {
-            Self::SystemRuntime => "系统运行时缓存",
-            Self::AiGenerated => "AI 生成物缓存",
-            Self::AppCache => "应用缓存",
+            Self::ProjectBuildCache => "项目构建缓存",
+            Self::SharedToolCache => "工具下载缓存",
+            Self::DevEnvironment => "环境与依赖",
+            Self::AiGenerated => "AI 工具数据",
+        }
+    }
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::ProjectBuildCache => "项目里的编译/测试临时文件，多数可安全清理",
+            Self::SharedToolCache => "各工具共用的下载缓存，删后首次使用会重新下载",
+            Self::DevEnvironment => "依赖包、虚拟环境、语言工具链，删后需重新安装",
+            Self::AiGenerated => "AI 助手会话、缓存与相关试验项目",
         }
     }
 }
@@ -116,14 +146,26 @@ pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
         }
     }
 
-    if item.category == "全局缓存" || item.stack == TechStack::System {
-        return CleanupBucket::SystemRuntime;
+    if item.category == "全局缓存" {
+        return CleanupBucket::SharedToolCache;
     }
 
     match item.category.as_str() {
-        "编译缓存" | "字节码缓存" | "中间产物" | "Xcode 缓存" | "构建目录" | "测试缓存"
-        | "工具缓存" => CleanupBucket::SystemRuntime,
-        _ => CleanupBucket::AppCache,
+        "工具链" | "虚拟环境" | "测试环境" | "依赖包" | "依赖" | "依赖缓存" | "Provider 缓存" => {
+            CleanupBucket::DevEnvironment
+        }
+        "编译缓存" | "构建缓存" | "构建产物" | "字节码缓存" | "中间产物" | "Xcode 缓存"
+        | "构建目录" | "测试缓存" | "工具缓存" | "测试产物" | "Lint 缓存" | "类型检查缓存"
+        | "Gradle 缓存" | "插件缓存" | "编辑器缓存" | "临时文件" | "日志" => {
+            CleanupBucket::ProjectBuildCache
+        }
+        _ => {
+            if item.risk == RiskLevel::Protected || item.risk == RiskLevel::Caution {
+                CleanupBucket::DevEnvironment
+            } else {
+                CleanupBucket::ProjectBuildCache
+            }
+        }
     }
 }
 

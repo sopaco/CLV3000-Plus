@@ -61,23 +61,30 @@ impl Render for CleanupView {
                         cx,
                     ))
                     .child(filter_btn(
-                        "filter-system",
-                        "系统运行时缓存",
-                        CleanupFilter::SystemRuntime,
+                        "filter-project",
+                        "项目构建缓存",
+                        CleanupFilter::ProjectBuildCache,
+                        &store,
+                        cx,
+                    ))
+                    .child(filter_btn(
+                        "filter-shared",
+                        "工具下载缓存",
+                        CleanupFilter::SharedToolCache,
+                        &store,
+                        cx,
+                    ))
+                    .child(filter_btn(
+                        "filter-dev-env",
+                        "环境与依赖",
+                        CleanupFilter::DevEnvironment,
                         &store,
                         cx,
                     ))
                     .child(filter_btn(
                         "filter-ai",
-                        "AI 生成物缓存",
+                        "AI 工具数据",
                         CleanupFilter::AiGenerated,
-                        &store,
-                        cx,
-                    ))
-                    .child(filter_btn(
-                        "filter-app",
-                        "应用缓存",
-                        CleanupFilter::AppCache,
                         &store,
                         cx,
                     )),

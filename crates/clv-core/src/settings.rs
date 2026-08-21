@@ -1,6 +1,7 @@
 use crate::models::{RiskLevel, TechStack};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -54,6 +55,33 @@ pub fn load_settings() -> AppSettings {
         .unwrap_or_default()
 }
 
+pub fn format_scan_paths(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn parse_scan_paths(text: &str) -> Vec<PathBuf> {
+    let home = directories::UserDirs::new().map(|d| d.home_dir().to_path_buf());
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix("~/") {
+                home.as_ref()
+                    .map(|h| h.join(rest))
+                    .unwrap_or_else(|| PathBuf::from(line))
+            } else if line == "~" {
+                home.clone().unwrap_or_else(|| PathBuf::from("."))
+            } else {
+                PathBuf::from(line)
+            }
+        })
+        .collect()
+}
+
 pub fn save_settings(settings: &AppSettings) -> anyhow::Result<()> {
     let Some(path) = settings_path() else {
         anyhow::bail!("cannot resolve settings path");
@@ -104,409 +132,735 @@ pub struct CleanupRule {
     pub category: &'static str,
     pub description: &'static str,
     pub global: bool,
+    /// Require a marker file under the detected project root (supports `*.ext` globs).
+    pub requires_marker: Option<&'static str>,
+    /// Name prefix (`cmake-build-`) or suffix pattern (`*.egg-info` → ends with `.egg-info`).
+    pub relative_prefix: Option<&'static str>,
+    /// Parent directory name must match (e.g. `vendor` for Ruby `vendor/bundle`).
+    pub requires_parent: Option<&'static str>,
+}
+
+impl CleanupRule {
+    const fn project(
+        relative: &'static str,
+        stack: TechStack,
+        risk: RiskLevel,
+        category: &'static str,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            relative,
+            stack,
+            risk,
+            category,
+            description,
+            global: false,
+            requires_marker: None,
+            relative_prefix: None,
+            requires_parent: None,
+        }
+    }
+
+    const fn global(
+        relative: &'static str,
+        stack: TechStack,
+        risk: RiskLevel,
+        category: &'static str,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            relative,
+            stack,
+            risk,
+            category,
+            description,
+            global: true,
+            requires_marker: None,
+            relative_prefix: None,
+            requires_parent: None,
+        }
+    }
+
+    const fn marker(self, marker: &'static str) -> Self {
+        Self {
+            requires_marker: Some(marker),
+            ..self
+        }
+    }
+
+    const fn prefix(self, prefix: &'static str) -> Self {
+        Self {
+            relative_prefix: Some(prefix),
+            ..self
+        }
+    }
+
+    const fn parent(self, name: &'static str) -> Self {
+        Self {
+            requires_parent: Some(name),
+            ..self
+        }
+    }
 }
 
 pub fn project_rules() -> &'static [CleanupRule] {
-    &[
+    static RULES: LazyLock<Vec<CleanupRule>> = LazyLock::new(|| {
+        vec![
         // Rust
-        CleanupRule {
-            relative: "target",
-            stack: TechStack::Rust,
-            risk: RiskLevel::Safe,
-            category: "编译缓存",
-            description: "Rust 编译产物与增量缓存，可重新 cargo build 生成",
-            global: false,
-        },
+        CleanupRule::project(
+            "target",
+            TechStack::Rust,
+            RiskLevel::Safe,
+            "编译缓存",
+            "Rust 编译产物与增量缓存，可重新 cargo build 生成",
+        )
+        .marker("Cargo.toml"),
         // Node / Web
-        CleanupRule {
-            relative: "node_modules",
-            stack: TechStack::NodeWeb,
-            risk: RiskLevel::Safe,
-            category: "依赖包",
-            description: "Node.js 依赖目录，可通过 npm/pnpm/yarn install 恢复",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".next",
-            stack: TechStack::NodeWeb,
-            risk: RiskLevel::Safe,
-            category: "构建缓存",
-            description: "Next.js 构建缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".nuxt",
-            stack: TechStack::NodeWeb,
-            risk: RiskLevel::Safe,
-            category: "构建缓存",
-            description: "Nuxt 构建缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".turbo",
-            stack: TechStack::NodeWeb,
-            risk: RiskLevel::Safe,
-            category: "构建缓存",
-            description: "Turborepo 缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: "dist",
-            stack: TechStack::NodeWeb,
-            risk: RiskLevel::Safe,
-            category: "构建产物",
-            description: "前端构建输出目录",
-            global: false,
-        },
-        CleanupRule {
-            relative: "build",
-            stack: TechStack::NodeWeb,
-            risk: RiskLevel::Caution,
-            category: "构建产物",
-            description: "通用构建输出（也可能是 Android/Flutter 产物，请确认）",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".cache",
-            stack: TechStack::NodeWeb,
-            risk: RiskLevel::Safe,
-            category: "工具缓存",
-            description: "各类前端工具本地缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".parcel-cache",
-            stack: TechStack::NodeWeb,
-            risk: RiskLevel::Safe,
-            category: "构建缓存",
-            description: "Parcel 缓存",
-            global: false,
-        },
+        CleanupRule::project(
+            "node_modules",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "依赖包",
+            "Node.js 依赖目录，可通过 npm/pnpm/yarn install 恢复",
+        )
+        .marker("package.json"),
+        CleanupRule::project(
+            ".next",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Next.js 构建缓存",
+        ),
+        CleanupRule::project(
+            ".nuxt",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Nuxt 构建缓存",
+        ),
+        CleanupRule::project(
+            ".turbo",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Turborepo 缓存",
+        ),
+        CleanupRule::project(
+            ".vite",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Vite 预构建与依赖缓存",
+        ),
+        CleanupRule::project(
+            ".svelte-kit",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "SvelteKit 构建缓存",
+        ),
+        CleanupRule::project(
+            ".astro",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Astro 构建缓存",
+        ),
+        CleanupRule::project(
+            ".angular",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Angular CLI 缓存",
+        ),
+        CleanupRule::project(
+            ".output",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建产物",
+            "Nuxt 3 / Nitro 输出目录",
+        ),
+        CleanupRule::project(
+            ".vercel",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Vercel 本地构建缓存",
+        ),
+        CleanupRule::project(
+            ".netlify",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Netlify 本地构建缓存",
+        ),
+        CleanupRule::project(
+            ".expo",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Expo / React Native 缓存",
+        ),
+        CleanupRule::project(
+            ".webpack",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Webpack 缓存目录",
+        ),
+        CleanupRule::project(
+            "dist",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建产物",
+            "前端构建输出目录",
+        )
+        .marker("package.json"),
+        CleanupRule::project(
+            "build",
+            TechStack::NodeWeb,
+            RiskLevel::Caution,
+            "构建产物",
+            "前端/通用构建输出（请确认非重要产物）",
+        )
+        .marker("package.json"),
+        CleanupRule::project(
+            "build",
+            TechStack::Android,
+            RiskLevel::Safe,
+            "构建产物",
+            "Gradle 项目构建输出",
+        )
+        .marker("build.gradle"),
+        CleanupRule::project(
+            "build",
+            TechStack::Android,
+            RiskLevel::Safe,
+            "构建产物",
+            "Gradle Kotlin DSL 项目构建输出",
+        )
+        .marker("build.gradle.kts"),
+        CleanupRule::project(
+            ".cache",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "工具缓存",
+            "各类前端工具本地缓存",
+        ),
+        CleanupRule::project(
+            ".parcel-cache",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Parcel 缓存",
+        ),
+        CleanupRule::project(
+            "cache",
+            TechStack::NodeWeb,
+            RiskLevel::Caution,
+            "依赖缓存",
+            "Yarn Berry 本地包缓存",
+        )
+        .marker("package.json")
+        .parent(".yarn"),
+        CleanupRule::project(
+            "coverage",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "测试产物",
+            "测试覆盖率报告",
+        ),
+        CleanupRule::project(
+            "htmlcov",
+            TechStack::Python,
+            RiskLevel::Safe,
+            "测试产物",
+            "Python coverage HTML 报告",
+        ),
+        CleanupRule::project(
+            ".nyc_output",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "测试产物",
+            "NYC 覆盖率原始数据",
+        ),
+        CleanupRule::project(
+            "storybook-static",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "构建产物",
+            "Storybook 静态导出",
+        ),
         // Python
-        CleanupRule {
-            relative: "__pycache__",
-            stack: TechStack::Python,
-            risk: RiskLevel::Safe,
-            category: "字节码缓存",
-            description: "Python 自动生成的缓存，可安全删除",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".pytest_cache",
-            stack: TechStack::Python,
-            risk: RiskLevel::Safe,
-            category: "测试缓存",
-            description: "pytest 缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".mypy_cache",
-            stack: TechStack::Python,
-            risk: RiskLevel::Safe,
-            category: "类型检查缓存",
-            description: "mypy 缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".ruff_cache",
-            stack: TechStack::Python,
-            risk: RiskLevel::Safe,
-            category: "Lint 缓存",
-            description: "Ruff 缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".venv",
-            stack: TechStack::Python,
-            risk: RiskLevel::Caution,
-            category: "虚拟环境",
-            description: "Python 虚拟环境，删除后需重新创建",
-            global: false,
-        },
-        CleanupRule {
-            relative: "venv",
-            stack: TechStack::Python,
-            risk: RiskLevel::Caution,
-            category: "虚拟环境",
-            description: "Python 虚拟环境，删除后需重新创建",
-            global: false,
-        },
+        CleanupRule::project(
+            "__pycache__",
+            TechStack::Python,
+            RiskLevel::Safe,
+            "字节码缓存",
+            "Python 自动生成的缓存，可安全删除",
+        ),
+        CleanupRule::project(
+            ".pytest_cache",
+            TechStack::Python,
+            RiskLevel::Safe,
+            "测试缓存",
+            "pytest 缓存",
+        ),
+        CleanupRule::project(
+            ".mypy_cache",
+            TechStack::Python,
+            RiskLevel::Safe,
+            "类型检查缓存",
+            "mypy 缓存",
+        ),
+        CleanupRule::project(
+            ".ruff_cache",
+            TechStack::Python,
+            RiskLevel::Safe,
+            "Lint 缓存",
+            "Ruff 缓存",
+        ),
+        CleanupRule::project(
+            ".tox",
+            TechStack::Python,
+            RiskLevel::Caution,
+            "测试环境",
+            "tox 多环境虚拟环境，删除后需重新创建",
+        ),
+        CleanupRule::project(
+            ".nox",
+            TechStack::Python,
+            RiskLevel::Caution,
+            "测试环境",
+            "nox 多环境虚拟环境，删除后需重新创建",
+        ),
+        CleanupRule::project(
+            ".eggs",
+            TechStack::Python,
+            RiskLevel::Safe,
+            "构建产物",
+            "setuptools eggs 目录",
+        ),
+        CleanupRule::project(
+            ".hypothesis",
+            TechStack::Python,
+            RiskLevel::Safe,
+            "测试缓存",
+            "Hypothesis 属性测试缓存",
+        ),
+        CleanupRule::project(
+            "",
+            TechStack::Python,
+            RiskLevel::Safe,
+            "构建产物",
+            "setuptools egg-info 元数据目录",
+        )
+        .prefix("*.egg-info"),
+        CleanupRule::project(
+            ".venv",
+            TechStack::Python,
+            RiskLevel::Caution,
+            "虚拟环境",
+            "Python 虚拟环境，删除后需重新创建",
+        ),
+        CleanupRule::project(
+            "venv",
+            TechStack::Python,
+            RiskLevel::Caution,
+            "虚拟环境",
+            "Python 虚拟环境，删除后需重新创建",
+        ),
+        // Go / Ruby / PHP
+        CleanupRule::project(
+            "vendor",
+            TechStack::Go,
+            RiskLevel::Caution,
+            "依赖",
+            "Go vendor 目录，可通过 go mod vendor 恢复",
+        )
+        .marker("go.mod"),
+        CleanupRule::project(
+            "vendor",
+            TechStack::Php,
+            RiskLevel::Caution,
+            "依赖",
+            "Composer vendor 目录，可通过 composer install 恢复",
+        )
+        .marker("composer.json"),
+        CleanupRule::project(
+            "bundle",
+            TechStack::Ruby,
+            RiskLevel::Caution,
+            "依赖",
+            "Bundler vendor/bundle，可通过 bundle install 恢复",
+        )
+        .marker("Gemfile")
+        .parent("vendor"),
         // Java / Android / KMP
-        CleanupRule {
-            relative: ".gradle",
-            stack: TechStack::Android,
-            risk: RiskLevel::Caution,
-            category: "Gradle 缓存",
-            description: "项目级 Gradle 缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: "app/build",
-            stack: TechStack::Android,
-            risk: RiskLevel::Safe,
-            category: "构建产物",
-            description: "Android app 模块构建输出",
-            global: false,
-        },
-        CleanupRule {
-            relative: "target",
-            stack: TechStack::Java,
-            risk: RiskLevel::Safe,
-            category: "构建产物",
-            description: "Maven 构建输出",
-            global: false,
-        },
+        CleanupRule::project(
+            ".gradle",
+            TechStack::Android,
+            RiskLevel::Caution,
+            "Gradle 缓存",
+            "项目级 Gradle 缓存",
+        ),
+        CleanupRule::project(
+            "app/build",
+            TechStack::Android,
+            RiskLevel::Safe,
+            "构建产物",
+            "Android app 模块构建输出",
+        ),
+        CleanupRule::project(
+            "target",
+            TechStack::Java,
+            RiskLevel::Safe,
+            "构建产物",
+            "Maven 构建输出",
+        )
+        .marker("pom.xml"),
         // iOS
-        CleanupRule {
-            relative: "Pods",
-            stack: TechStack::Ios,
-            risk: RiskLevel::Caution,
-            category: "依赖",
-            description: "CocoaPods 依赖，可通过 pod install 恢复",
-            global: false,
-        },
-        CleanupRule {
-            relative: "DerivedData",
-            stack: TechStack::Ios,
-            risk: RiskLevel::Safe,
-            category: "Xcode 缓存",
-            description: "Xcode 本地构建缓存",
-            global: false,
-        },
+        CleanupRule::project(
+            "Pods",
+            TechStack::Ios,
+            RiskLevel::Caution,
+            "依赖",
+            "CocoaPods 依赖，可通过 pod install 恢复",
+        ),
+        CleanupRule::project(
+            "DerivedData",
+            TechStack::Ios,
+            RiskLevel::Safe,
+            "Xcode 缓存",
+            "Xcode 本地构建缓存",
+        ),
         // Flutter
-        CleanupRule {
-            relative: ".dart_tool",
-            stack: TechStack::Flutter,
-            risk: RiskLevel::Safe,
-            category: "工具缓存",
-            description: "Dart/Flutter 工具缓存",
-            global: false,
-        },
-        CleanupRule {
-            relative: ".flutter-plugins-dependencies",
-            stack: TechStack::Flutter,
-            risk: RiskLevel::Safe,
-            category: "插件缓存",
-            description: "Flutter 插件依赖记录",
-            global: false,
-        },
+        CleanupRule::project(
+            ".dart_tool",
+            TechStack::Flutter,
+            RiskLevel::Safe,
+            "工具缓存",
+            "Dart/Flutter 工具缓存",
+        ),
+        CleanupRule::project(
+            ".flutter-plugins-dependencies",
+            TechStack::Flutter,
+            RiskLevel::Safe,
+            "插件缓存",
+            "Flutter 插件依赖记录",
+        ),
         // .NET
-        CleanupRule {
-            relative: "bin",
-            stack: TechStack::DotNet,
-            risk: RiskLevel::Safe,
-            category: "构建产物",
-            description: ".NET 编译输出",
-            global: false,
-        },
-        CleanupRule {
-            relative: "obj",
-            stack: TechStack::DotNet,
-            risk: RiskLevel::Safe,
-            category: "中间产物",
-            description: ".NET 中间构建文件",
-            global: false,
-        },
+        CleanupRule::project(
+            "bin",
+            TechStack::DotNet,
+            RiskLevel::Safe,
+            "构建产物",
+            ".NET 编译输出",
+        )
+        .marker("*.csproj"),
+        CleanupRule::project(
+            "obj",
+            TechStack::DotNet,
+            RiskLevel::Safe,
+            "中间产物",
+            ".NET 中间构建文件",
+        )
+        .marker("*.csproj"),
         // C/C++
-        CleanupRule {
-            relative: "cmake-build-debug",
-            stack: TechStack::Cpp,
-            risk: RiskLevel::Safe,
-            category: "构建目录",
-            description: "CMake Debug 构建输出",
-            global: false,
-        },
-        CleanupRule {
-            relative: "cmake-build-release",
-            stack: TechStack::Cpp,
-            risk: RiskLevel::Safe,
-            category: "构建目录",
-            description: "CMake Release 构建输出",
-            global: false,
-        },
-        CleanupRule {
-            relative: "out",
-            stack: TechStack::Cpp,
-            risk: RiskLevel::Safe,
-            category: "构建目录",
-            description: "通用 C++ 构建输出",
-            global: false,
-        },
-    ]
+        CleanupRule::project(
+            "",
+            TechStack::Cpp,
+            RiskLevel::Safe,
+            "构建目录",
+            "CMake 构建输出",
+        )
+        .prefix("cmake-build-"),
+        CleanupRule::project(
+            "out",
+            TechStack::Cpp,
+            RiskLevel::Safe,
+            "构建目录",
+            "通用 C++ 构建输出",
+        )
+        .marker("CMakeLists.txt"),
+        CleanupRule::project(
+            "zig-cache",
+            TechStack::Cpp,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Zig 编译缓存",
+        )
+        .marker("build.zig"),
+        CleanupRule::project(
+            "zig-out",
+            TechStack::Cpp,
+            RiskLevel::Safe,
+            "构建产物",
+            "Zig 构建输出",
+        )
+        .marker("build.zig"),
+        // Unity
+        CleanupRule::project(
+            "Library",
+            TechStack::Unity,
+            RiskLevel::Safe,
+            "构建缓存",
+            "Unity 本地 Library 缓存，可重新导入",
+        )
+        .marker("ProjectSettings/ProjectVersion.txt"),
+        CleanupRule::project(
+            "Temp",
+            TechStack::Unity,
+            RiskLevel::Safe,
+            "临时文件",
+            "Unity 临时构建文件",
+        )
+        .marker("ProjectSettings/ProjectVersion.txt"),
+        CleanupRule::project(
+            "Logs",
+            TechStack::Unity,
+            RiskLevel::Safe,
+            "日志",
+            "Unity 编辑器日志",
+        )
+        .marker("ProjectSettings/ProjectVersion.txt"),
+        // Godot
+        CleanupRule::project(
+            ".godot",
+            TechStack::Other,
+            RiskLevel::Safe,
+            "编辑器缓存",
+            "Godot 编辑器缓存",
+        )
+        .marker("project.godot"),
+        // Terraform
+        CleanupRule::project(
+            ".terraform",
+            TechStack::Infra,
+            RiskLevel::Caution,
+            "Provider 缓存",
+            "Terraform provider 与模块缓存，terraform init 可恢复",
+        ),
+        // Elixir
+        CleanupRule::project(
+            "_build",
+            TechStack::Other,
+            RiskLevel::Safe,
+            "构建产物",
+            "Elixir / Mix 构建输出",
+        )
+        .marker("mix.exs"),
+        CleanupRule::project(
+            "deps",
+            TechStack::Other,
+            RiskLevel::Caution,
+            "依赖",
+            "Elixir 依赖目录，mix deps.get 可恢复",
+        )
+        .marker("mix.exs"),
+        ]
+    });
+    RULES.as_slice()
 }
 
 pub fn global_cache_rules() -> &'static [CleanupRule] {
     #[cfg(target_os = "windows")]
     {
-        // Windows 下 npm/pnpm/Yarn/pip/uv/pub 的缓存实际位于 %LOCALAPPDATA%
-        // （即用户主目录下的 AppData/Local），此处以主目录相对路径表达
-        &[
-            CleanupRule {
-                relative: ".cargo/registry/cache",
-                stack: TechStack::Rust,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "Cargo 下载缓存（可重建）",
-                global: true,
-            },
-            CleanupRule {
-                relative: "AppData/Local/npm-cache/_cacache",
-                stack: TechStack::NodeWeb,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "npm 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "AppData/Local/pnpm/store",
-                stack: TechStack::NodeWeb,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "pnpm 内容寻址存储（删除后项目需重新安装依赖）",
-                global: true,
-            },
-            CleanupRule {
-                relative: "AppData/Local/Yarn/Cache",
-                stack: TechStack::NodeWeb,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "Yarn 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: ".gradle/caches",
-                stack: TechStack::Android,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "Gradle 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "AppData/Local/uv/cache",
-                stack: TechStack::Python,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "uv 包管理器缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "AppData/Local/pip/Cache",
-                stack: TechStack::Python,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "pip 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: ".nuget/packages",
-                stack: TechStack::DotNet,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "NuGet 全局包缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "AppData/Local/Pub/Cache",
-                stack: TechStack::Flutter,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "Dart/Flutter pub 全局缓存",
-                global: true,
-            },
-        ]
+        static RULES: LazyLock<Vec<CleanupRule>> = LazyLock::new(|| {
+            vec![
+            CleanupRule::global(
+                ".cargo/registry/cache",
+                TechStack::Rust,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Cargo 下载缓存（可重建）",
+            ),
+            CleanupRule::global(
+                ".cargo/git",
+                TechStack::Rust,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Cargo git 依赖 checkout（可重建）",
+            ),
+            CleanupRule::global(
+                ".rustup/toolchains",
+                TechStack::Rust,
+                RiskLevel::Protected,
+                "工具链",
+                "Rust 工具链，删除后需 rustup 重新安装",
+            ),
+            CleanupRule::global(
+                ".pyenv/versions",
+                TechStack::Python,
+                RiskLevel::Protected,
+                "工具链",
+                "pyenv 已安装 Python 版本，删除后需 pyenv install 恢复",
+            ),
+            CleanupRule::global(
+                "AppData/Local/npm-cache/_cacache",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                "全局缓存",
+                "npm 全局缓存",
+            ),
+            CleanupRule::global(
+                "AppData/Local/pnpm/store",
+                TechStack::NodeWeb,
+                RiskLevel::Caution,
+                "全局缓存",
+                "pnpm 内容寻址存储（删除后项目需重新安装依赖）",
+            ),
+            CleanupRule::global(
+                "AppData/Local/Yarn/Cache",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                "全局缓存",
+                "Yarn 全局缓存",
+            ),
+            CleanupRule::global(
+                ".gradle/caches",
+                TechStack::Android,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Gradle 全局缓存",
+            ),
+            CleanupRule::global(
+                "AppData/Local/uv/cache",
+                TechStack::Python,
+                RiskLevel::Safe,
+                "全局缓存",
+                "uv 包管理器缓存",
+            ),
+            CleanupRule::global(
+                "AppData/Local/pip/Cache",
+                TechStack::Python,
+                RiskLevel::Safe,
+                "全局缓存",
+                "pip 全局缓存",
+            ),
+            CleanupRule::global(
+                ".nuget/packages",
+                TechStack::DotNet,
+                RiskLevel::Caution,
+                "全局缓存",
+                "NuGet 全局包缓存",
+            ),
+            CleanupRule::global(
+                "AppData/Local/Pub/Cache",
+                TechStack::Flutter,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Dart/Flutter pub 全局缓存",
+            ),
+            ]
+        });
+        RULES.as_slice()
     }
     #[cfg(not(target_os = "windows"))]
     {
-        &[
-            CleanupRule {
-                relative: ".cargo/registry/cache",
-                stack: TechStack::Rust,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "Cargo 下载缓存（可重建）",
-                global: true,
-            },
-            CleanupRule {
-                relative: ".npm/_cacache",
-                stack: TechStack::NodeWeb,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "npm 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "Library/Caches/pnpm",
-                stack: TechStack::NodeWeb,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "pnpm 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "Library/Caches/Yarn",
-                stack: TechStack::NodeWeb,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "Yarn 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "Library/Developer/Xcode/DerivedData",
-                stack: TechStack::Ios,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "Xcode DerivedData 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: ".gradle/caches",
-                stack: TechStack::Android,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "Gradle 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "Library/Caches/uv",
-                stack: TechStack::Python,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "uv 包管理器缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: ".cache/uv",
-                stack: TechStack::Python,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "uv 包管理器缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: "Library/Caches/pip",
-                stack: TechStack::Python,
-                risk: RiskLevel::Safe,
-                category: "全局缓存",
-                description: "pip 全局缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: ".nuget/packages",
-                stack: TechStack::DotNet,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "NuGet 全局包缓存",
-                global: true,
-            },
-            CleanupRule {
-                relative: ".pub-cache",
-                stack: TechStack::Flutter,
-                risk: RiskLevel::Caution,
-                category: "全局缓存",
-                description: "Dart/Flutter pub 全局缓存",
-                global: true,
-            },
-        ]
+        static RULES: LazyLock<Vec<CleanupRule>> = LazyLock::new(|| {
+            vec![
+            CleanupRule::global(
+                ".cargo/registry/cache",
+                TechStack::Rust,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Cargo 下载缓存（可重建）",
+            ),
+            CleanupRule::global(
+                ".cargo/git",
+                TechStack::Rust,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Cargo git 依赖 checkout（可重建）",
+            ),
+            CleanupRule::global(
+                ".rustup/toolchains",
+                TechStack::Rust,
+                RiskLevel::Protected,
+                "工具链",
+                "Rust 工具链，删除后需 rustup 重新安装",
+            ),
+            CleanupRule::global(
+                ".pyenv/versions",
+                TechStack::Python,
+                RiskLevel::Protected,
+                "工具链",
+                "pyenv 已安装 Python 版本，删除后需 pyenv install 恢复",
+            ),
+            CleanupRule::global(
+                ".npm/_cacache",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                "全局缓存",
+                "npm 全局缓存",
+            ),
+            CleanupRule::global(
+                "Library/Caches/pnpm",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                "全局缓存",
+                "pnpm 全局缓存",
+            ),
+            CleanupRule::global(
+                "Library/Caches/Yarn",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                "全局缓存",
+                "Yarn 全局缓存",
+            ),
+            CleanupRule::global(
+                "Library/Developer/Xcode/DerivedData",
+                TechStack::Ios,
+                RiskLevel::Safe,
+                "全局缓存",
+                "Xcode DerivedData 全局缓存",
+            ),
+            CleanupRule::global(
+                ".gradle/caches",
+                TechStack::Android,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Gradle 全局缓存",
+            ),
+            CleanupRule::global(
+                "Library/Caches/uv",
+                TechStack::Python,
+                RiskLevel::Safe,
+                "全局缓存",
+                "uv 包管理器缓存",
+            ),
+            CleanupRule::global(
+                ".cache/uv",
+                TechStack::Python,
+                RiskLevel::Safe,
+                "全局缓存",
+                "uv 包管理器缓存",
+            ),
+            CleanupRule::global(
+                "Library/Caches/pip",
+                TechStack::Python,
+                RiskLevel::Safe,
+                "全局缓存",
+                "pip 全局缓存",
+            ),
+            CleanupRule::global(
+                ".nuget/packages",
+                TechStack::DotNet,
+                RiskLevel::Caution,
+                "全局缓存",
+                "NuGet 全局包缓存",
+            ),
+            CleanupRule::global(
+                ".pub-cache",
+                TechStack::Flutter,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Dart/Flutter pub 全局缓存",
+            ),
+            ]
+        });
+        RULES.as_slice()
     }
 }
 
@@ -558,5 +912,13 @@ pub fn project_marker_files() -> &'static [(&'static str, TechStack)] {
         ("requirements.txt", TechStack::Python),
         ("*.csproj", TechStack::DotNet),
         ("CMakeLists.txt", TechStack::Cpp),
+        ("go.mod", TechStack::Go),
+        ("Gemfile", TechStack::Ruby),
+        ("composer.json", TechStack::Php),
+        ("project.godot", TechStack::Unity),
+        ("mix.exs", TechStack::Ruby),
+        ("build.zig", TechStack::Cpp),
+        ("main.tf", TechStack::Infra),
+        ("versions.tf", TechStack::Infra),
     ]
 }
