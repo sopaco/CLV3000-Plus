@@ -104,8 +104,8 @@ pub enum CleanupBucket {
 impl CleanupBucket {
     pub fn label(self) -> &'static str {
         match self {
-            Self::ProjectBuildCache => "项目构建缓存",
-            Self::SharedToolCache => "工具下载缓存",
+            Self::ProjectBuildCache => "项目临时产物",
+            Self::SharedToolCache => "构建下载缓存",
             Self::DevEnvironment => "环境与依赖",
             Self::AiGenerated => "AI 工具数据",
         }

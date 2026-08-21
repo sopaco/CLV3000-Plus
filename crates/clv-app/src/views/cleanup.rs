@@ -55,21 +55,21 @@ impl Render for CleanupView {
                     .child(filter_btn("filter-all", "全部", CleanupFilter::All, &store, cx))
                     .child(filter_btn(
                         "filter-safe",
-                        "仅安全项",
+                        "仅安全清理项",
                         CleanupFilter::SafeOnly,
                         &store,
                         cx,
                     ))
                     .child(filter_btn(
                         "filter-project",
-                        "项目构建缓存",
+                        "项目临时产物",
                         CleanupFilter::ProjectBuildCache,
                         &store,
                         cx,
                     ))
                     .child(filter_btn(
                         "filter-shared",
-                        "工具下载缓存",
+                        "构建下载缓存",
                         CleanupFilter::SharedToolCache,
                         &store,
                         cx,
@@ -459,10 +459,16 @@ fn cleanup_scan_prompt(store: &Entity<AppStore>, cx: &App) -> Div {
                 ),
         )
         .child(
-            ui::action_button("cleanup-first-scan", "立即扫描", Some(ui::ACTION_SCAN), true, cx)
-                .on_click(move |_, _, cx| {
-                    store.update(cx, |s, cx| s.start_scan(cx));
-                }),
+            ui::action_button(
+                "cleanup-first-scan",
+                "立即扫描",
+                Some(ui::ACTION_SCAN),
+                true,
+                cx,
+            )
+            .on_click(move |_, _, cx| {
+                store.update(cx, |s, cx| s.start_scan(cx));
+            }),
         )
 }
 

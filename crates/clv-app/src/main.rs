@@ -29,19 +29,13 @@ fn main() {
         gpui_component::init(cx);
         apply_clv_theme(cx);
         platform::apply_app_icon();
+        let options = window_options(cx);
         cx.spawn(async move |cx| {
-            cx.open_window(default_window_options(), build_root_view)?;
+            cx.open_window(options, build_root_view)?;
             Ok::<_, anyhow::Error>(())
         })
         .detach();
     });
-}
-
-fn default_window_options() -> WindowOptions {
-    WindowOptions {
-        titlebar: Some(TitleBar::title_bar_options()),
-        ..WindowOptions::default()
-    }
 }
 
 fn window_options(cx: &App) -> WindowOptions {
