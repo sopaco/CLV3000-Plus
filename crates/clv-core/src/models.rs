@@ -146,7 +146,7 @@ pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
         }
     }
 
-    if item.category == "全局缓存" {
+    if item.category == "全局缓存" || item.category == "系统临时" {
         return CleanupBucket::SharedToolCache;
     }
 

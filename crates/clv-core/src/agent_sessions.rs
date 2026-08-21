@@ -68,6 +68,51 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             "Agent 缓存",
             "Cursor 代码缓存，可安全清理",
         );
+        push_dir(
+            &mut targets,
+            cursor_root.join("CachedExtensionVSIXs"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Cursor 扩展 VSIX 下载缓存",
+        );
+        push_dir(
+            &mut targets,
+            cursor_root.join("logs"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Cursor 运行日志",
+        );
+    }
+
+    for windsurf_root in windsurf_data_roots(&home) {
+        push_dir(
+            &mut targets,
+            windsurf_root.join("CachedData"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Windsurf Electron 缓存，可安全清理",
+        );
+        push_dir(
+            &mut targets,
+            windsurf_root.join("GPUCache"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Windsurf GPU 缓存，可安全清理",
+        );
+        push_dir(
+            &mut targets,
+            windsurf_root.join("Code Cache"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Windsurf 代码缓存，可安全清理",
+        );
+        push_dir(
+            &mut targets,
+            windsurf_root.join("logs"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Windsurf 运行日志",
+        );
     }
 
     push_dir(
@@ -182,11 +227,29 @@ fn cursor_data_roots(home: &Path) -> Vec<PathBuf> {
     }
     #[cfg(target_os = "windows")]
     {
-        vec![home.join("AppData/Roaming/Cursor")]
+        vec![
+            home.join("AppData/Roaming/Cursor"),
+            home.join("AppData/Local/Programs/cursor"),
+        ]
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         vec![home.join(".config/Cursor")]
+    }
+}
+
+fn windsurf_data_roots(home: &Path) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![home.join("Library/Application Support/Windsurf")]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home.join("AppData/Roaming/Windsurf")]
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        vec![home.join(".config/Windsurf")]
     }
 }
 

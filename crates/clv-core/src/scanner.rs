@@ -1,7 +1,7 @@
 use crate::models::{RiskLevel, ScanItem, ScanProgress, ScanReport, TechStack};
 use crate::settings::{
     agent_marker_files, agent_name_patterns, global_cache_rules, is_protected_system_path,
-    project_marker_files, project_rules, AppSettings, CleanupRule,
+    project_marker_files, project_rules, resolve_global_path, AppSettings, CleanupRule,
 };
 use chrono::{DateTime, Utc};
 use walkdir::WalkDir;
@@ -65,30 +65,29 @@ impl Scanner {
             true,
         );
 
-        // Global caches under home
-        if let Some(home) = directories::UserDirs::new().map(|d| d.home_dir().to_path_buf()) {
-            for rule in global_cache_rules() {
-                let path = home.join(rule.relative);
-                self.try_add_rule_path(
-                    &path,
-                    None,
-                    rule,
+        // Global caches under home / known env locations
+        for rule in global_cache_rules() {
+            let Some(path) = resolve_global_path(rule.relative) else {
+                continue;
+            };
+            self.try_add_rule_path(
+                &path,
+                None,
+                rule,
+                &mut items,
+                &mut seen_paths,
+                &mut on_progress,
+            );
+        }
+
+        if self.settings.include_agent_heuristics {
+            for target in crate::agent_sessions::discover_agent_session_targets() {
+                self.try_add_agent_session(
+                    &target,
                     &mut items,
                     &mut seen_paths,
                     &mut on_progress,
                 );
-            }
-
-            // Coding-agent session records (Codex / Claude / Cursor / WorkBuddy)
-            if self.settings.include_agent_heuristics {
-                for target in crate::agent_sessions::discover_agent_session_targets() {
-                    self.try_add_agent_session(
-                        &target,
-                        &mut items,
-                        &mut seen_paths,
-                        &mut on_progress,
-                    );
-                }
             }
         }
 
@@ -166,6 +165,7 @@ impl Scanner {
             .min_depth(1)
             .max_depth(max_depth)
             .into_iter()
+            .filter_entry(|e| !should_skip_dir(e.path()))
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
@@ -355,7 +355,7 @@ fn dir_size(path: &Path) -> u64 {
 }
 
 const DIR_SIZE_MAX_ENTRIES: usize = 100_000;
-const SKIP_DIR_NAMES: &[&str] = &[".git", ".svn", ".hg"];
+const SKIP_DIR_NAMES: &[&str] = &[".git", ".svn", ".hg", ".terrain"];
 
 fn dir_size_dir(root: &Path) -> u64 {
     let mut total = 0u64;

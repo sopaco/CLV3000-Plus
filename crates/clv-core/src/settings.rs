@@ -1,7 +1,10 @@
 use crate::models::{RiskLevel, TechStack};
+use crate::paths::{default_scan_paths, expand_scan_path};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+
+pub use crate::paths::resolve_global_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -16,20 +19,8 @@ pub struct AppSettings {
 
 impl Default for AppSettings {
     fn default() -> Self {
-        let home = directories::UserDirs::new()
-            .map(|d| d.home_dir().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
         Self {
-            scan_paths: vec![
-                home.join("Projects"),
-                home.join("projects"),
-                home.join("Documents"),
-                home.join("Desktop"),
-                home.join("Developer"),
-                home.join("dev"),
-                home.join("code"),
-                home.join("Code"),
-            ],
+            scan_paths: default_scan_paths(),
             expert_mode: false,
             soft_delete: true,
             soft_delete_days: 7,
@@ -64,21 +55,9 @@ pub fn format_scan_paths(paths: &[PathBuf]) -> String {
 }
 
 pub fn parse_scan_paths(text: &str) -> Vec<PathBuf> {
-    let home = directories::UserDirs::new().map(|d| d.home_dir().to_path_buf());
     text.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(|line| {
-            if let Some(rest) = line.strip_prefix("~/") {
-                home.as_ref()
-                    .map(|h| h.join(rest))
-                    .unwrap_or_else(|| PathBuf::from(line))
-            } else if line == "~" {
-                home.clone().unwrap_or_else(|| PathBuf::from("."))
-            } else {
-                PathBuf::from(line)
-            }
-        })
+        .map(expand_scan_path)
+        .filter(|path| !path.as_os_str().is_empty())
         .collect()
 }
 
@@ -101,26 +80,7 @@ pub fn trash_dir() -> Option<PathBuf> {
 
 /// System paths that must never be scanned or deleted.
 pub fn is_protected_system_path(path: &Path) -> bool {
-    let s = path.to_string_lossy().to_lowercase();
-    // macOS temp lives under /var/folders — do not treat as system
-    if s.contains("/var/folders/") {
-        return false;
-    }
-    let blocked = [
-        "/system",
-        "/library",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/etc",
-        "/private/var",
-        "/applications",
-        "c:\\windows",
-        "c:\\program files",
-        "c:\\program files (x86)",
-        "c:\\programdata",
-    ];
-    blocked.iter().any(|b| s.starts_with(b))
+    crate::paths::is_protected_system_path(path)
 }
 
 /// Known cleanup targets relative to a project root or global cache.
@@ -651,6 +611,15 @@ pub fn project_rules() -> &'static [CleanupRule] {
         )
         .marker("mix.exs"),
         CleanupRule::project(
+            ".cache",
+            TechStack::NodeWeb,
+            RiskLevel::Safe,
+            "工具缓存",
+            "node_modules 内 webpack/babel 等工具缓存",
+        )
+        .marker("package.json")
+        .parent("node_modules"),
+        CleanupRule::project(
             "deps",
             TechStack::Other,
             RiskLevel::Caution,
@@ -668,6 +637,7 @@ pub fn global_cache_rules() -> &'static [CleanupRule] {
     {
         static RULES: LazyLock<Vec<CleanupRule>> = LazyLock::new(|| {
             vec![
+            // --- Rust / Python toolchains ---
             CleanupRule::global(
                 ".cargo/registry/cache",
                 TechStack::Rust,
@@ -683,6 +653,13 @@ pub fn global_cache_rules() -> &'static [CleanupRule] {
                 "Cargo git 依赖 checkout（可重建）",
             ),
             CleanupRule::global(
+                ".cargo/registry/index",
+                TechStack::Rust,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Cargo registry 索引缓存（可重建）",
+            ),
+            CleanupRule::global(
                 ".rustup/toolchains",
                 TechStack::Rust,
                 RiskLevel::Protected,
@@ -696,27 +673,57 @@ pub fn global_cache_rules() -> &'static [CleanupRule] {
                 "工具链",
                 "pyenv 已安装 Python 版本，删除后需 pyenv install 恢复",
             ),
+            // --- Node / Web ---
             CleanupRule::global(
-                "AppData/Local/npm-cache/_cacache",
+                "$LOCALAPPDATA/npm-cache/_cacache",
                 TechStack::NodeWeb,
                 RiskLevel::Safe,
                 "全局缓存",
                 "npm 全局缓存",
             ),
             CleanupRule::global(
-                "AppData/Local/pnpm/store",
+                ".npm/_cacache",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                "全局缓存",
+                "npm 旧版全局缓存（用户目录）",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/pnpm/store",
                 TechStack::NodeWeb,
                 RiskLevel::Caution,
                 "全局缓存",
                 "pnpm 内容寻址存储（删除后项目需重新安装依赖）",
             ),
             CleanupRule::global(
-                "AppData/Local/Yarn/Cache",
+                "$LOCALAPPDATA/Yarn/Cache",
                 TechStack::NodeWeb,
                 RiskLevel::Safe,
                 "全局缓存",
                 "Yarn 全局缓存",
             ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/bun/install/cache",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                "全局缓存",
+                "Bun 包管理器全局缓存",
+            ),
+            CleanupRule::global(
+                ".bun/install/cache",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                "全局缓存",
+                "Bun 用户目录安装缓存",
+            ),
+            CleanupRule::global(
+                ".cache",
+                TechStack::NodeWeb,
+                RiskLevel::Caution,
+                "全局缓存",
+                "用户目录通用工具缓存（部分 CLI/前端工具）",
+            ),
+            // --- Java / Android / .NET / Flutter ---
             CleanupRule::global(
                 ".gradle/caches",
                 TechStack::Android,
@@ -725,14 +732,28 @@ pub fn global_cache_rules() -> &'static [CleanupRule] {
                 "Gradle 全局缓存",
             ),
             CleanupRule::global(
-                "AppData/Local/uv/cache",
+                ".gradle/wrapper/dists",
+                TechStack::Android,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Gradle Wrapper 发行版下载缓存",
+            ),
+            CleanupRule::global(
+                ".m2/repository",
+                TechStack::Java,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Maven 本地仓库（删除后需重新下载依赖）",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/uv/cache",
                 TechStack::Python,
                 RiskLevel::Safe,
                 "全局缓存",
                 "uv 包管理器缓存",
             ),
             CleanupRule::global(
-                "AppData/Local/pip/Cache",
+                "$LOCALAPPDATA/pip/Cache",
                 TechStack::Python,
                 RiskLevel::Safe,
                 "全局缓存",
@@ -746,11 +767,147 @@ pub fn global_cache_rules() -> &'static [CleanupRule] {
                 "NuGet 全局包缓存",
             ),
             CleanupRule::global(
-                "AppData/Local/Pub/Cache",
+                "$LOCALAPPDATA/Pub/Cache",
                 TechStack::Flutter,
                 RiskLevel::Caution,
                 "全局缓存",
                 "Dart/Flutter pub 全局缓存",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/Microsoft/MSBuild",
+                TechStack::DotNet,
+                RiskLevel::Safe,
+                "全局缓存",
+                "MSBuild 编译缓存",
+            ),
+            // --- Go / Docker ---
+            CleanupRule::global(
+                "$LOCALAPPDATA/go-build",
+                TechStack::Go,
+                RiskLevel::Safe,
+                "全局缓存",
+                "Go 编译缓存（GOCACHE 默认位置）",
+            ),
+            CleanupRule::global(
+                "go/pkg/mod",
+                TechStack::Go,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Go module 下载缓存（删除后需重新 go mod download）",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/Docker",
+                TechStack::Other,
+                RiskLevel::Caution,
+                "全局缓存",
+                "Docker Desktop 本地数据与缓存",
+            ),
+            // --- IDE / Editor ---
+            CleanupRule::global(
+                "$APPDATA/Code/Cache",
+                TechStack::Other,
+                RiskLevel::Safe,
+                "全局缓存",
+                "VS Code Electron 缓存",
+            ),
+            CleanupRule::global(
+                "$APPDATA/Code/CachedData",
+                TechStack::Other,
+                RiskLevel::Safe,
+                "全局缓存",
+                "VS Code 版本缓存",
+            ),
+            CleanupRule::global(
+                "$APPDATA/Code/CachedExtensionVSIXs",
+                TechStack::Other,
+                RiskLevel::Safe,
+                "全局缓存",
+                "VS Code 扩展 VSIX 下载缓存",
+            ),
+            CleanupRule::global(
+                "$APPDATA/Cursor/Cache",
+                TechStack::Agent,
+                RiskLevel::Safe,
+                "Agent 缓存",
+                "Cursor Electron 缓存",
+            ),
+            CleanupRule::global(
+                "$APPDATA/Cursor/CachedData",
+                TechStack::Agent,
+                RiskLevel::Safe,
+                "Agent 缓存",
+                "Cursor 版本缓存",
+            ),
+            CleanupRule::global(
+                "$APPDATA/Cursor/logs",
+                TechStack::Agent,
+                RiskLevel::Safe,
+                "Agent 缓存",
+                "Cursor 运行日志",
+            ),
+            CleanupRule::global(
+                "$APPDATA/Windsurf/Cache",
+                TechStack::Agent,
+                RiskLevel::Safe,
+                "Agent 缓存",
+                "Windsurf Electron 缓存",
+            ),
+            CleanupRule::global(
+                "$APPDATA/Windsurf/CachedData",
+                TechStack::Agent,
+                RiskLevel::Safe,
+                "Agent 缓存",
+                "Windsurf 版本缓存",
+            ),
+            // --- Windows system temp / junk ---
+            CleanupRule::global(
+                "$TEMP",
+                TechStack::System,
+                RiskLevel::Safe,
+                "系统临时",
+                "Windows TEMP/TMP 环境变量指向的临时目录",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/Temp",
+                TechStack::System,
+                RiskLevel::Safe,
+                "系统临时",
+                "Windows 用户临时文件目录（安装包/解压残留等）",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/CrashDumps",
+                TechStack::System,
+                RiskLevel::Safe,
+                "系统临时",
+                "应用程序崩溃转储文件",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/D3DSCache",
+                TechStack::System,
+                RiskLevel::Safe,
+                "系统临时",
+                "DirectX 着色器缓存",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/Microsoft/Windows/INetCache",
+                TechStack::System,
+                RiskLevel::Safe,
+                "系统临时",
+                "Windows 浏览器/WebView 缓存",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/Microsoft/Windows/DeliveryOptimization/Cache",
+                TechStack::System,
+                RiskLevel::Safe,
+                "系统临时",
+                "Windows 传递优化下载缓存",
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/Microsoft/Windows/Explorer",
+                TechStack::System,
+                RiskLevel::Caution,
+                "系统临时",
+                "Windows 资源管理器缩略图缓存",
             ),
             ]
         });

@@ -2,6 +2,7 @@ pub mod agent;
 pub mod agent_sessions;
 pub mod cleanup;
 pub mod models;
+pub mod paths;
 pub mod scanner;
 pub mod settings;
 
