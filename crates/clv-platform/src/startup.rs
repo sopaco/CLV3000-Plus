@@ -266,11 +266,25 @@ mod windows {
             label: "HKCU Run（当前用户）",
         },
         RegRunSource {
+            token: "hkcu-runonce",
+            hive: HKEY_CURRENT_USER,
+            path: "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+            approved: "Run",
+            label: "HKCU RunOnce（当前用户，一次性）",
+        },
+        RegRunSource {
             token: "hklm-run",
             hive: HKEY_LOCAL_MACHINE,
             path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
             approved: "Run",
             label: "HKLM Run（所有用户）",
+        },
+        RegRunSource {
+            token: "hklm-runonce",
+            hive: HKEY_LOCAL_MACHINE,
+            path: "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+            approved: "Run",
+            label: "HKLM RunOnce（所有用户，一次性）",
         },
         RegRunSource {
             token: "hklm-run32",

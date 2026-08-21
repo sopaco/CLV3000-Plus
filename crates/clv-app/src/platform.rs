@@ -18,9 +18,6 @@ pub fn apply_app_icon() {
     unsafe {
         use objc::runtime::Object;
         use objc::{class, msg_send, sel, sel_impl};
-        use std::ptr;
-
-        let nil = ptr::null_mut::<Object>();
         let data: *mut Object = msg_send![
             class!(NSData),
             dataWithBytes: bytes.data.as_ptr() as *const std::ffi::c_void

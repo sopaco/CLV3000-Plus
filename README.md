@@ -18,3 +18,23 @@
 
 cargo run -p clv-app
 ```
+
+## 打包
+
+### macOS（.app + .dmg）
+
+```bash
+./scripts/bundle-macos.sh
+# 产物：
+#   target/release/CLV3000 Plus.app
+#   target/release/CLV3000 Plus.dmg
+```
+
+### Windows（带图标的 release 可执行文件）
+
+在 Windows 上直接构建即可，`build.rs` 会通过 `embed-resource` 将 `assets/icons/icon_app.ico` 嵌入 exe：
+
+```powershell
+cargo build -p clv-app --release
+# 产物：target\release\clv3000-plus.exe（含任务栏/资源管理器图标）
+```

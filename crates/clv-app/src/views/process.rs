@@ -3,18 +3,23 @@ use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::format_bytes;
 use clv_platform::{kill_process, ProcessEnumerator, ProcessInfo, ProcessSort};
-use gpui::{Subscription, UniformListScrollHandle};
+use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
+use gpui_component::input::{Input, InputEvent, InputState};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const PROCESS_ROW_H: f32 = 52.;
-const MAX_PROCESSES: usize = 50;
+const DEFAULT_MAX_PROCESSES: usize = 50;
+const SEARCH_MAX_PROCESSES: usize = 200;
 
 pub struct ProcessView {
     store: Entity<AppStore>,
     #[allow(dead_code)]
     _store_subscription: Subscription,
-    processes: Vec<ProcessInfo>,
+    all_processes: Vec<ProcessInfo>,
+    search_query: String,
+    search_input: Option<Entity<InputState>>,
+    _search_subscription: Option<Subscription>,
     sort: ProcessSort,
     scroll_handle: UniformListScrollHandle,
     poll_generation: u64,
@@ -36,7 +41,10 @@ impl ProcessView {
         Self {
             store,
             _store_subscription: store_subscription,
-            processes: Vec::new(),
+            all_processes: Vec::new(),
+            search_query: String::new(),
+            search_input: None,
+            _search_subscription: None,
             sort: ProcessSort::Memory,
             scroll_handle: UniformListScrollHandle::new(),
             poll_generation: 0,
@@ -53,9 +61,53 @@ impl ProcessView {
             .lock()
             .expect("process enumerator lock")
             .list(sort)
-            .into_iter()
-            .take(MAX_PROCESSES)
+    }
+
+    fn filtered_processes(&self) -> Vec<ProcessInfo> {
+        let query = self.search_query.trim().to_lowercase();
+        if query.is_empty() {
+            return self
+                .all_processes
+                .iter()
+                .take(DEFAULT_MAX_PROCESSES)
+                .cloned()
+                .collect();
+        }
+
+        self.all_processes
+            .iter()
+            .filter(|proc| {
+                proc.name.to_lowercase().contains(&query)
+                    || proc.pid.to_string().contains(&query)
+                    || proc.category.label().contains(&query)
+            })
+            .take(SEARCH_MAX_PROCESSES)
+            .cloned()
             .collect()
+    }
+
+    fn ensure_search_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        if let Some(input) = &self.search_input {
+            return input.clone();
+        }
+
+        let input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("搜索名称、PID 或类别…")
+        });
+        let subscription = cx.subscribe(&input, |view, input, event, cx| {
+            if matches!(event, InputEvent::Change) {
+                view.search_query = input.read(cx).value().to_string();
+                view.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+                cx.notify();
+            }
+        });
+        self._search_subscription = Some(subscription);
+        self.search_input = Some(input.clone());
+        input
     }
 
     pub fn on_show(&mut self, cx: &mut Context<Self>) {
@@ -65,7 +117,7 @@ impl ProcessView {
         self.visible = true;
         self.poll_generation = self.poll_generation.wrapping_add(1);
         let enumerator = Arc::new(Mutex::new(ProcessEnumerator::new()));
-        self.processes = Self::processes_from_enumerator(&enumerator, self.sort);
+        self.all_processes = Self::processes_from_enumerator(&enumerator, self.sort);
         self.enumerator = Some(enumerator);
         cx.notify();
         self.spawn_poll_loop(cx);
@@ -97,7 +149,7 @@ impl ProcessView {
                 if view.poll_generation != poll_gen || !view.visible {
                     return;
                 }
-                view.processes = processes;
+                view.all_processes = processes;
                 cx.notify();
             })
             .ok();
@@ -138,7 +190,7 @@ impl ProcessView {
                         if !view.visible || view.poll_generation != poll_gen {
                             false
                         } else {
-                            view.processes = processes;
+                            view.all_processes = processes;
                             cx.notify();
                             true
                         }
@@ -157,7 +209,7 @@ impl ProcessView {
             return;
         }
         self.sort = sort;
-        self.scroll_handle.scroll_to_item(0, gpui::ScrollStrategy::Top);
+        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
         self.refresh_now(cx);
         cx.notify();
     }
@@ -165,11 +217,12 @@ impl ProcessView {
     fn render_row(
         &self,
         ix: usize,
+        processes: &[ProcessInfo],
         view: Entity<Self>,
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Div {
-        let Some(proc) = self.processes.get(ix) else {
+        let Some(proc) = processes.get(ix) else {
             return div().h(px(PROCESS_ROW_H));
         };
 
@@ -186,14 +239,16 @@ impl ProcessView {
             .child(
                 h_flex()
                     .size_full()
-                    .justify_between()
                     .items_center()
+                    .gap_4()
                     .child(
                         h_flex()
+                            .flex_1()
+                            .min_w_0()
                             .gap_4()
                             .items_center()
                             .child(cell(pid.to_string(), px(60.), colors::text_muted()))
-                            .child(cell(name, px(200.), colors::text_primary()))
+                            .child(name_cell(name, colors::text_primary()))
                             .child(cell(cpu, px(80.), colors::accent_blue()))
                             .child(cell(mem, px(100.), colors::text_secondary()))
                             .child(cell(cat.to_string(), px(80.), colors::text_muted())),
@@ -210,8 +265,16 @@ impl ProcessView {
                                         .on_ok({
                                             let view = view.clone();
                                             move |_, window, cx| {
-                                                kill_process(pid).ok();
-                                                view.update(cx, |v, cx| v.refresh_now(cx));
+                                                if let Err(e) = kill_process(pid) {
+                                                    window.open_dialog(cx, move |dialog, _, _| {
+                                                        dialog
+                                                            .title("结束进程失败")
+                                                            .child(e.to_string())
+                                                            .confirm()
+                                                    });
+                                                } else {
+                                                    view.update(cx, |v, cx| v.refresh_now(cx));
+                                                }
                                                 window.close_dialog(cx);
                                                 true
                                             }
@@ -225,14 +288,18 @@ impl ProcessView {
 }
 
 impl Render for ProcessView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.store.read(cx).page == AppPage::Process && !self.visible {
             self.on_show(cx);
         }
 
+        let search_input = self.ensure_search_input(window, cx);
         let sort = self.sort;
-        let count = self.processes.len();
+        let processes = self.filtered_processes();
+        let count = processes.len();
+        let total = self.all_processes.len();
         let scroll_handle = self.scroll_handle.clone();
+        let searching = !self.search_query.trim().is_empty();
         let _ = &self.store;
 
         div()
@@ -254,11 +321,20 @@ impl Render for ProcessView {
                             .items_center()
                             .child(ui::page_header(
                                 "进程管理",
-                                "显示前 50 个进程 · 结束进程前请确认没有未保存工作",
+                                if searching {
+                                    format!("搜索到 {count} / {total} 个进程")
+                                } else {
+                                    format!("显示前 {DEFAULT_MAX_PROCESSES} 个进程 · 共 {total} 个")
+                                },
                             ))
                             .child(
                                 h_flex()
                                     .gap_2()
+                                    .child(
+                                        div()
+                                            .w(px(240.))
+                                            .child(Input::new(&search_input)),
+                                    )
                                     .child(sort_button("sort-mem", "按内存", ProcessSort::Memory, sort, cx))
                                     .child(sort_button("sort-cpu", "按 CPU", ProcessSort::Cpu, sort, cx))
                                     .child(sort_button(
@@ -289,13 +365,14 @@ impl Render for ProcessView {
                             .py_2()
                             .child(
                                 h_flex()
+                                    .w_full()
                                     .gap_4()
                                     .child(header_cell("PID", px(60.)))
-                                    .child(header_cell("名称", px(200.)))
+                                    .child(header_name_cell("名称"))
                                     .child(header_cell("CPU", px(80.)))
                                     .child(header_cell("内存", px(100.)))
                                     .child(header_cell("类别", px(80.)))
-                                    .child(div().flex_grow()),
+                                    .child(div().w(px(96.))),
                             ),
                     ),
             )
@@ -309,15 +386,19 @@ impl Render for ProcessView {
                         .px_6()
                         .pb_6()
                         .when(count == 0, |this| {
-                            this.flex()
-                                .items_center()
-                                .justify_center()
-                                .child(
-                                    div()
-                                        .text_base()
-                                        .text_color(colors::text_muted())
-                                        .child(SharedString::from("正在加载进程列表…")),
-                                )
+                            this.flex().items_center().justify_center().child({
+                                let message: SharedString = if searching {
+                                    "没有匹配的进程".into()
+                                } else if total == 0 {
+                                    "正在加载进程列表…".into()
+                                } else {
+                                    "没有可显示的进程".into()
+                                };
+                                div()
+                                    .text_base()
+                                    .text_color(colors::text_muted())
+                                    .child(message)
+                            })
                         })
                         .when(count > 0, |this| {
                             this.child(ui::uniform_list_pane(
@@ -327,8 +408,11 @@ impl Render for ProcessView {
                                 cx,
                                 move |this, visible_range, window, cx| {
                                     let view = cx.entity();
+                                    let processes = this.filtered_processes();
                                     visible_range
-                                        .map(|ix| this.render_row(ix, view.clone(), window, cx))
+                                        .map(|ix| {
+                                            this.render_row(ix, &processes, view.clone(), window, cx)
+                                        })
                                         .collect()
                                 },
                             ))
@@ -345,6 +429,26 @@ fn header_cell(text: &str, width: gpui::Pixels) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(colors::text_muted())
         .child(text.to_string())
+}
+
+fn header_name_cell(text: &str) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .text_sm()
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(colors::text_muted())
+        .child(text.to_string())
+}
+
+fn name_cell(text: String, color: gpui::Hsla) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .text_base()
+        .text_color(color)
+        .truncate()
+        .child(text)
 }
 
 fn cell(text: String, width: gpui::Pixels, color: gpui::Hsla) -> Div {

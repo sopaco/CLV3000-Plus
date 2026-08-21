@@ -75,6 +75,18 @@ impl Scanner {
                     &mut on_progress,
                 );
             }
+
+            // Coding-agent session records (Codex / Claude / Cursor / WorkBuddy)
+            if self.settings.include_agent_heuristics {
+                for target in crate::agent_sessions::discover_agent_session_targets() {
+                    self.try_add_agent_session(
+                        &target,
+                        &mut items,
+                        &mut seen_paths,
+                        &mut on_progress,
+                    );
+                }
+            }
         }
 
         // User-configured scan roots
@@ -200,6 +212,60 @@ impl Scanner {
                 self.try_add_rule_path(&path, project_root, rule, items, seen, on_progress);
             }
         }
+    }
+
+    fn try_add_agent_session<F>(
+        &self,
+        target: &crate::agent_sessions::AgentSessionTarget,
+        items: &mut Vec<ScanItem>,
+        seen: &mut HashSet<PathBuf>,
+        on_progress: &mut ProgressThrottle<F>,
+    ) where
+        F: FnMut(ScanProgress),
+    {
+        let path = &target.path;
+        if !path.exists() {
+            return;
+        }
+        let key = path.to_path_buf();
+        if seen.contains(&key) || is_protected_system_path(path) {
+            return;
+        }
+
+        let size = dir_size(path);
+        if size == 0 {
+            return;
+        }
+
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.display().to_string());
+
+        seen.insert(key.clone());
+        items.push(ScanItem {
+            id: Uuid::new_v4().to_string(),
+            path: key,
+            name,
+            size_bytes: size,
+            stack: target.stack,
+            risk: target.risk,
+            category: target.category.to_string(),
+            description: target.description.to_string(),
+            project_root: None,
+            last_modified: last_modified(path),
+            selected: false,
+        });
+
+        on_progress.emit(
+            ScanProgress {
+                phase: "发现 Agent 会话".into(),
+                current_path: Some(path.to_path_buf()),
+                items_found: items.len(),
+                bytes_found: items.iter().map(|i| i.size_bytes).sum(),
+            },
+            false,
+        );
     }
 
     fn try_add_rule_path<F>(

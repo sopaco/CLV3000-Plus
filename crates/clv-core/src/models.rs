@@ -96,11 +96,17 @@ pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
         return CleanupBucket::AiGenerated;
     }
 
+    if item.category == "Agent 会话" || item.category == "Agent 缓存" {
+        return CleanupBucket::AiGenerated;
+    }
+
     let path = item.path.to_string_lossy().to_lowercase();
     for marker in [
         ".claude",
         ".agents",
         ".cursor",
+        ".codex",
+        ".codebuddy",
         ".aider",
         ".copilot",
         ".windsurf",

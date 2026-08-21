@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="CLV3000 Plus"
 BINARY="$ROOT/target/release/clv3000-plus"
 APP="$ROOT/target/release/${APP_NAME}.app"
+DMG="$ROOT/target/release/${APP_NAME}.dmg"
+STAGING="$ROOT/target/release/dmg-staging"
 ICON_SRC="$ROOT/assets/icons/icon_app.icns"
 
 cd "$ROOT"
@@ -53,3 +55,19 @@ cat >"$APP/Contents/Info.plist" <<'EOF'
 EOF
 
 echo "Built $APP"
+
+# Package .app into a compressed DMG for distribution.
+rm -rf "$STAGING" "$DMG"
+mkdir -p "$STAGING"
+cp -R "$APP" "$STAGING/"
+ln -s /Applications "$STAGING/Applications"
+
+hdiutil create \
+  -volname "$APP_NAME" \
+  -srcfolder "$STAGING" \
+  -ov \
+  -format UDZO \
+  "$DMG"
+
+rm -rf "$STAGING"
+echo "Built $DMG"

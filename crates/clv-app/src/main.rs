@@ -18,27 +18,48 @@ use theme::apply_clv_theme;
 fn main() {
     init_tracing();
 
-    Application::new()
-        .with_assets(assets::Assets)
-        .run(|cx| {
-            gpui_component::init(cx);
-            apply_clv_theme(cx);
-            platform::apply_app_icon();
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::centered(size(px(1280.), px(720.)), cx)),
-                titlebar: Some(TitleBar::title_bar_options()),
-                ..WindowOptions::default()
-            };
-            cx.spawn(async move |cx| {
-                cx.open_window(options, |window, cx| {
-                    let app = cx.new(|cx| ClvApp::new(window, cx));
-                    let shell = cx.new(|cx| AppShell::new(app, window, cx));
-                    cx.new(|cx| Root::new(shell, window, cx))
-                })?;
-                Ok::<_, anyhow::Error>(())
-            })
-            .detach();
-        });
+    let application = Application::new().with_assets(assets::Assets);
+    application.on_reopen(|app| {
+        app.activate(true);
+        if let Err(e) = open_main_window(app) {
+            tracing::error!("reopen window: {e}");
+        }
+    });
+    application.run(|cx| {
+        gpui_component::init(cx);
+        apply_clv_theme(cx);
+        platform::apply_app_icon();
+        cx.spawn(async move |cx| {
+            cx.open_window(default_window_options(), build_root_view)?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .detach();
+    });
+}
+
+fn default_window_options() -> WindowOptions {
+    WindowOptions {
+        titlebar: Some(TitleBar::title_bar_options()),
+        ..WindowOptions::default()
+    }
+}
+
+fn window_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::centered(size(px(1280.), px(720.)), cx)),
+        titlebar: Some(TitleBar::title_bar_options()),
+        ..WindowOptions::default()
+    }
+}
+
+fn build_root_view(window: &mut Window, cx: &mut App) -> Entity<Root> {
+    let app = cx.new(|cx| ClvApp::new(window, cx));
+    let shell = cx.new(|cx| AppShell::new(app, window, cx));
+    cx.new(|cx| Root::new(shell, window, cx))
+}
+
+fn open_main_window(app: &mut App) -> anyhow::Result<WindowHandle<Root>> {
+    app.open_window(window_options(app), build_root_view)
 }
 
 #[cfg(debug_assertions)]

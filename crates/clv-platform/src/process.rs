@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sysinfo::{Pid, ProcessesToUpdate, System};
+use sysinfo::System;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProcessSort {
@@ -90,17 +90,87 @@ fn collect_processes(sys: &System, sort: ProcessSort) -> Vec<ProcessInfo> {
 }
 
 pub fn kill_process(pid: u32) -> anyhow::Result<()> {
-    let mut sys = System::new();
-    let pid = Pid::from_u32(pid);
-    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), false);
-    if let Some(process) = sys.process(pid) {
-        if !process.kill() {
-            anyhow::bail!("failed to kill process {pid}");
-        }
-        Ok(())
-    } else {
-        anyhow::bail!("process {pid} not found")
+    #[cfg(target_os = "windows")]
+    {
+        return kill_process_windows(pid);
     }
+
+    #[cfg(unix)]
+    {
+        return kill_process_unix(pid);
+    }
+}
+
+#[cfg(unix)]
+fn kill_process_unix(pid: u32) -> anyhow::Result<()> {
+    use std::time::Duration;
+
+    unsafe {
+        if libc::kill(pid as i32, 0) != 0 {
+            let err = std::io::Error::last_os_error();
+            anyhow::bail!("进程 {pid} 不存在或无法访问：{err}");
+        }
+
+        if libc::kill(pid as i32, libc::SIGTERM) == 0 {
+            for _ in 0..10 {
+                std::thread::sleep(Duration::from_millis(50));
+                if libc::kill(pid as i32, 0) != 0 {
+                    return Ok(());
+                }
+            }
+        }
+
+        if libc::kill(pid as i32, libc::SIGKILL) != 0 {
+            let err = std::io::Error::last_os_error();
+            anyhow::bail!("无法结束进程 {pid}：{err}");
+        }
+
+        std::thread::sleep(Duration::from_millis(100));
+        if libc::kill(pid as i32, 0) == 0 {
+            anyhow::bail!("进程 {pid} 仍在运行，可能需要管理员权限");
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn kill_process_windows(pid: u32) -> anyhow::Result<()> {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, FALSE};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        if handle == 0 {
+            anyhow::bail!(
+                "无法打开进程 {pid}（错误码 {}），可能需要管理员权限",
+                GetLastError()
+            );
+        }
+
+        let terminated = TerminateProcess(handle, 1);
+        CloseHandle(handle);
+
+        if terminated == FALSE {
+            anyhow::bail!(
+                "无法结束进程 {pid}（错误码 {}），可能需要管理员权限",
+                GetLastError()
+            );
+        }
+    }
+
+    // Give the kernel a moment to reap the process, then verify.
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let mut sys = System::new();
+    let pid_obj = Pid::from_u32(pid);
+    sys.refresh_processes(ProcessesToUpdate::Some(&[pid_obj]), false);
+    if sys.process(pid_obj).is_some() {
+        anyhow::bail!("进程 {pid} 仍在运行，可能需要管理员权限");
+    }
+
+    Ok(())
 }
 
 fn categorize_process(name: &str) -> ProcessCategory {
