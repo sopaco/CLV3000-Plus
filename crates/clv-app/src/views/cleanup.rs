@@ -184,11 +184,10 @@ impl Render for CleanupView {
                                                         .confirm()
                                                         .on_ok({
                                                             let store = store_confirm.clone();
-                                                            move |_, window, cx| {
+                                                            move |_, _, cx| {
                                                                 store.update(cx, |s, cx| {
                                                                     s.run_cleanup(cx);
                                                                 });
-                                                                window.close_dialog(cx);
                                                                 true
                                                             }
                                                         })

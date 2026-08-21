@@ -33,6 +33,7 @@ impl SettingsView {
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .multi_line(true)
+                .auto_grow(4, 12)
                 .default_value(initial)
                 .placeholder("每行一个目录路径，支持 ~/Projects")
         });
@@ -139,8 +140,8 @@ impl Render for SettingsView {
                             .child(
                                 div()
                                     .w_full()
-                                    .min_h(px(120.))
-                                    .child(Input::new(&scan_paths_input)),
+                                    .min_h(px(160.))
+                                    .child(Input::new(&scan_paths_input).h(px(160.))),
                             )
                             .child(
                                 h_flex()

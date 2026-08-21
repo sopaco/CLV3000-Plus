@@ -4,7 +4,7 @@ use super::{state::AppPage, ClvApp};
 use crate::prelude::*;
 use crate::theme::{colors, corner_md};
 use gpui::{img, linear_color_stop, linear_gradient};
-use gpui_component::TitleBar;
+use gpui_component::{Root, TitleBar};
 
 pub struct AppShell {
     app: Entity<ClvApp>,
@@ -17,7 +17,7 @@ impl AppShell {
 }
 
 impl Render for AppShell {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.app.read(cx).current_page(cx);
         let page_title = page.title();
 
@@ -69,6 +69,8 @@ impl Render for AppShell {
                     .bg(titlebar_content_gradient())
                     .child(self.app.clone()),
             )
+            .children(Root::render_dialog_layer(window, cx))
+            .children(Root::render_notification_layer(window, cx))
     }
 }
 
