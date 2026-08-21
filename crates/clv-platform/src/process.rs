@@ -154,7 +154,7 @@ fn kill_process_windows(pid: u32) -> anyhow::Result<()> {
 
     unsafe {
         let handle = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-        if handle == 0 {
+        if handle == std::ptr::null_mut() {
             anyhow::bail!(
                 "无法打开进程 {pid}（错误码 {}），可能需要管理员权限",
                 GetLastError()
