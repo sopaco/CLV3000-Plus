@@ -146,9 +146,16 @@ fn expand_windows_percent_vars(input: &str) -> Option<String> {
 pub fn is_protected_system_path(path: &Path) -> bool {
     #[cfg(target_os = "windows")]
     {
-        return is_protected_windows_path(path);
+        is_protected_windows_path(path)
     }
+    #[cfg(not(target_os = "windows"))]
+    {
+        is_protected_unix_path(path)
+    }
+}
 
+#[cfg(not(target_os = "windows"))]
+fn is_protected_unix_path(path: &Path) -> bool {
     let s = path.to_string_lossy().to_lowercase();
     // macOS temp lives under /var/folders — do not treat as system
     if s.contains("/var/folders/") {
