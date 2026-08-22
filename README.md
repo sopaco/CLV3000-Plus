@@ -7,7 +7,7 @@
 
 <a href=".terrain/human"><img alt="Litho Docs" src="https://img.shields.io/badge/Litho-Docs-green?logo=Gitbook&color=%23008a60"/></a>
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-<a href="https://github.com/sopaco/CLV3000-Plus/releases"><img alt="App Download" src="https://img.shields.io/badge/Download-green?logo=Download&color=%23008a60"/></a>
+<a href="https://github.com/sopaco/CLV3000-Plus/releases"><img alt="App Download" src="https://img.shields.io/badge/Download-Secure-blue?logo=Download&color=%23008a60"/></a>
 
 </div>
 
