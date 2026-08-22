@@ -6,8 +6,9 @@ use gpui::{ScrollStrategy, UniformListScrollHandle};
 use gpui_component::Icon;
 use std::path::{Path, PathBuf};
 
-/// Fixed virtualized row height — checkbox row + badge row + card padding.
-const CLEANUP_ROW_H: f32 = 100.;
+/// Virtualized row slot — card body + gap between rows.
+const CLEANUP_ROW_H: f32 = 108.;
+const CLEANUP_CARD_H: f32 = 96.;
 const CLEANUP_PATH_ROW_H: f32 = 36.;
 
 pub struct CleanupView {
@@ -27,8 +28,8 @@ impl CleanupView {
         &self,
         item: &ScanItem,
         expert: bool,
-        expanded: bool,
         store: Entity<AppStore>,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Div {
         let id = item.id.clone();
@@ -41,19 +42,24 @@ impl CleanupView {
                 .unwrap_or_else(|| item.name.clone())
         };
         let item_path = item.path.clone();
+        let item_name = item.name.clone();
+        let item_description = item.description.clone();
         let cb_id = eid(format!("cb-{id}"));
         let exp_id = eid(format!("exp-{id}"));
         let path_id = eid(format!("path-{id}"));
 
-        ui::soft_card()
+        div()
+            .w_full()
             .h(px(CLEANUP_ROW_H))
-            .px_4()
+            .pb_3()
             .child(
-                h_flex()
-                    .size_full()
+                ui::card()
+                    .w_full()
+                    .h(px(CLEANUP_CARD_H))
+                    .p_4()
+                    .flex()
                     .flex_col()
-                    .justify_center()
-                    .gap_1()
+                    .gap_2()
                     .child(
                         h_flex()
                             .items_start()
@@ -92,6 +98,9 @@ impl CleanupView {
                                 div()
                                     .flex_1()
                                     .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
                                     .child(
                                         h_flex()
                                             .min_h(px(CLEANUP_PATH_ROW_H))
@@ -110,6 +119,23 @@ impl CleanupView {
                                                     .font_weight(FontWeight::SEMIBOLD)
                                                     .child(item.size_human()),
                                             ),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .child(ui::risk_badge(item.risk))
+                                            .child(
+                                                div()
+                                                    .text_base()
+                                                    .text_color(colors::text_muted())
+                                                    .child(item.stack.label()),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_base()
+                                                    .text_color(colors::text_muted())
+                                                    .child(item.category.clone()),
+                                            ),
                                     ),
                             )
                             .child(
@@ -119,45 +145,19 @@ impl CleanupView {
                                     .items_center()
                                     .h(px(CLEANUP_PATH_ROW_H))
                                     .child(
-                                        ui::std_button(
-                                            Button::new(exp_id)
-                                                .ghost()
-                                                .label(if expanded { "收起" } else { "详情" }),
-                                        )
-                                        .on_click(cx.listener({
-                                            let id = id.clone();
-                                            let store = store.clone();
-                                            move |_, _, _, cx| {
-                                                store.update(cx, |s, cx| {
-                                                    if s.expanded_item.as_deref() == Some(&id) {
-                                                        s.expanded_item = None;
-                                                    } else {
-                                                        s.expanded_item = Some(id.clone());
-                                                    }
-                                                    cx.notify();
-                                                });
-                                            }
-                                        })),
+                                        ui::std_button(Button::new(exp_id).ghost().label("详情"))
+                                            .on_click(cx.listener({
+                                                move |_, _, window, cx| {
+                                                    open_item_detail_dialog(
+                                                        window,
+                                                        cx,
+                                                        &item_name,
+                                                        &item_description,
+                                                        &item_path,
+                                                    );
+                                                }
+                                            })),
                                     ),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(ui::risk_badge(item.risk))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(colors::text_muted())
-                                    .truncate()
-                                    .child(item.stack.label()),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(colors::text_muted())
-                                    .truncate()
-                                    .child(item.category.clone()),
                             ),
                     ),
             )
@@ -165,7 +165,7 @@ impl CleanupView {
 }
 
 impl Render for CleanupView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let store_ref = self.store.read(cx);
         let items = store_ref.filtered_items();
         let selected_bytes = store_ref.selected_bytes();
@@ -174,13 +174,9 @@ impl Render for CleanupView {
         let scanning = store_ref.scanning;
         let cleaning = store_ref.cleaning;
         let expert = store_ref.settings.expert_mode;
-        let expanded_id = store_ref.expanded_item.clone();
         let store = self.store.clone();
         let count = items.len();
         let scroll_handle = self.scroll_handle.clone();
-        let expanded_item = expanded_id
-            .as_ref()
-            .and_then(|id| items.iter().find(|item| &item.id == id));
 
         div()
             .size_full()
@@ -369,6 +365,7 @@ impl Render for CleanupView {
                             div()
                                 .flex_1()
                                 .min_h_0()
+                                .w_full()
                                 .flex()
                                 .flex_col()
                                 .p_4()
@@ -410,25 +407,21 @@ impl Render for CleanupView {
                                 })
                                 .when(has_report && count > 0 && !scanning, |this| {
                                     let items = items.clone();
-                                    let expanded_id = expanded_id.clone();
                                     let store = store.clone();
                                     this.child(ui::uniform_list_pane(
                                         "cleanup-rows",
                                         count,
                                         scroll_handle,
                                         cx,
-                                        move |this, visible_range, _window, cx| {
+                                        move |this, visible_range, window, cx| {
                                             visible_range
                                                 .filter_map(|ix| {
                                                     items.get(ix).map(|item| {
-                                                        let expanded = expanded_id
-                                                            .as_deref()
-                                                            == Some(item.id.as_str());
                                                         this.render_row(
                                                             item,
                                                             expert,
-                                                            expanded,
                                                             store.clone(),
+                                                            window,
                                                             cx,
                                                         )
                                                     })
@@ -439,10 +432,6 @@ impl Render for CleanupView {
                                 }),
                         ),
                     )
-                    .when_some(expanded_item, |this, item| {
-                        this.child(ui::panel_divider())
-                            .child(expanded_detail_panel(item, &store, cx))
-                    })
                     .child(ui::panel_divider())
                     .child(
                         h_flex()
@@ -463,55 +452,40 @@ impl Render for CleanupView {
     }
 }
 
-fn expanded_detail_panel(item: &ScanItem, store: &Entity<AppStore>, _cx: &App) -> Div {
-    let id = item.id.clone();
-    let store = store.clone();
-    div()
-        .flex_shrink_0()
-        .mx_4()
-        .mb_2()
-        .p_4()
-        .rounded(corner_md())
-        .bg(colors::bg_card())
-        .border_1()
-        .border_color(colors::panel_divider())
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            h_flex()
-                .justify_between()
-                .items_start()
-                .child(
-                    div()
-                        .text_base()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(colors::text_primary())
-                        .child(item.name.clone()),
-                )
-                .child(
-                    ui::std_button(Button::new(eid(format!("close-{id}"))).ghost().label("收起"))
-                        .on_click(move |_, _, cx| {
-                            store.update(cx, |s, cx| {
-                                s.expanded_item = None;
-                                cx.notify();
-                            });
-                        }),
-                ),
-        )
-        .child(
-            div()
-                .text_sm()
-                .text_color(colors::text_secondary())
-                .child(item.description.clone()),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(colors::text_muted())
-                .truncate()
-                .child(item.path.display().to_string()),
-        )
+fn open_item_detail_dialog(
+    window: &mut Window,
+    cx: &mut App,
+    name: &str,
+    description: &str,
+    path: &Path,
+) {
+    let name: SharedString = name.to_string().into();
+    let description: SharedString = description.to_string().into();
+    let path: SharedString = path.display().to_string().into();
+    window.open_dialog(cx, move |dialog, _window, _cx| {
+        dialog
+            .title(name.clone())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_base()
+                            .text_color(colors::text_secondary())
+                            .child(description.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(colors::text_muted())
+                            .child(path.clone()),
+                    ),
+            )
+            .alert()
+            .on_ok(|_, _, _| true)
+    });
 }
 
 fn cleanup_scan_prompt(store: &Entity<AppStore>, cx: &App) -> Div {
@@ -609,7 +583,6 @@ fn clickable_folder_path(
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(colors::text_primary())
                 .overflow_hidden()
-                .truncate()
                 .child(label),
         )
 }
@@ -640,7 +613,6 @@ fn filter_btn(
     ui::ghost_pill(id, label, active, cx).on_click(move |_, _, cx| {
         store.update(cx, |s, cx| {
             s.cleanup_filter = filter;
-            s.expanded_item = None;
             cx.notify();
         });
         scroll_handle.scroll_to_item(0, ScrollStrategy::Top);

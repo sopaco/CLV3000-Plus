@@ -33,7 +33,6 @@ impl SettingsView {
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .multi_line(true)
-                .auto_grow(4, 12)
                 .default_value(initial)
                 .placeholder("每行一个目录路径，支持 ~/Projects")
         });
@@ -52,8 +51,7 @@ impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = self.store.read(cx).settings.clone();
         let paths_text = format_scan_paths(&settings.scan_paths);
-        let scan_paths_input =
-            self.ensure_scan_paths_input(window, cx, paths_text);
+        let scan_paths_input = self.ensure_scan_paths_input(window, cx, paths_text);
         let store = self.store.clone();
 
         div()
@@ -125,6 +123,7 @@ impl Render for SettingsView {
                             .flex()
                             .flex_col()
                             .gap_3()
+                            .min_w_0()
                             .child(
                                 div()
                                     .font_weight(FontWeight::SEMIBOLD)
@@ -140,8 +139,10 @@ impl Render for SettingsView {
                             .child(
                                 div()
                                     .w_full()
-                                    .min_h(px(160.))
-                                    .child(Input::new(&scan_paths_input).h(px(160.))),
+                                    .min_w_0()
+                                    .h(px(160.))
+                                    .overflow_hidden()
+                                    .child(Input::new(&scan_paths_input).h_full().w_full()),
                             )
                             .child(
                                 h_flex()
@@ -199,12 +200,6 @@ impl Render for SettingsView {
                                         "Rust · Node.js/Web · Android · iOS · Flutter · KMP · Java · Python · .NET · C/C++ · Go · Ruby · PHP · Unity · Terraform",
                                     ),
                             ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(colors::text_muted())
-                            .child("CLV3000 Plus v0.1.0 · Rust + GPUI"),
                     ),
             ))
     }

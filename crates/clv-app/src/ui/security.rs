@@ -190,7 +190,7 @@ pub fn health_ring(score: u8, status: &str, accent: Hsla, scanning: bool) -> Div
                                 div()
                                     .text_sm()
                                     .text_color(colors::text_muted())
-                                    .child("健康分"),
+                                    .child("清爽分"),
                             )
                         }),
                 ),
