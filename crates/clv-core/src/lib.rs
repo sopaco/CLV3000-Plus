@@ -41,6 +41,76 @@ mod tests {
     }
 
     #[test]
+    fn scanner_prunes_nested_cleanup_inside_matched_parent() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("web-app");
+        std::fs::create_dir_all(project.join("node_modules/.cache")).unwrap();
+        std::fs::write(project.join("package.json"), "{}").unwrap();
+        std::fs::write(
+            project.join("node_modules/.cache/webpack.bin"),
+            "x".repeat(2 * 1024 * 1024),
+        )
+        .unwrap();
+
+        let mut settings = AppSettings::default();
+        settings.scan_paths = vec![project.clone()];
+        let report = Scanner::new(settings).scan(|_| {});
+
+        let paths: Vec<_> = report
+            .items
+            .iter()
+            .filter(|i| i.path.starts_with(&project))
+            .map(|i| i.path.clone())
+            .collect();
+        assert!(
+            paths.iter().any(|p| p.ends_with("node_modules")),
+            "expected node_modules, got: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.ends_with(".cache")),
+            "nested .cache should be pruned, got: {paths:?}"
+        );
+        let project_items: Vec<_> = report
+            .items
+            .iter()
+            .filter(|i| i.path.starts_with(&project))
+            .collect();
+        assert_eq!(project_items.len(), 1, "expected single item, got: {project_items:?}");
+        assert_eq!(project_items[0].name, "node_modules");
+    }
+
+    #[test]
+    fn scanner_keeps_sibling_build_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("android-app");
+        std::fs::create_dir_all(project.join("build")).unwrap();
+        std::fs::create_dir_all(project.join("app/build")).unwrap();
+        std::fs::write(project.join("build.gradle"), "plugins {}").unwrap();
+        std::fs::write(
+            project.join("build/output.bin"),
+            "x".repeat(2 * 1024 * 1024),
+        )
+        .unwrap();
+        std::fs::write(
+            project.join("app/build/output.bin"),
+            "x".repeat(2 * 1024 * 1024),
+        )
+        .unwrap();
+
+        let mut settings = AppSettings::default();
+        settings.scan_paths = vec![project.clone()];
+        let report = Scanner::new(settings).scan(|_| {});
+
+        let names: Vec<_> = report.items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"build"), "expected root build, got: {names:?}");
+        assert!(
+            report.items.iter().any(|i| i.path.ends_with("app/build")),
+            "expected app/build, got: {:?}",
+            report.items.iter().map(|i| &i.path).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn rule_prefix_and_marker_matching() {
         use crate::scanner::{rule_matches_dir_name, rule_matches_marker};
         use crate::settings::CleanupRule;

@@ -5,6 +5,7 @@ use crate::settings::{
 };
 use chrono::{DateTime, Utc};
 use walkdir::WalkDir;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -76,6 +77,7 @@ impl Scanner {
                 rule,
                 &mut items,
                 &mut seen_paths,
+                None,
                 &mut on_progress,
             );
         }
@@ -110,6 +112,8 @@ impl Scanner {
 
             self.scan_tree(root, &mut items, &mut seen_paths, &mut on_progress);
         }
+
+        items = drop_nested_items(items);
 
         let mut report = ScanReport {
             items,
@@ -159,13 +163,17 @@ impl Scanner {
     {
         let rules = project_rules();
         let max_depth = 8;
+        let prune_roots: RefCell<HashSet<PathBuf>> = RefCell::new(HashSet::new());
 
         for entry in WalkDir::new(root)
             .follow_links(false)
             .min_depth(1)
             .max_depth(max_depth)
             .into_iter()
-            .filter_entry(|e| !should_skip_dir(e.path()))
+            .filter_entry(|e| {
+                let path = e.path();
+                !should_skip_dir(path) && !is_under_prune_root(path, &prune_roots.borrow())
+            })
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
@@ -207,6 +215,7 @@ impl Scanner {
                     rule,
                     items,
                     seen,
+                    Some(&prune_roots),
                     on_progress,
                 );
             }
@@ -274,6 +283,7 @@ impl Scanner {
         rule: &crate::settings::CleanupRule,
         items: &mut Vec<ScanItem>,
         seen: &mut HashSet<PathBuf>,
+        prune_roots: Option<&RefCell<HashSet<PathBuf>>>,
         on_progress: &mut ProgressThrottle<F>,
     ) where
         F: FnMut(ScanProgress),
@@ -309,6 +319,11 @@ impl Scanner {
         let last_modified = last_modified(path);
 
         seen.insert(key.clone());
+        if path.is_dir() {
+            if let Some(prune_roots) = prune_roots {
+                prune_roots.borrow_mut().insert(key.clone());
+            }
+        }
         items.push(ScanItem {
             id: Uuid::new_v4().to_string(),
             path: key,
@@ -402,6 +417,26 @@ fn should_skip_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| SKIP_DIR_NAMES.contains(&name))
+}
+
+/// True when `path` is a strict descendant of a directory already matched as a cleanup item.
+fn is_under_prune_root(path: &Path, prune_roots: &HashSet<PathBuf>) -> bool {
+    prune_roots
+        .iter()
+        .any(|root| path != root.as_path() && path.starts_with(root))
+}
+
+/// Drop items whose path is nested inside another item (e.g. `node_modules/.cache` under `node_modules`).
+fn drop_nested_items(items: Vec<ScanItem>) -> Vec<ScanItem> {
+    items
+        .iter()
+        .filter(|item| {
+            !items.iter().any(|other| {
+                other.path != item.path && item.path.starts_with(&other.path)
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 pub fn rule_matches_dir_name(file_name: &str, rule: &CleanupRule) -> bool {
