@@ -260,9 +260,9 @@ impl I18n {
 
     pub fn agent_heuristics_desc(&self) -> &'static str {
         self.t(
-            "根据目录名与 .agents/.claude/.cursor 等标记识别 Agent 试验项目",
-            "Detect agent trial projects via directory names and markers like .agents/.claude/.cursor",
-            "ディレクトリ名と .agents/.claude/.cursor 等のマーカーで Agent 試験プロジェクトを検出",
+            "根据目录名与 .agents/.claude/.cursor/.trae/.opencode 等标记识别 Agent 试验项目",
+            "Detect agent trial projects via directory names and markers like .agents/.claude/.cursor/.trae/.opencode",
+            "ディレクトリ名と .agents/.claude/.cursor/.trae/.opencode 等のマーカーで Agent 試験プロジェクトを検出",
         )
     }
 
@@ -421,9 +421,9 @@ impl I18n {
 
     pub fn feature_agent_detect(&self) -> &'static str {
         self.t(
-            "识别 Claude / Cursor / Codex 等 Agent 试验项目",
-            "Detect agent trial projects (Claude, Cursor, Codex, …)",
-            "Claude / Cursor / Codex 等の Agent 試験プロジェクトを検出",
+            "识别 Claude / Cursor / Codex / Trae / OpenCode 等 Agent 试验项目",
+            "Detect agent trial projects (Claude, Cursor, Codex, Trae, OpenCode, …)",
+            "Claude / Cursor / Codex / Trae / OpenCode 等の Agent 試験プロジェクトを検出",
         )
     }
 

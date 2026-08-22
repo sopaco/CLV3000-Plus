@@ -140,6 +140,8 @@ pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
         ".aider",
         ".copilot",
         ".windsurf",
+        ".trae",
+        ".opencode",
     ] {
         if path.contains(marker) {
             return CleanupBucket::AiGenerated;

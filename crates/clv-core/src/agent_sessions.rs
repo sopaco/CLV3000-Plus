@@ -161,6 +161,106 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
         );
     }
 
+    for trae_root in trae_app_data_roots(&home) {
+        push_dir(
+            &mut targets,
+            trae_root.join("CachedData"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Trae Electron 缓存，可安全清理",
+        );
+        push_dir(
+            &mut targets,
+            trae_root.join("GPUCache"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Trae GPU 缓存，可安全清理",
+        );
+        push_dir(
+            &mut targets,
+            trae_root.join("Code Cache"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Trae 代码缓存，可安全清理",
+        );
+        push_dir(
+            &mut targets,
+            trae_root.join("Cache"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Trae Electron 缓存，可安全清理",
+        );
+        push_dir(
+            &mut targets,
+            trae_root.join("logs"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "Trae 运行日志",
+        );
+        push_dir(
+            &mut targets,
+            trae_root.join("ModularData/ai-agent/snapshot"),
+            RiskLevel::Caution,
+            "Agent 会话",
+            "Trae AI 对话快照，删除后无法回滚到对话前状态",
+        );
+        push_dir(
+            &mut targets,
+            trae_root.join("User/workspaceStorage"),
+            RiskLevel::Caution,
+            "Agent 会话",
+            "Trae 项目聊天历史，删除后无法恢复",
+        );
+        push_dir(
+            &mut targets,
+            trae_root.join("User/globalStorage"),
+            RiskLevel::Caution,
+            "Agent 会话",
+            "Trae 全局聊天历史，删除后无法恢复",
+        );
+    }
+
+    for traex_root in traex_session_roots(&home) {
+        push_dir(
+            &mut targets,
+            traex_root.join("sessions"),
+            RiskLevel::Caution,
+            "Agent 会话",
+            "TraeX CLI 活跃会话记录（JSONL），删除后无法恢复对话历史",
+        );
+        push_dir(
+            &mut targets,
+            traex_root.join("archived_sessions"),
+            RiskLevel::Caution,
+            "Agent 会话",
+            "TraeX CLI 归档会话记录，删除后无法恢复",
+        );
+    }
+
+    for opencode_root in opencode_data_roots(&home) {
+        push_dir(
+            &mut targets,
+            opencode_root.join("log"),
+            RiskLevel::Safe,
+            "Agent 缓存",
+            "OpenCode 运行日志，可安全清理",
+        );
+        push_dir(
+            &mut targets,
+            opencode_root.join("project"),
+            RiskLevel::Caution,
+            "Agent 会话",
+            "OpenCode 项目会话与消息数据，删除后无法恢复对话历史",
+        );
+        push_dir(
+            &mut targets,
+            opencode_root.join("storage"),
+            RiskLevel::Caution,
+            "Agent 会话",
+            "OpenCode 会话存储（JSON/SQLite），删除后无法恢复对话历史",
+        );
+    }
+
     targets
 }
 
@@ -261,6 +361,85 @@ fn workbuddy_data_roots(home: &Path) -> Vec<PathBuf> {
     roots
 }
 
+const TRAE_APP_NAMES: &[&str] = &["Trae", "Trae CN", "TRAE SOLO CN"];
+
+fn trae_app_data_roots(home: &Path) -> Vec<PathBuf> {
+    let roots = parse_env_paths("TRAE_DIR");
+    if !roots.is_empty() {
+        return roots
+            .into_iter()
+            .map(|user_dir| {
+                user_dir
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or(user_dir)
+            })
+            .collect();
+    }
+
+    TRAE_APP_NAMES
+        .iter()
+        .map(|name| trae_app_data_root(home, name))
+        .collect()
+}
+
+fn trae_app_data_root(home: &Path, name: &str) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library/Application Support").join(name)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        home.join("AppData/Roaming").join(name)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        home.join(".config").join(name)
+    }
+}
+
+fn traex_session_roots(home: &Path) -> Vec<PathBuf> {
+    let mut roots = parse_env_paths("TRAEX_SESSIONS_DIR");
+    if roots.is_empty() {
+        roots.push(home.join(".trae/cli"));
+    } else {
+        roots = roots
+            .into_iter()
+            .map(|path| {
+                if path.ends_with("sessions") || path.ends_with("archived_sessions") {
+                    path.parent()
+                        .map(Path::to_path_buf)
+                        .unwrap_or(path)
+                } else {
+                    path
+                }
+            })
+            .collect();
+    }
+    roots
+}
+
+fn opencode_data_roots(home: &Path) -> Vec<PathBuf> {
+    let mut paths = parse_env_paths("OPENCODE_DIR");
+    if paths.is_empty() {
+        paths.push(home.join(".local/share/opencode"));
+        #[cfg(not(target_os = "windows"))]
+        if let Ok(xdg) = env::var("XDG_DATA_HOME") {
+            paths.push(PathBuf::from(xdg).join("opencode"));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(local) = env::var("LOCALAPPDATA") {
+                paths.push(PathBuf::from(local).join("opencode"));
+            }
+            if let Ok(appdata) = env::var("APPDATA") {
+                paths.push(PathBuf::from(appdata).join("opencode"));
+            }
+        }
+    }
+    paths
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +464,35 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let paths = claude_config_paths(temp.path());
         assert!(paths.iter().any(|p| p.ends_with(".claude")));
+    }
+
+    #[test]
+    fn trae_dir_respects_env() {
+        let temp = tempfile::tempdir().unwrap();
+        let custom_user = temp.path().join("custom-trae/User");
+        std::fs::create_dir_all(&custom_user).unwrap();
+        unsafe {
+            env::set_var("TRAE_DIR", &custom_user);
+        }
+        let paths = trae_app_data_roots(temp.path());
+        assert_eq!(paths, vec![custom_user.parent().unwrap().to_path_buf()]);
+        unsafe {
+            env::remove_var("TRAE_DIR");
+        }
+    }
+
+    #[test]
+    fn opencode_dir_respects_env() {
+        let temp = tempfile::tempdir().unwrap();
+        let custom = temp.path().join("custom-opencode");
+        std::fs::create_dir_all(&custom).unwrap();
+        unsafe {
+            env::set_var("OPENCODE_DIR", &custom);
+        }
+        let paths = opencode_data_roots(temp.path());
+        assert_eq!(paths, vec![custom]);
+        unsafe {
+            env::remove_var("OPENCODE_DIR");
+        }
     }
 }
