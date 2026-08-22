@@ -7,7 +7,7 @@ source: .
 
 ## Project Overview
 
-CLV3000 Plus is a native desktop utility that reclaims disk space on developer workstations. It scans configured development directories plus known global caches, identifies cleanable build artifacts across 13+ technology stacks, and safely deletes them via trash/quarantine. Its differentiator is detection of **AI coding agent experiment projects** (Claude/Cursor/Codex leftovers) — capability no competing cleanup tool offers. Consumers: end users on macOS/Windows/Linux via the GPUI desktop app; coding agents via this doc + `agent/repomix.md`. Key constraints: local-only (no network), destructive operations must be guarded by risk levels and protected-path checks; UI ships trilingual (zh/en/ja).
+CLV3000 Plus is a native desktop utility that reclaims disk space on developer workstations. It scans configured development directories plus known global caches, identifies cleanable build artifacts across 13+ technology stacks, and safely deletes them via trash/quarantine. Its differentiator is detection of **AI coding agent experiment projects** (Claude/Cursor/Codex/Trae/OpenCode leftovers) — capability no competing cleanup tool offers. Consumers: end users on macOS/Windows/Linux via the GPUI desktop app; coding agents via this doc + `agent/repomix.md`. Key constraints: local-only (no network), destructive operations must be guarded by risk levels and protected-path checks; UI ships trilingual (zh/en/ja).
 
 ## Architecture
 
@@ -32,7 +32,7 @@ Three-crate Cargo workspace, layered UI → platform-agnostic logic → OS abstr
 | Global state | `AppStore`, `AppPage`, scan/cleanup events, filters | `crates/clv-app/src/app/state.rs` |
 | Scanner | Rule-based discovery of cleanable items + global caches + agent sessions | `crates/clv-core/src/scanner.rs` |
 | Cleanup engine | Trash-move deletion, bucket classification, `CleanupReport` | `crates/clv-core/src/cleanup.rs` |
-| Agent detection | AI-agent experiment project heuristics + session target discovery | `crates/clv-core/src/agent.rs`, `agent_sessions.rs` |
+| Agent detection | AI-agent experiment project heuristics + session target discovery (Claude/Cursor/Codex/Trae/OpenCode/TraeX…) | `crates/clv-core/src/agent.rs`, `agent_sessions.rs` |
 | Models | `TechStack` (13+ stacks), `RiskLevel`, `ScanReport` types | `crates/clv-core/src/models.rs` |
 | Settings & paths | Persistence, default scan dirs, env-var expansion, protected-path guards | `crates/clv-core/src/settings.rs`, `paths.rs` |
 | Process manager | Running-process enumeration/search/sort/kill | `crates/clv-platform/src/process.rs` |
@@ -44,9 +44,9 @@ Three-crate Cargo workspace, layered UI → platform-agnostic logic → OS abstr
 ## Core Flows
 
 1. **Startup**: `main.rs` → load persisted settings → create `AppStore` → if `onboarding_done` is false show Onboarding page, else Dashboard → kick off async disk-usage refresh.
-2. **Scan**: user triggers scan → `Scanner::scan` walks configured roots (pruning nested matches), resolves global cache rules (cargo/npm/Xcode caches…), discovers agent session targets → emits throttled `ScanProgress` → produces `ScanReport` (items by tech stack, risk level, size) stored in `AppStore`.
+2. **Scan**: user triggers scan → `Scanner::scan` walks configured roots (pruning nested matches), resolves global cache rules (cargo/npm/Xcode/Trae caches…), discovers agent session targets (Claude/Cursor/Codex/Trae/OpenCode/TraeX…) → emits throttled `ScanProgress` → produces `ScanReport` (items by tech stack, risk level, size) stored in `AppStore`.
 3. **Cleanup**: CleanupView lists report items grouped by bucket/risk filter → user selects → cleanup engine moves targets to trash dir (skipping protected paths) → `CleanupReport { success, trashed, failed }` recorded; store refreshes usage.
-4. **Agent projects**: AgentView reads `report.agent_projects`, applies search filter (name/reason/path/stack); sessions from Claude/Cursor/Codex etc. are surfaced with reasons for safe review before cleanup.
+4. **Agent projects**: AgentView reads `report.agent_projects`, applies search filter (name/reason/path/stack); sessions from Claude/Cursor/Codex/Trae/OpenCode etc. are surfaced with reasons for safe review before cleanup.
 5. **Process management**: ProcessView polls `clv-platform` enumerator on page-show/refresh trigger → search/sort in-memory list → kill selected PID.
 
 ## Tech Stack
@@ -62,7 +62,7 @@ Three-crate Cargo workspace, layered UI → platform-agnostic logic → OS abstr
 ## System Boundaries
 
 - **Local filesystem only** — no network calls, no telemetry, no external APIs.
-- **Read side**: home directory, configured scan roots (default `~/Projects`, Documents, Desktop…), global tool caches (`~/.cargo`, npm/pip/Xcode derived data, etc.), agent CLI session directories.
+- **Read side**: home directory, configured scan roots (default `~/Projects`, Documents, Desktop…), global tool caches (`~/.cargo`, npm/pip/Xcode derived data, Trae/OpenCode app caches, etc.), agent CLI session directories (`~/.trae/cli`, OpenCode data dirs; overridable via `TRAE_DIR`/`TRAEX_SESSIONS_DIR`/`OPENCODE_DIR`).
 - **Write side**: trash/quarantine directory managed by the cleanup engine; settings JSON in the app config dir. Everything else is read-only.
 - **Trust boundary — protected paths**: `paths.rs` hard-blocks system locations (Unix root/system dirs, Windows %SystemRoot% variants) from any delete operation; risk levels (`Safe`/`Caution`/`Protected`) gate UI actions.
 - **OS integration**: process enumeration/kill via `sysinfo`; "open folder" via `open` crate; login/startup items surfaced in StartupView.
@@ -77,7 +77,7 @@ Three-crate Cargo workspace, layered UI → platform-agnostic logic → OS abstr
 | Central state store | `crates/clv-app/src/app/state.rs` | `AppStore`, events, filters |
 | Scan orchestration & rules | `crates/clv-core/src/scanner.rs` | Progress throttling, pruning |
 | Deletion engine | `crates/clv-core/src/cleanup.rs` | Trash move + report |
-| Agent project/session detection | `crates/clv-core/src/agent.rs`, `agent_sessions.rs` | Differentiating feature |
+| Agent project/session detection | `crates/clv-core/src/agent.rs`, `agent_sessions.rs` | Trae/Trae CN/SOLO, TraeX, OpenCode session targets |
 | Domain models | `crates/clv-core/src/models.rs` | `TechStack`, `RiskLevel`, reports |
 | Path safety & defaults | `crates/clv-core/src/paths.rs` | Protected-path guards |
 | Settings persistence | `crates/clv-core/src/settings.rs` | serde JSON |
