@@ -328,6 +328,16 @@ pub mod colors {
     pub fn accent_blue_pressed() -> Hsla {
         super::hex(super::palette().accent_pressed)
     }
+    /// Text and icon color on filled accent / primary buttons.
+    pub fn on_accent() -> Hsla {
+        super::hex(0xffffff)
+    }
+    pub fn accent_filled_hover() -> Hsla {
+        super::hex(super::palette().accent_active)
+    }
+    pub fn accent_filled_pressed() -> Hsla {
+        super::hex(super::palette().accent_pressed)
+    }
     pub fn safe_green() -> Hsla {
         super::hex(super::palette().safe_green)
     }
@@ -500,11 +510,7 @@ fn build_gpui_palette(p: ThemePalette) -> ThemeColor {
     t.info_hover = accent_active;
     t.info_active = accent_pressed;
     t.success = hex(p.safe_green);
-    t.success_foreground = if p.is_light {
-        hex(p.green)
-    } else {
-        hex(0xffffff)
-    };
+    t.success_foreground = hex(0xffffff);
     t.success_hover = hex(p.green);
     t.danger = hex(p.red);
     t.danger_foreground = hex(0xffffff);

@@ -150,6 +150,32 @@ pub fn loading_spinner(size: f32, color: gpui::Hsla) -> gpui_component::spinner:
 
 // ── Buttons ─────────────────────────────────────────────────────────────────
 
+/// Filled primary / CTA button — white label & icon on accent background.
+pub fn primary_button_variant(cx: &App) -> ButtonCustomVariant {
+    ButtonCustomVariant::new(cx)
+        .color(colors::accent_blue())
+        .foreground(colors::on_accent())
+        .border(colors::accent_blue())
+        .hover(colors::accent_filled_hover())
+        .active(colors::accent_filled_pressed())
+}
+
+pub fn primary_icon(name: IconName, size: f32) -> Icon {
+    Icon::new(name)
+        .with_size(px(size))
+        .text_color(colors::on_accent())
+}
+
+/// Dashboard hero "Scan Now" — filled accent with forced white label & icon.
+pub fn hero_scan_button(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    scanning: bool,
+    cx: &App,
+) -> Button {
+    action_button(id, label, Some(ACTION_SCAN), true, cx).loading(scanning)
+}
+
 pub fn action_button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
@@ -162,14 +188,18 @@ pub fn action_button(
     let mut btn = std_button(Button::new(id).label(label));
     if let Some(name) = icon {
         let icon_color = if primary {
-            colors::text_primary()
+            colors::on_accent()
         } else {
             colors::accent_blue()
         };
         btn = btn.icon(Icon::new(name).with_size(px(20.)).text_color(icon_color));
     }
     if primary {
-        lg_button(btn.primary())
+        lg_button(
+            btn.custom(primary_button_variant(cx))
+                .shadow_lg()
+                .text_color(colors::on_accent()),
+        )
     } else {
         btn.custom(
             ButtonCustomVariant::new(cx)

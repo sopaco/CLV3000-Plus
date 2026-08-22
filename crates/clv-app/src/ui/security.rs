@@ -4,7 +4,6 @@ use crate::app::state::AppStore;
 use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::{colors, corner, corner_md, corner_sm};
-use crate::ui::controls::lg_button;
 use crate::ui::icons::*;
 use gpui::{Hsla, img, linear_color_stop, linear_gradient};
 use gpui_component::{Icon, IconName, progress::Progress};
@@ -281,8 +280,13 @@ pub fn hero_banner(
                                     .gap_3()
                                     .items_center()
                                     .child(
-                                        scan_cta_button("hero-scan", scan_label, scanning, cx)
-                                            .on_click(on_scan),
+                                        crate::ui::hero_scan_button(
+                                            "hero-scan",
+                                            scan_label,
+                                            scanning,
+                                            cx,
+                                        )
+                                        .on_click(on_scan),
                                     )
                                     .child(
                                         div()
@@ -299,25 +303,10 @@ pub fn hero_banner(
 pub fn scan_cta_button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
-    disabled: bool,
-    _cx: &App,
+    scanning: bool,
+    cx: &App,
 ) -> Button {
-    let id: SharedString = id.into();
-    let label: SharedString = label.into();
-    lg_button(
-        Button::new(id)
-            .label(label)
-            .icon(
-                Icon::new(ACTION_SCAN)
-                    .with_size(px(18.))
-                    .text_color(colors::text_primary()),
-            )
-            .text_size(px(16.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .disabled(disabled)
-            .primary()
-            .shadow_lg(),
-    )
+    crate::ui::hero_scan_button(id, label, scanning, cx)
 }
 
 // ── Quick-action tiles ───────────────────────────────────────────────────────

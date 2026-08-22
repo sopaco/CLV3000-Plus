@@ -315,7 +315,7 @@ impl Render for CleanupView {
                                             "rescan",
                                             if has_report { i18n.rescan() } else { i18n.start_scan() },
                                             Some(ui::ACTION_SCAN),
-                                            false,
+                                            true,
                                             cx,
                                         )
                                         .disabled(scanning || cleaning)
