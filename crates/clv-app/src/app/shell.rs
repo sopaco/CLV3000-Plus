@@ -2,8 +2,8 @@
 
 use super::{state::AppPage, ClvApp};
 use crate::prelude::*;
-use crate::theme::{colors, corner_md};
-use gpui::{img, linear_color_stop, linear_gradient};
+use crate::theme::colors;
+use gpui::{linear_color_stop, linear_gradient};
 use gpui_component::{Root, TitleBar};
 
 pub struct AppShell {
@@ -33,11 +33,6 @@ impl Render for AppShell {
                         .h_full()
                         .items_center()
                         .gap_3()
-                        .child(
-                            img(ui::ICON_APP_LOGO)
-                                .size(px(22.))
-                                .rounded(corner_md()),
-                        )
                         .child(
                             div()
                                 .text_sm()

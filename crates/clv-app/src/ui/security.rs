@@ -341,6 +341,11 @@ pub fn quick_tile(
                 .border_color(tint.opacity(0.4))
                 .shadow_lg()
         })
+        .active(|s| {
+            s.bg(colors::from_hex(0xffffff).opacity(0.05))
+                .border_color(tint.opacity(0.55))
+                .shadow_sm()
+        })
         .child(
             h_flex()
                 .h_full()
@@ -445,6 +450,13 @@ pub fn nav_icon(
     } else {
         colors::text_muted()
     };
+    let icon_box_bg = if active {
+        colors::accent_blue_bg()
+    } else if is_hovered {
+        colors::accent_blue_bg_hover().opacity(0.55)
+    } else {
+        Hsla::transparent_black()
+    };
     let icon = icon.into().with_size(px(24.)).text_color(icon_color);
 
     div()
@@ -458,7 +470,12 @@ pub fn nav_icon(
         .justify_center()
         .gap(px(4.))
         .cursor_pointer()
+        .rounded(corner_md())
         .on_click(on_click)
+        .when(!active, |el| {
+            el.hover(|s| s.bg(colors::accent_blue_bg_hover().opacity(0.25)))
+                .active(|s| s.bg(colors::accent_blue_bg_pressed().opacity(0.45)))
+        })
         .on_hover({
             let hovered = hovered.clone();
             move |&h, _, cx| {
@@ -470,9 +487,9 @@ pub fn nav_icon(
                 .size(px(NAV_ICON_BOX))
                 .flex_shrink_0()
                 .rounded(corner_md())
+                .bg(icon_box_bg)
                 .when(active, |el| {
-                    el.bg(colors::accent_blue_bg())
-                        .border_1()
+                    el.border_1()
                         .border_color(colors::accent_blue().opacity(0.45))
                 })
                 .flex()

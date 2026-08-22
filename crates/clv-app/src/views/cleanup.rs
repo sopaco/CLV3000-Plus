@@ -1,20 +1,166 @@
 use crate::app::state::{AppStore, CleanupFilter};
 use crate::prelude::*;
 use crate::theme::{colors, corner_md};
-use clv_core::format_bytes;
+use clv_core::{format_bytes, ScanItem};
+use gpui::{ScrollStrategy, UniformListScrollHandle};
 use gpui_component::Icon;
 use std::path::{Path, PathBuf};
 
-/// Path row height — keeps checkbox, path, and action button vertically centered together.
+/// Fixed virtualized row height — checkbox row + badge row + card padding.
+const CLEANUP_ROW_H: f32 = 100.;
 const CLEANUP_PATH_ROW_H: f32 = 36.;
 
 pub struct CleanupView {
     store: Entity<AppStore>,
+    scroll_handle: UniformListScrollHandle,
 }
 
 impl CleanupView {
     pub fn new(store: Entity<AppStore>, _cx: &mut Context<Self>) -> Self {
-        Self { store }
+        Self {
+            store,
+            scroll_handle: UniformListScrollHandle::new(),
+        }
+    }
+
+    fn render_row(
+        &self,
+        item: &ScanItem,
+        expert: bool,
+        expanded: bool,
+        store: Entity<AppStore>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let id = item.id.clone();
+        let path_display = if expert {
+            item.path.display().to_string()
+        } else {
+            item.project_root
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| item.name.clone())
+        };
+        let item_path = item.path.clone();
+        let cb_id = eid(format!("cb-{id}"));
+        let exp_id = eid(format!("exp-{id}"));
+        let path_id = eid(format!("path-{id}"));
+
+        ui::soft_card()
+            .h(px(CLEANUP_ROW_H))
+            .px_4()
+            .child(
+                h_flex()
+                    .size_full()
+                    .flex_col()
+                    .justify_center()
+                    .gap_1()
+                    .child(
+                        h_flex()
+                            .items_start()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_shrink_0()
+                                    .items_center()
+                                    .justify_center()
+                                    .h(px(CLEANUP_PATH_ROW_H))
+                                    .child(
+                                        Checkbox::new(cb_id)
+                                            .checked(item.selected)
+                                            .cursor_pointer()
+                                            .on_click(cx.listener({
+                                                let id = id.clone();
+                                                let store = store.clone();
+                                                move |_, checked, _, cx| {
+                                                    let selected = *checked;
+                                                    store.update(cx, |s, cx| {
+                                                        if let Some(report) = &mut s.last_report {
+                                                            if let Some(item) =
+                                                                report.items.iter_mut().find(|i| i.id == id)
+                                                            {
+                                                                item.selected = selected;
+                                                            }
+                                                        }
+                                                        cx.notify();
+                                                    });
+                                                }
+                                            })),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(
+                                        h_flex()
+                                            .min_h(px(CLEANUP_PATH_ROW_H))
+                                            .items_center()
+                                            .gap_3()
+                                            .child(clickable_folder_path(
+                                                path_id,
+                                                &item_path,
+                                                path_display,
+                                            ))
+                                            .child(
+                                                div()
+                                                    .flex_shrink_0()
+                                                    .text_base()
+                                                    .text_color(colors::accent_blue())
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .child(item.size_human()),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_shrink_0()
+                                    .items_center()
+                                    .h(px(CLEANUP_PATH_ROW_H))
+                                    .child(
+                                        ui::std_button(
+                                            Button::new(exp_id)
+                                                .ghost()
+                                                .label(if expanded { "收起" } else { "详情" }),
+                                        )
+                                        .on_click(cx.listener({
+                                            let id = id.clone();
+                                            let store = store.clone();
+                                            move |_, _, _, cx| {
+                                                store.update(cx, |s, cx| {
+                                                    if s.expanded_item.as_deref() == Some(&id) {
+                                                        s.expanded_item = None;
+                                                    } else {
+                                                        s.expanded_item = Some(id.clone());
+                                                    }
+                                                    cx.notify();
+                                                });
+                                            }
+                                        })),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(ui::risk_badge(item.risk))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(colors::text_muted())
+                                    .truncate()
+                                    .child(item.stack.label()),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(colors::text_muted())
+                                    .truncate()
+                                    .child(item.category.clone()),
+                            ),
+                    ),
+            )
     }
 }
 
@@ -28,7 +174,13 @@ impl Render for CleanupView {
         let scanning = store_ref.scanning;
         let cleaning = store_ref.cleaning;
         let expert = store_ref.settings.expert_mode;
+        let expanded_id = store_ref.expanded_item.clone();
         let store = self.store.clone();
+        let count = items.len();
+        let scroll_handle = self.scroll_handle.clone();
+        let expanded_item = expanded_id
+            .as_ref()
+            .and_then(|id| items.iter().find(|item| &item.id == id));
 
         div()
             .size_full()
@@ -52,12 +204,20 @@ impl Render for CleanupView {
                             .text_color(colors::text_muted())
                             .child("筛选"),
                     )
-                    .child(filter_btn("filter-all", "全部", CleanupFilter::All, &store, cx))
+                    .child(filter_btn(
+                        "filter-all",
+                        "全部",
+                        CleanupFilter::All,
+                        &store,
+                        &self.scroll_handle,
+                        cx,
+                    ))
                     .child(filter_btn(
                         "filter-safe",
                         "仅安全清理项",
                         CleanupFilter::SafeOnly,
                         &store,
+                        &self.scroll_handle,
                         cx,
                     ))
                     .child(filter_btn(
@@ -65,6 +225,7 @@ impl Render for CleanupView {
                         "项目临时产物",
                         CleanupFilter::ProjectBuildCache,
                         &store,
+                        &self.scroll_handle,
                         cx,
                     ))
                     .child(filter_btn(
@@ -72,6 +233,7 @@ impl Render for CleanupView {
                         "构建下载缓存",
                         CleanupFilter::SharedToolCache,
                         &store,
+                        &self.scroll_handle,
                         cx,
                     ))
                     .child(filter_btn(
@@ -79,6 +241,7 @@ impl Render for CleanupView {
                         "环境与依赖",
                         CleanupFilter::DevEnvironment,
                         &store,
+                        &self.scroll_handle,
                         cx,
                     ))
                     .child(filter_btn(
@@ -86,6 +249,7 @@ impl Render for CleanupView {
                         "AI 工具数据",
                         CleanupFilter::AiGenerated,
                         &store,
+                        &self.scroll_handle,
                         cx,
                     )),
             )
@@ -97,8 +261,10 @@ impl Render for CleanupView {
                     .min_h_0()
                     .flex()
                     .flex_col()
+                    .overflow_hidden()
                     .child(
                         h_flex()
+                            .flex_shrink_0()
                             .p_4()
                             .gap_3()
                             .items_center()
@@ -198,205 +364,89 @@ impl Render for CleanupView {
                             ),
                     )
                     .child(ui::panel_divider())
-                    .child(ui::scroll_y(
-                        div()
-                            .p_4()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .when(!has_report && !scanning, |this| {
-                                this.child(cleanup_scan_prompt(&store, cx))
-                            })
-                            .when(has_report && items.is_empty() && !scanning, |this| {
-                                this.child(ui::empty_state(
-                                    ui::EMPTY_SCAN,
-                                    "当前筛选下暂无项目",
-                                    "尝试切换左侧筛选条件，或重新扫描",
-                                ))
-                            })
-                            .when(scanning, |this| {
-                                let phase = store_ref.scan_phase.clone();
-                                let found = store_ref.scan_items_found;
-                                let bytes = store_ref.scan_bytes_found;
-                                let path = store_ref.scan_current_path.clone();
-                                this.child(ui::empty_state_loading(
-                                    "正在扫描",
-                                    if let Some(p) = path {
-                                        format!(
-                                            "{phase} · 已发现 {found} 项（{bytes}）\n{p}",
-                                            bytes = format_bytes(bytes)
-                                        )
-                                    } else {
-                                        format!(
-                                            "{phase} · 已发现 {found} 项（{bytes}）",
-                                            bytes = format_bytes(bytes)
-                                        )
-                                    },
-                                ))
-                            })
-                            .children(items.iter().map(|item| {
-                                let id = item.id.clone();
-                                let expanded = store_ref.expanded_item.as_deref() == Some(&id);
-                                let path_display = if expert {
-                                    item.path.display().to_string()
-                                } else {
-                                    item.project_root
-                                        .as_ref()
-                                        .map(|p| p.display().to_string())
-                                        .unwrap_or_else(|| item.name.clone())
-                                };
-                                let store_toggle = store.clone();
-                                let store_expand = store.clone();
-                                let item_path = item.path.clone();
-                                let item_name = item.name.clone();
-                                let item_description = item.description.clone();
-                                let cb_id = eid(format!("cb-{id}"));
-                                let exp_id = eid(format!("exp-{id}"));
-                                let path_id = eid(format!("path-{id}"));
-
-                                ui::card()
-                                    .p_4()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_2()
-                                    .child(
-                                        h_flex()
-                                            .items_start()
-                                            .gap_3()
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .flex_shrink_0()
-                                                    .items_center()
-                                                    .justify_center()
-                                                    .h(px(CLEANUP_PATH_ROW_H))
-                                                    .child(
-                                                        Checkbox::new(cb_id)
-                                                            .checked(item.selected)
-                                                            .cursor_pointer()
-                                                            .on_click({
-                                                                let id = id.clone();
-                                                                let store = store_toggle.clone();
-                                                                move |checked, _, cx| {
-                                                                    let selected = *checked;
-                                                                    store.update(cx, |s, cx| {
-                                                                        if let Some(report) = &mut s.last_report {
-                                                                            if let Some(item) =
-                                                                                report.items.iter_mut().find(|i| i.id == id)
-                                                                            {
-                                                                                item.selected = selected;
-                                                                            }
-                                                                        }
-                                                                        cx.notify();
-                                                                    });
-                                                                }
-                                                            }),
-                                                    ),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .flex()
-                                                    .flex_col()
-                                                    .gap_1()
-                                                    .child(
-                                                        h_flex()
-                                                            .min_h(px(CLEANUP_PATH_ROW_H))
-                                                            .items_center()
-                                                            .gap_3()
-                                                            .child(clickable_folder_path(
-                                                                path_id,
-                                                                &item_path,
-                                                                path_display,
-                                                            ))
-                                                            .child(
-                                                                div()
-                                                                    .flex_shrink_0()
-                                                                    .text_base()
-                                                                    .text_color(colors::accent_blue())
-                                                                    .font_weight(FontWeight::SEMIBOLD)
-                                                                    .child(item.size_human()),
-                                                            ),
-                                                    )
-                                                    .child(
-                                                        h_flex()
-                                                            .gap_2()
-                                                            .child(ui::risk_badge(item.risk))
-                                                            .child(
-                                                                div()
-                                                                    .text_base()
-                                                                    .text_color(colors::text_muted())
-                                                                    .child(item.stack.label()),
-                                                            )
-                                                            .child(
-                                                                div()
-                                                                    .text_base()
-                                                                    .text_color(colors::text_muted())
-                                                                    .child(item.category.clone()),
-                                                            ),
-                                                    ),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .flex_shrink_0()
-                                                    .items_center()
-                                                    .h(px(CLEANUP_PATH_ROW_H))
-                                                    .child(
-                                                        ui::std_button(
-                                                            Button::new(exp_id)
-                                                                .ghost()
-                                                                .label(if expanded { "收起" } else { "详情" }),
-                                                        )
-                                                        .on_click({
-                                                            let id = id.clone();
-                                                            let store = store_expand.clone();
-                                                            move |_, _, cx| {
-                                                                store.update(cx, |s, cx| {
-                                                                    if s.expanded_item.as_deref() == Some(&id) {
-                                                                        s.expanded_item = None;
-                                                                    } else {
-                                                                        s.expanded_item = Some(id.clone());
-                                                                    }
-                                                                    cx.notify();
-                                                                });
-                                                            }
-                                                        }),
-                                                    ),
-                                            ),
-                                    )
-                                    .when(expanded, |this| {
-                                        this.child(
-                                            div()
-                                                .ml(px(36.))
-                                                .pt_3()
-                                                .mt_1()
-                                                .border_t_1()
-                                                .border_color(colors::panel_divider())
-                                                .flex()
-                                                .flex_col()
-                                                .gap_2()
-                                                .child(
-                                                    div()
-                                                        .text_base()
-                                                        .font_weight(FontWeight::SEMIBOLD)
-                                                        .text_color(colors::text_primary())
-                                                        .child(item_name),
+                    .child(
+                        ui::list_body(
+                            div()
+                                .flex_1()
+                                .min_h_0()
+                                .flex()
+                                .flex_col()
+                                .p_4()
+                                .when(!has_report && !scanning, |this| {
+                                    this.child(cleanup_scan_prompt(&store, cx))
+                                })
+                                .when(has_report && count == 0 && !scanning, |this| {
+                                    this.flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(ui::empty_state(
+                                            ui::EMPTY_SCAN,
+                                            "当前筛选下暂无项目",
+                                            "尝试切换左侧筛选条件，或重新扫描",
+                                        ))
+                                })
+                                .when(scanning, |this| {
+                                    let phase = store_ref.scan_phase.clone();
+                                    let found = store_ref.scan_items_found;
+                                    let bytes = store_ref.scan_bytes_found;
+                                    let path = store_ref.scan_current_path.clone();
+                                    this.flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(ui::empty_state_loading(
+                                            "正在扫描",
+                                            if let Some(p) = path {
+                                                format!(
+                                                    "{phase} · 已发现 {found} 项（{bytes}）\n{p}",
+                                                    bytes = format_bytes(bytes)
                                                 )
-                                                .child(
-                                                    div()
-                                                        .text_base()
-                                                        .text_color(colors::text_secondary())
-                                                        .child(item_description),
-                                                ),
-                                        )
-                                    })
-                            })),
-                    ))
+                                            } else {
+                                                format!(
+                                                    "{phase} · 已发现 {found} 项（{bytes}）",
+                                                    bytes = format_bytes(bytes)
+                                                )
+                                            },
+                                        ))
+                                })
+                                .when(has_report && count > 0 && !scanning, |this| {
+                                    let items = items.clone();
+                                    let expanded_id = expanded_id.clone();
+                                    let store = store.clone();
+                                    this.child(ui::uniform_list_pane(
+                                        "cleanup-rows",
+                                        count,
+                                        scroll_handle,
+                                        cx,
+                                        move |this, visible_range, _window, cx| {
+                                            visible_range
+                                                .filter_map(|ix| {
+                                                    items.get(ix).map(|item| {
+                                                        let expanded = expanded_id
+                                                            .as_deref()
+                                                            == Some(item.id.as_str());
+                                                        this.render_row(
+                                                            item,
+                                                            expert,
+                                                            expanded,
+                                                            store.clone(),
+                                                            cx,
+                                                        )
+                                                    })
+                                                })
+                                                .collect()
+                                        },
+                                    ))
+                                }),
+                        ),
+                    )
+                    .when_some(expanded_item, |this, item| {
+                        this.child(ui::panel_divider())
+                            .child(expanded_detail_panel(item, &store, cx))
+                    })
                     .child(ui::panel_divider())
                     .child(
                         h_flex()
+                            .flex_shrink_0()
                             .p_4()
                             .justify_between()
                             .child(
@@ -411,6 +461,57 @@ impl Render for CleanupView {
                     ),
             )
     }
+}
+
+fn expanded_detail_panel(item: &ScanItem, store: &Entity<AppStore>, _cx: &App) -> Div {
+    let id = item.id.clone();
+    let store = store.clone();
+    div()
+        .flex_shrink_0()
+        .mx_4()
+        .mb_2()
+        .p_4()
+        .rounded(corner_md())
+        .bg(colors::bg_card())
+        .border_1()
+        .border_color(colors::panel_divider())
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            h_flex()
+                .justify_between()
+                .items_start()
+                .child(
+                    div()
+                        .text_base()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(colors::text_primary())
+                        .child(item.name.clone()),
+                )
+                .child(
+                    ui::std_button(Button::new(eid(format!("close-{id}"))).ghost().label("收起"))
+                        .on_click(move |_, _, cx| {
+                            store.update(cx, |s, cx| {
+                                s.expanded_item = None;
+                                cx.notify();
+                            });
+                        }),
+                ),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(colors::text_secondary())
+                .child(item.description.clone()),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(colors::text_muted())
+                .truncate()
+                .child(item.path.display().to_string()),
+        )
 }
 
 fn cleanup_scan_prompt(store: &Entity<AppStore>, cx: &App) -> Div {
@@ -490,7 +591,8 @@ fn clickable_folder_path(
         .on_click(move |_, _, _| {
             open::that(&open_path).ok();
         })
-        .hover(|s| s.bg(colors::accent_blue_bg().opacity(0.45)))
+        .hover(|s| s.bg(colors::accent_blue_bg_hover().opacity(0.45)))
+        .active(|s| s.bg(colors::accent_blue_bg_pressed().opacity(0.65)))
         .rounded(corner_md())
         .px_2()
         .py_1()
@@ -507,6 +609,7 @@ fn clickable_folder_path(
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(colors::text_primary())
                 .overflow_hidden()
+                .truncate()
                 .child(label),
         )
 }
@@ -526,16 +629,20 @@ fn filter_btn(
     label: impl Into<SharedString>,
     filter: CleanupFilter,
     store: &Entity<AppStore>,
+    scroll_handle: &UniformListScrollHandle,
     cx: &App,
 ) -> Button {
     let active = store.read(cx).cleanup_filter == filter;
     let store = store.clone();
+    let scroll_handle = scroll_handle.clone();
     let id: SharedString = id.into();
     let label: SharedString = label.into();
     ui::ghost_pill(id, label, active, cx).on_click(move |_, _, cx| {
         store.update(cx, |s, cx| {
             s.cleanup_filter = filter;
+            s.expanded_item = None;
             cx.notify();
         });
+        scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
     })
 }

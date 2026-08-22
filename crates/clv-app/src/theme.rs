@@ -34,12 +34,16 @@ fn hex(v: u32) -> Hsla {
 
 /// Primary accent — icons, progress, selected states.
 const ACCENT: u32 = 0x3AA0E0;
-/// Accent surface — hover / active backgrounds.
+/// Accent surface — selected / resting secondary backgrounds.
 const ACCENT_BG: u32 = 0x113247;
-/// Pressed primary controls (slightly darker than accent).
-const ACCENT_ACTIVE: u32 = 0x2D8BC4;
-/// Lifted accent background for nested list/secondary hover.
+/// Lifted accent background for hover on secondary surfaces.
 const ACCENT_BG_HOVER: u32 = 0x1A4360;
+/// Pressed accent surface — darker than hover for click feedback.
+const ACCENT_BG_PRESSED: u32 = 0x0D2840;
+/// Hover on filled primary controls (slightly darker than accent).
+const ACCENT_ACTIVE: u32 = 0x2D8BC4;
+/// Pressed filled primary controls — darker than hover.
+const ACCENT_PRESSED: u32 = 0x2478AD;
 
 /// Design token colors.
 pub mod colors {
@@ -72,6 +76,15 @@ pub mod colors {
     }
     pub fn accent_blue_bg() -> Hsla {
         super::hex(super::ACCENT_BG)
+    }
+    pub fn accent_blue_bg_hover() -> Hsla {
+        super::hex(super::ACCENT_BG_HOVER)
+    }
+    pub fn accent_blue_bg_pressed() -> Hsla {
+        super::hex(super::ACCENT_BG_PRESSED)
+    }
+    pub fn accent_blue_pressed() -> Hsla {
+        super::hex(super::ACCENT_PRESSED)
     }
     pub fn safe_green() -> Hsla {
         super::hex(0x34d399)
@@ -111,7 +124,9 @@ fn build_palette() -> ThemeColor {
     let accent = hex(ACCENT);
     let accent_bg = hex(ACCENT_BG);
     let accent_active = hex(ACCENT_ACTIVE);
+    let accent_pressed = hex(ACCENT_PRESSED);
     let accent_bg_hover = hex(ACCENT_BG_HOVER);
+    let accent_bg_pressed = hex(ACCENT_BG_PRESSED);
 
     t.background = hex(0x0b1220);
     t.sidebar = hex(0x0a1628);
@@ -125,17 +140,17 @@ fn build_palette() -> ThemeColor {
     t.secondary = accent_bg;
     t.secondary_foreground = hex(0x94a3b8);
     t.secondary_hover = accent_bg_hover;
-    t.secondary_active = accent_bg;
+    t.secondary_active = accent_bg_pressed;
     t.primary = accent;
     t.primary_foreground = hex(0xffffff);
     t.primary_hover = accent_active;
-    t.primary_active = accent_active;
+    t.primary_active = accent_pressed;
     t.accent = accent_bg;
     t.accent_foreground = accent;
     t.info = accent;
     t.info_foreground = hex(0xffffff);
     t.info_hover = accent_active;
-    t.info_active = accent_active;
+    t.info_active = accent_pressed;
     t.success = hex(0x34d399);
     t.success_foreground = hex(0xffffff);
     t.success_hover = hex(0x4ade80);
@@ -151,12 +166,12 @@ fn build_palette() -> ThemeColor {
     t.sidebar_border = hex(0x152238);
     t.list = hex(0x132337);
     t.list_hover = accent_bg;
-    t.list_active = accent_bg_hover;
+    t.list_active = accent_bg_pressed;
     t.list_active_border = accent;
     t.table = hex(0x132337);
     t.table_head = hex(0x0b1220);
     t.table_hover = accent_bg;
-    t.table_active = accent_bg_hover;
+    t.table_active = accent_bg_pressed;
     t.table_active_border = accent;
     t.scrollbar = hex(0x0a1628);
     t.scrollbar_thumb = hex(0x1e3a5f);
