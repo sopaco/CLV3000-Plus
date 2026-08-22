@@ -2,6 +2,7 @@
 // 从终端（cargo run）启动时 stdout 句柄仍会被继承，debug 日志输出不受影响。
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod actions;
 mod app;
 mod assets;
 mod i18n;
@@ -11,6 +12,7 @@ pub mod theme;
 pub mod ui;
 mod views;
 
+use actions::CloseWindow;
 use app::{shell::AppShell, ClvApp};
 use gpui::*;
 use gpui_component::*;
@@ -33,6 +35,9 @@ fn main() {
         gpui_component::init(cx);
         apply_theme(theme, cx);
         platform::apply_app_icon();
+        init_window_close_shortcuts(cx);
+        #[cfg(target_os = "macos")]
+        init_macos_menus(cx);
         let options = window_options(cx);
         cx.spawn(async move |cx| {
             cx.open_window(options, build_root_view)?;
@@ -58,6 +63,45 @@ fn build_root_view(window: &mut Window, cx: &mut App) -> Entity<Root> {
 
 fn open_main_window(app: &mut App) -> anyhow::Result<WindowHandle<Root>> {
     app.open_window(window_options(app), build_root_view)
+}
+
+fn close_active_window(_: &CloseWindow, cx: &mut App) {
+    if let Some(handle) = cx.active_window() {
+        let _ = handle.update(cx, |_, window, _| window.remove_window());
+    }
+}
+
+fn init_window_close_shortcuts(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("cmd-w", CloseWindow, None),
+        KeyBinding::new("secondary-w", CloseWindow, None),
+    ]);
+    cx.on_action(close_active_window);
+    let _ = cx.intercept_keystrokes(|event, _window, cx| {
+        if event.action.is_some() {
+            return;
+        }
+        if is_cmd_close_window(&event.keystroke) {
+            close_active_window(&CloseWindow, cx);
+            cx.stop_propagation();
+        }
+    });
+}
+
+fn is_cmd_close_window(keystroke: &Keystroke) -> bool {
+    keystroke.modifiers.platform
+        && !keystroke.modifiers.control
+        && !keystroke.modifiers.alt
+        && !keystroke.modifiers.function
+        && keystroke.key.eq_ignore_ascii_case("w")
+}
+
+#[cfg(target_os = "macos")]
+fn init_macos_menus(cx: &mut App) {
+    cx.set_menus(vec![Menu {
+        name: "Window".into(),
+        items: vec![MenuItem::action("Close Window", CloseWindow)],
+    }]);
 }
 
 #[cfg(debug_assertions)]
