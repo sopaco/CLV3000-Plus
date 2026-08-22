@@ -6,8 +6,8 @@ use crate::theme::{colors, corner, corner_md, corner_sm};
 use crate::ui::controls::lg_button;
 use crate::ui::icons::*;
 use clv_core::format_bytes;
-use gpui::{img, linear_color_stop, linear_gradient, Hsla};
-use gpui_component::{progress::Progress, Icon, IconName};
+use gpui::{Hsla, img, linear_color_stop, linear_gradient};
+use gpui_component::{Icon, IconName, progress::Progress};
 
 // ── Gradients & atmosphere ───────────────────────────────────────────────────
 
@@ -109,7 +109,9 @@ pub fn compute_health(store: &AppStore) -> (u8, &'static str, Hsla) {
     };
     let disk_penalty = (store.disk_used_percent() * 0.25).min(30.) as u8;
     let junk_penalty = ((report.items.len().min(60) as f32 / 60.0) * 30.0) as u8;
-    let score = 100u8.saturating_sub(disk_penalty).saturating_sub(junk_penalty);
+    let score = 100u8
+        .saturating_sub(disk_penalty)
+        .saturating_sub(junk_penalty);
     let (msg, color) = if score >= 90 {
         ("状态很棒，继续保持", colors::safe_green())
     } else if score >= 75 {
@@ -190,7 +192,7 @@ pub fn health_ring(score: u8, status: &str, accent: Hsla, scanning: bool) -> Div
                                 div()
                                     .text_sm()
                                     .text_color(colors::text_muted())
-                                    .child("健康分"),
+                                    .child("清爽分"),
                             )
                         }),
                 ),
@@ -228,61 +230,58 @@ pub fn hero_banner(
         .child(glow_orb(140., colors::from_hex(0xa78bfa), 30., 60.))
         .child(glow_orb_left(100., colors::accent_blue(), -20., -30.))
         .child(
-            div()
-                .px_8()
-                .py_7()
-                .child(
-                    h_flex()
-                        .justify_between()
-                        .items_center()
-                        .gap_10()
-                        .child(health_ring(score, status, accent, scanning))
-                        .child(
-                            div()
-                                .flex_1()
-                                .flex()
-                                .flex_col()
-                                .gap_5()
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .px(px(12.))
-                                        .py(px(4.))
-                                        .rounded(corner_sm())
-                                        .bg(colors::accent_blue_bg())
-                                        .text_color(colors::accent_blue())
-                                        .child("实时守护中"),
-                                )
-                                .child(
-                                    div()
-                                        .text_2xl()
-                                        .font_weight(FontWeight::BOLD)
-                                        .text_color(colors::text_primary())
-                                        .child("让电脑保持轻快"),
-                                )
-                                .child(
-                                    div()
-                                        .text_base()
-                                        .text_color(colors::accent_blue().opacity(0.75))
-                                        .child("智能找出 Agent 试验项目与开发缓存，一键释放空间"),
-                                )
-                                .child(
-                                    h_flex()
-                                        .gap_3()
-                                        .items_center()
-                                        .child(
-                                            scan_cta_button("hero-scan", scan_label, scanning, cx)
-                                                .on_click(on_scan),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .text_color(colors::accent_blue().opacity(0.85))
-                                                .child("后台扫描，可继续操作其他功能"),
-                                        ),
-                                ),
-                        ),
-                ),
+            div().px_8().py_7().child(
+                h_flex()
+                    .justify_between()
+                    .items_center()
+                    .gap_10()
+                    .child(health_ring(score, status, accent, scanning))
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_5()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .px(px(12.))
+                                    .py(px(4.))
+                                    .rounded(corner_sm())
+                                    .bg(colors::accent_blue_bg())
+                                    .text_color(colors::accent_blue())
+                                    .child("实时守护中"),
+                            )
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(colors::text_primary())
+                                    .child("让电脑保持轻快"),
+                            )
+                            .child(
+                                div()
+                                    .text_base()
+                                    .text_color(colors::accent_blue().opacity(0.75))
+                                    .child("智能找出 Agent 试验项目与开发缓存，一键释放空间"),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_3()
+                                    .items_center()
+                                    .child(
+                                        scan_cta_button("hero-scan", scan_label, scanning, cx)
+                                            .on_click(on_scan),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(colors::accent_blue().opacity(0.85))
+                                            .child("极速扫描，可继续操作其他功能"),
+                                    ),
+                            ),
+                    ),
+            ),
         )
 }
 
@@ -340,6 +339,11 @@ pub fn quick_tile(
             s.bg(colors::from_hex(0xffffff).opacity(0.09))
                 .border_color(tint.opacity(0.4))
                 .shadow_lg()
+        })
+        .active(|s| {
+            s.bg(colors::from_hex(0xffffff).opacity(0.05))
+                .border_color(tint.opacity(0.55))
+                .shadow_sm()
         })
         .child(
             h_flex()
@@ -445,6 +449,13 @@ pub fn nav_icon(
     } else {
         colors::text_muted()
     };
+    let icon_box_bg = if active {
+        colors::accent_blue_bg()
+    } else if is_hovered {
+        colors::accent_blue_bg_hover().opacity(0.55)
+    } else {
+        Hsla::transparent_black()
+    };
     let icon = icon.into().with_size(px(24.)).text_color(icon_color);
 
     div()
@@ -458,7 +469,12 @@ pub fn nav_icon(
         .justify_center()
         .gap(px(4.))
         .cursor_pointer()
+        .rounded(corner_md())
         .on_click(on_click)
+        .when(!active, |el| {
+            el.hover(|s| s.bg(colors::accent_blue_bg_hover().opacity(0.25)))
+                .active(|s| s.bg(colors::accent_blue_bg_pressed().opacity(0.45)))
+        })
         .on_hover({
             let hovered = hovered.clone();
             move |&h, _, cx| {
@@ -470,9 +486,9 @@ pub fn nav_icon(
                 .size(px(NAV_ICON_BOX))
                 .flex_shrink_0()
                 .rounded(corner_md())
+                .bg(icon_box_bg)
                 .when(active, |el| {
-                    el.bg(colors::accent_blue_bg())
-                        .border_1()
+                    el.border_1()
                         .border_color(colors::accent_blue().opacity(0.45))
                 })
                 .flex()
@@ -555,7 +571,10 @@ pub fn empty_state_loading(title: impl Into<SharedString>, hint: impl Into<Share
         .flex_col()
         .items_center()
         .gap_4()
-        .child(crate::ui::loading_spinner(48., colors::accent_cyan().opacity(0.85)))
+        .child(crate::ui::loading_spinner(
+            48.,
+            colors::accent_cyan().opacity(0.85),
+        ))
         .child(
             div()
                 .text_lg()
@@ -571,7 +590,11 @@ pub fn empty_state_loading(title: impl Into<SharedString>, hint: impl Into<Share
         )
 }
 
-pub fn empty_state(icon: IconName, title: impl Into<SharedString>, hint: impl Into<SharedString>) -> Div {
+pub fn empty_state(
+    icon: IconName,
+    title: impl Into<SharedString>,
+    hint: impl Into<SharedString>,
+) -> Div {
     glass_card()
         .p_12()
         .flex()
@@ -644,7 +667,7 @@ pub fn scan_progress_bar(
                                         .text_base()
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(colors::text_primary())
-                                        .child("正在后台扫描"),
+                                        .child("正在极速扫描"),
                                 ),
                         )
                         .child(

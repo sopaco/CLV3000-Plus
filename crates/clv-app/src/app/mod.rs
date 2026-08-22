@@ -7,7 +7,7 @@ use crate::views::{
     agent::AgentView, cleanup::CleanupView, dashboard::DashboardView, onboarding::OnboardingView,
     process::ProcessView, settings::SettingsView, startup::StartupView,
 };
-use clv_core::{format_bytes, load_settings, save_settings};
+use clv_core::{load_settings, save_settings};
 use state::{AppPage, AppStore};
 
 pub struct ClvApp {
@@ -270,13 +270,10 @@ impl Render for ClvApp {
                                     scan_current_path.as_deref(),
                                 ))
                             })
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .min_w_0()
-                                    .child(self.render_page(page, cx)),
-                            ),
+                            .child(ui::page_transition(
+                                page.transition_key(),
+                                self.render_page(page, cx),
+                            )),
                     )
                     .child(self.render_status_bar(cx)),
             )
@@ -291,12 +288,8 @@ impl ClvApp {
         let status = if cleaning {
             "正在清理选中项，请稍候…".into()
         } else if scanning {
-            format!(
-                "扫描中：{} · 已发现 {} 项（{}）",
-                store.scan_phase,
-                store.scan_items_found,
-                format_bytes(store.scan_bytes_found)
-            )
+            // Detailed scan progress is shown in the top bar — keep status bar minimal.
+            "极速扫描中 · 可切换页面继续操作".into()
         } else if let Some(msg) = &store.status_message {
             msg.clone()
         } else if let Some(report) = &store.last_report {
@@ -319,14 +312,6 @@ impl ClvApp {
             .border_t_1()
             .border_color(colors::panel_divider())
             .bg(colors::from_hex(0x0a1628).opacity(0.6))
-            .when(scanning, |el| {
-                el.child(
-                    div()
-                        .w(px(8.))
-                        .h(px(8.))
-                        .bg(colors::accent_cyan()),
-                )
-            })
             .child(
                 div()
                     .text_sm()

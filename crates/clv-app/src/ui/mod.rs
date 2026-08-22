@@ -13,13 +13,20 @@ pub use security::*;
 use crate::prelude::*;
 use crate::theme::{colors, corner_md, corner_sm};
 use clv_core::RiskLevel;
-use gpui::Hsla;
+use gpui::{Animation, AnimationExt, ease_in_out, ElementId, Hsla, Stateful};
+use std::time::Duration;
 use gpui_component::{
     button::ButtonCustomVariant,
     Icon, IconName,
 };
 
 // ── Layout ────────────────────────────────────────────────────────────────────
+
+/// Hover + pressed background for custom clickable surfaces (not gpui-component Button).
+pub fn surface_pressable(el: Stateful<Div>) -> Stateful<Div> {
+    el.hover(|s| s.bg(colors::accent_blue_bg_hover().opacity(0.55)))
+        .active(|s| s.bg(colors::accent_blue_bg_pressed().opacity(0.75)))
+}
 
 /// Vertical scroll region — place inside a `flex_1 min_h_0` parent.
 pub fn scroll_y(content: impl IntoElement) -> impl IntoElement {
@@ -29,6 +36,20 @@ pub fn scroll_y(content: impl IntoElement) -> impl IntoElement {
         .min_w_0()
         .overflow_y_scrollbar()
         .child(content)
+}
+
+/// Fade-in wrapper when switching main content pages.
+pub fn page_transition(page_key: impl Into<ElementId>, content: impl IntoElement) -> impl IntoElement {
+    div()
+        .size_full()
+        .min_h_0()
+        .min_w_0()
+        .child(content)
+        .with_animation(
+            page_key,
+            Animation::new(Duration::from_millis(220)).with_easing(ease_in_out),
+            |el, delta| el.opacity(delta),
+        )
 }
 
 /// Subtle horizontal rule between panels.
@@ -152,8 +173,8 @@ pub fn action_button(
                 .color(colors::bg_card())
                 .foreground(colors::text_primary())
                 .border(colors::border())
-                .hover(colors::accent_blue_bg())
-                .active(colors::accent_blue_bg()),
+                .hover(colors::accent_blue_bg_hover())
+                .active(colors::accent_blue_bg_pressed()),
         )
     }
 }
@@ -174,8 +195,8 @@ pub fn ghost_pill(
                 .color(colors::accent_blue_bg())
                 .foreground(colors::accent_blue())
                 .border(colors::accent_blue())
-                .hover(colors::accent_blue_bg())
-                .active(colors::accent_blue_bg()),
+                .hover(colors::accent_blue_bg_hover())
+                .active(colors::accent_blue_bg_pressed()),
         )
     } else {
         std_button(Button::new(id).label(label))
@@ -280,7 +301,7 @@ pub fn nav_item(
         .cursor_pointer()
         .on_click(on_click)
         .when(!active, |el| {
-            el.hover(|s| s.bg(colors::accent_blue_bg().opacity(0.55)))
+            surface_pressable(el)
         })
         .child(
             div()
