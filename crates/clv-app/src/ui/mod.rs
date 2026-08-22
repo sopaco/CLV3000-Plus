@@ -4,11 +4,13 @@ mod controls;
 mod icons;
 mod list;
 mod security;
+mod text;
 
 pub use controls::*;
 pub use icons::*;
 pub use list::*;
 pub use security::*;
+pub use text::*;
 
 use crate::prelude::*;
 use crate::theme::{colors, corner_md, corner_sm};

@@ -432,20 +432,7 @@ fn scan_start_message() -> String {
 }
 
 fn truncate_path_display(path: &Path, max_chars: usize) -> String {
-    let s = path.display().to_string();
-    if s.chars().count() <= max_chars {
-        s
-    } else {
-        let tail: String = s
-            .chars()
-            .rev()
-            .take(max_chars - 1)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        format!("…{tail}")
-    }
+    ui::truncate_middle(&path.display().to_string(), max_chars)
 }
 
 impl AppStore {

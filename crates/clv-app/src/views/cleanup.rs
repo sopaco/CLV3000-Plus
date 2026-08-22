@@ -575,16 +575,7 @@ fn clickable_folder_path(
                 .with_size(px(18.))
                 .text_color(colors::accent_blue()),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_base()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(colors::text_primary())
-                .overflow_hidden()
-                .child(label),
-        )
+        .child(ui::middle_truncated_path(label))
 }
 
 fn folder_open_target(path: &Path) -> PathBuf {
