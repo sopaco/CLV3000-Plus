@@ -7,87 +7,85 @@ source: .
 
 ## Project Overview
 
-CLV3000 Plus is a desktop utility application for PC maintenance in the Coding Agent era, built with Rust and GPUI (a GPU-accelerated native UI framework). It provides **intelligent cache cleanup** (Rust, Node, Python, Java, Android, iOS, Flutter, KMP, .NET, C/C++), **agent project detection** (Claude/Cursor/Codex/WorkBuddy experiments), **startup item management** (macOS LaunchAgents, Windows registry), and **process management** (CPU/memory monitoring). Targets macOS 12+ and Windows 10+. Offers dual modes: simple (non-technical users) and expert.
+CLV3000 Plus is a native desktop utility that reclaims disk space on developer workstations. It scans configured development directories plus known global caches, identifies cleanable build artifacts across 13+ technology stacks, and safely deletes them via trash/quarantine. Its differentiator is detection of **AI coding agent experiment projects** (Claude/Cursor/Codex leftovers) — capability no competing cleanup tool offers. Consumers: end users on macOS/Windows/Linux via the GPUI desktop app; coding agents via this doc + `agent/repomix.md`. Key constraints: local-only (no network), destructive operations must be guarded by risk levels and protected-path checks; UI ships trilingual (zh/en/ja).
 
 ## Architecture
 
-Three-layer Rust workspace: **clv-core** (platform-independent scanning rules, agent detection, cleanup logic), **clv-platform** (OS-specific startup/process operations via `sysinfo` and `plist`), and **clv-app** (GPUI-based GUI with view-per-feature layout). Data flows from platform abstractions through core models into GPUI views. No network services — fully local desktop tool.
+Three-crate Cargo workspace, layered UI → platform-agnostic logic → OS abstraction:
 
-| Layer | Crate | Role |
-|-------|-------|------|
-| Core | `clv-core` | Scan rules, agent project detection, cleanup execution, settings, models |
-| Platform | `clv-platform` | Startup items (macOS/Windows), process enumeration via `sysinfo` |
-| App | `clv-app` | GPUI UI — `main.rs` entry, `app/` (state management), `views/` (feature screens) |
+| Crate | Layer | Responsibility |
+|---|---|---|
+| `crates/clv-app` | Presentation | GPUI desktop app: window shell, `AppStore` state entity, per-page views, theme, i18n, custom controls |
+| `crates/clv-core` | Domain logic (pure) | Scanner rules engine, cleanup engine, agent-project/session detection, models, settings persistence, path safety |
+| `crates/clv-platform` | Platform adapter | Process enumeration (`sysinfo`), OS-specific helpers |
+
+- **State flow**: views never own scan results; a single `AppStore` entity holds `AppSettings`, current page, last `ScanReport`, cleanup reports. Views subscribe/observe the store.
+- **Views are lazy singletons**: `ClvApp` creates each page view on first visit and caches the entity (`crates/clv-app/src/app/mod.rs`).
+- **Scan runs async** with throttled progress events (`ScanEvent::Progress/Done`) into the store.
+- **Dependency direction**: `clv-app` → `clv-core` + `clv-platform`; no reverse edges.
 
 ## Module Map
 
 | Module | Responsibility | Primary paths |
-|--------|---------------|---------------|
-| clv-core | Scan rules, agent detection, cleanup | `crates/clv-core/src/` |
-| clv-core::scanner | Multi-language build cache scanning | `crates/clv-core/src/scanner.rs` |
-| clv-core::cleanup | File/dir removal logic | `crates/clv-core/src/cleanup.rs` |
-| clv-core::agent | Agent project identification | `crates/clv-core/src/agent.rs` |
-| clv-core::models | Shared data models | `crates/clv-core/src/models.rs` |
-| clv-core::settings | App configuration persistence | `crates/clv-core/src/settings.rs` |
-| clv-platform | OS-level startup/process ops | `crates/clv-platform/src/` |
-| clv-platform::startup | LaunchAgents, login items, registry | `crates/clv-platform/src/startup.rs` |
-| clv-platform::process | CPU/memory process view | `crates/clv-platform/src/process.rs` |
-| clv-app | GPUI desktop application | `crates/clv-app/src/` |
-| clv-app::views | Feature screens (cleanup, agent, startup, process, dashboard, settings, onboarding) | `crates/clv-app/src/views/` |
-| clv-app::app::state | Global app state management | `crates/clv-app/src/app/state.rs` |
+|---|---|---|
+| App shell & routing | Root component, page switching, lazy view creation | `crates/clv-app/src/app/mod.rs`, `shell.rs` |
+| Global state | `AppStore`, `AppPage`, scan/cleanup events, filters | `crates/clv-app/src/app/state.rs` |
+| Scanner | Rule-based discovery of cleanable items + global caches + agent sessions | `crates/clv-core/src/scanner.rs` |
+| Cleanup engine | Trash-move deletion, bucket classification, `CleanupReport` | `crates/clv-core/src/cleanup.rs` |
+| Agent detection | AI-agent experiment project heuristics + session target discovery | `crates/clv-core/src/agent.rs`, `agent_sessions.rs` |
+| Models | `TechStack` (13+ stacks), `RiskLevel`, `ScanReport` types | `crates/clv-core/src/models.rs` |
+| Settings & paths | Persistence, default scan dirs, env-var expansion, protected-path guards | `crates/clv-core/src/settings.rs`, `paths.rs` |
+| Process manager | Running-process enumeration/search/sort/kill | `crates/clv-platform/src/process.rs` |
+| Page views | Dashboard, Cleanup, Agent, Startup, Process, Settings, Onboarding | `crates/clv-app/src/views/*.rs` |
+| i18n | Trilingual label catalog (zh/en/ja) | `crates/clv-app/src/i18n/labels.rs` |
+| UI kit | Reusable controls, text styles, list widgets, security-styled components | `crates/clv-app/src/ui/` |
+| Theme & assets | Colors, icons, embedded assets, Windows icon resource | `crates/clv-app/src/theme.rs`, `assets.rs`, `build.rs` |
 
 ## Core Flows
 
-1. **Scan & Clean** — User selects scope (language/agent cache) → `scanner.rs` walks directories via `walkdir` → finds build artifacts (`target/`, `node_modules/`, `.gradle/`, etc.) → presents size summary in cleanup view → user confirms → `cleanup.rs` removes files.
-
-2. **Agent Project Detection** — App scans workspace roots for `.claude/`, `.cursor/`, `.codex/`, `.workbuddy/` marker directories → `agent.rs` classifies project type and metadata → displayed in agent view.
-
-3. **Startup Management** — `startup.rs` enumerates macOS LaunchAgents (`~/Library/LaunchAgents`) and Windows startup registry/folder → user toggles items → `sysinfo` verifies running state → enable/disable/launch operations.
-
-4. **Process Monitoring** — `process.rs` queries `sysinfo` for running processes → dashboard view displays CPU/memory per process → user can sort/filter and terminate processes.
+1. **Startup**: `main.rs` → load persisted settings → create `AppStore` → if `onboarding_done` is false show Onboarding page, else Dashboard → kick off async disk-usage refresh.
+2. **Scan**: user triggers scan → `Scanner::scan` walks configured roots (pruning nested matches), resolves global cache rules (cargo/npm/Xcode caches…), discovers agent session targets → emits throttled `ScanProgress` → produces `ScanReport` (items by tech stack, risk level, size) stored in `AppStore`.
+3. **Cleanup**: CleanupView lists report items grouped by bucket/risk filter → user selects → cleanup engine moves targets to trash dir (skipping protected paths) → `CleanupReport { success, trashed, failed }` recorded; store refreshes usage.
+4. **Agent projects**: AgentView reads `report.agent_projects`, applies search filter (name/reason/path/stack); sessions from Claude/Cursor/Codex etc. are surfaced with reasons for safe review before cleanup.
+5. **Process management**: ProcessView polls `clv-platform` enumerator on page-show/refresh trigger → search/sort in-memory list → kill selected PID.
 
 ## Tech Stack
 
-- **Language**: Rust 2021 edition
-- **UI Framework**: GPUI 0.2.2 + gpui-component 0.5.1 (GPU-accelerated native UI by Longbridge)
-- **Serialization**: serde + serde_json
-- **Filesystem**: walkdir (recursive scanning), directories (XDG/OS paths)
-- **Process**: sysinfo 0.33
-- **Platform**: plist 1 (macOS .plist parsing)
-- **Logging**: tracing + tracing-subscriber with env-filter
-- **Error handling**: anyhow + thiserror
-- **Other**: chrono (timestamps), uuid (v4), open (browser/URL launch)
+- Language: Rust (edition 2024), workspace resolver 2, release profile with thin LTO + strip
+- UI: `gpui` 0.2 + `gpui-component` 0.5 (+ assets crate) — native GPU-rendered desktop UI
+- Filesystem traversal: `walkdir`; process/system info: `sysinfo`
+- Persistence/config: `serde`/`serde_json`, `directories` (XDG/home layout)
+- Utilities: `anyhow`, `thiserror`, `chrono`, `uuid`, `open` (reveal in Finder/Explorer), `sys-locale`
+- Logging: `tracing` + `tracing-subscriber` (warn-level in release)
+- Packaging: `scripts/bundle-macos.sh`; icons under `assets/icons/`
 
 ## System Boundaries
 
-| Boundary | Type | Details |
-|----------|------|---------|
-| macOS LaunchAgents | Local FS | `~/Library/LaunchAgents`, `/Library/LaunchAgents` |
-| Windows Registry | OS API | Startup keys under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
-| Build caches | Local FS | `target/`, `node_modules/`, `.gradle/`, `build/`, `DerivedData/`, etc. |
-| Agent markers | Local FS | `.claude/`, `.cursor/`, `.codex/`, `.workbuddy/` directories |
-| System processes | OS API | sysinfo cross-platform process enumeration |
-| macOS plist | Local FS | `.plist` files parsed via `plist` crate |
-| External | None | No network calls, no remote APIs, fully offline tool |
+- **Local filesystem only** — no network calls, no telemetry, no external APIs.
+- **Read side**: home directory, configured scan roots (default `~/Projects`, Documents, Desktop…), global tool caches (`~/.cargo`, npm/pip/Xcode derived data, etc.), agent CLI session directories.
+- **Write side**: trash/quarantine directory managed by the cleanup engine; settings JSON in the app config dir. Everything else is read-only.
+- **Trust boundary — protected paths**: `paths.rs` hard-blocks system locations (Unix root/system dirs, Windows %SystemRoot% variants) from any delete operation; risk levels (`Safe`/`Caution`/`Protected`) gate UI actions.
+- **OS integration**: process enumeration/kill via `sysinfo`; "open folder" via `open` crate; login/startup items surfaced in StartupView.
+- **Third-party risk surface**: rule tables in `scanner.rs` decide what is deletable; nested-match pruning prevents deleting project sources inside matched parents.
 
 ## Code Map Index
 
 | Concept | Location | Notes |
-|---------|----------|-------|
-| Workspace root | `Cargo.toml` | 3-member workspace |
-| Binary entry | `crates/clv-app/src/main.rs` | GPUI app bootstrap |
-| App state | `crates/clv-app/src/app/state.rs` | Global state |
-| Cleanup view | `crates/clv-app/src/views/cleanup.rs` | Cache scan + removal UI |
-| Agent view | `crates/clv-app/src/views/agent.rs` | Agent project display |
-| Startup view | `crates/clv-app/src/views/startup.rs` | Startup item management UI |
-| Process view | `crates/clv-app/src/views/process.rs` | Process monitor UI |
-| Dashboard | `crates/clv-app/src/views/dashboard.rs` | Overview/summary screen |
-| Settings view | `crates/clv-app/src/views/settings.rs` | Configuration UI |
-| Onboarding | `crates/clv-app/src/views/onboarding.rs` | First-run flow |
-| Scanner | `crates/clv-core/src/scanner.rs` | Language-specific scan rules |
-| Cleanup engine | `crates/clv-core/src/cleanup.rs` | File removal logic |
-| Agent detection | `crates/clv-core/src/agent.rs` | Agent project classifier |
-| Data models | `crates/clv-core/src/models.rs` | Shared types |
-| Settings persistence | `crates/clv-core/src/settings.rs` | Config read/write |
-| Platform startup | `crates/clv-platform/src/startup.rs` | OS startup items |
-| Platform process | `crates/clv-platform/src/process.rs` | Process enumeration |
+|---|---|---|
+| Entry point / window bootstrapping | `crates/clv-app/src/main.rs` | GPUI app launch |
+| Root component & page routing | `crates/clv-app/src/app/mod.rs` | Lazy view entities |
+| Central state store | `crates/clv-app/src/app/state.rs` | `AppStore`, events, filters |
+| Scan orchestration & rules | `crates/clv-core/src/scanner.rs` | Progress throttling, pruning |
+| Deletion engine | `crates/clv-core/src/cleanup.rs` | Trash move + report |
+| Agent project/session detection | `crates/clv-core/src/agent.rs`, `agent_sessions.rs` | Differentiating feature |
+| Domain models | `crates/clv-core/src/models.rs` | `TechStack`, `RiskLevel`, reports |
+| Path safety & defaults | `crates/clv-core/src/paths.rs` | Protected-path guards |
+| Settings persistence | `crates/clv-core/src/settings.rs` | serde JSON |
+| Process enumeration | `crates/clv-platform/src/process.rs` | sysinfo wrapper |
+| Feature pages | `crates/clv-app/src/views/` | dashboard/cleanup/agent/process/startup/settings/onboarding |
+| Label translations | `crates/clv-app/src/i18n/labels.rs` | zh/en/ja catalog |
+| Styling & controls | `crates/clv-app/src/theme.rs`, `crates/clv-app/src/ui/` | Reusable widgets |
+| macOS packaging | `scripts/bundle-macos.sh` | App bundle build |
+| Unit tests (rules, safety) | `crates/clv-core/src/lib.rs` | Scanner/cleanup/path test suite |
+
+*Implementation detail lives in `.terrain/agent/repomix.md` — grep/read it for signatures and source.*
