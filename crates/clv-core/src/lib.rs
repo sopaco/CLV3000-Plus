@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod agent_sessions;
 pub mod cleanup;
+pub mod locale;
 pub mod models;
 pub mod paths;
 pub mod scanner;
@@ -10,6 +11,11 @@ pub use agent::detect_agent_projects;
 pub use cleanup::{CleanupExecutor, CleanupReport};
 pub use models::*;
 pub use scanner::Scanner;
+pub use locale::{
+    detect_system_language, resolve_language, scan_phase_agent_sessions, scan_phase_discovering,
+    scan_phase_preparing, scan_phase_scanning_path, scan_phase_scanning_projects, tr, Language,
+    LanguagePreference,
+};
 pub use settings::{format_scan_paths, load_settings, parse_scan_paths, save_settings, AppSettings};
 
 #[cfg(test)]

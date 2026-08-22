@@ -1,7 +1,8 @@
+use crate::i18n::I18n;
 use crate::prelude::*;
 use clv_core::{
-    AppSettings, CleanupBucket, RiskLevel, ScanProgress, ScanReport, Scanner,
-    cleanup::CleanupExecutor, detect_agent_projects, item_cleanup_bucket, save_settings,
+    resolve_language, AppSettings, CleanupBucket, RiskLevel, ScanProgress, ScanReport, Scanner,
+    cleanup::CleanupExecutor, detect_agent_projects, item_cleanup_bucket, save_settings, Language,
 };
 use std::path::Path;
 use std::sync::mpsc;
@@ -29,16 +30,8 @@ pub enum AppPage {
 }
 
 impl AppPage {
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Dashboard => "首页",
-            Self::Cleanup => "智能清理",
-            Self::Agent => "Agent 项目",
-            Self::Startup => "启动项管理",
-            Self::Process => "进程管理",
-            Self::Settings => "设置",
-            Self::Onboarding => "欢迎",
-        }
+    pub fn title(self, i18n: &I18n) -> &'static str {
+        i18n.page_title(self)
     }
 
     /// Stable id for page-transition animations (changes when navigating).
@@ -87,6 +80,14 @@ pub struct AppStore {
 }
 
 impl AppStore {
+    pub fn i18n(&self) -> I18n {
+        I18n::from_settings(&self.settings)
+    }
+
+    pub fn language(&self) -> Language {
+        resolve_language(self.settings.language)
+    }
+
     pub fn new(settings: AppSettings, _cx: &mut Context<Self>) -> Self {
         Self {
             settings,
@@ -111,20 +112,22 @@ impl AppStore {
     }
 
     pub fn kill_process_pid(&mut self, pid: u32, cx: &mut Context<Self>) {
-        self.status_message = Some(format!("正在结束进程 {pid}…"));
+        let i18n = self.i18n();
+        self.status_message = Some(i18n.killing_process(pid));
         cx.notify();
 
         cx.spawn(async move |weak, cx| {
             let result = std::thread::spawn(move || clv_platform::kill_process(pid)).join();
             let result = match result {
                 Ok(r) => r,
-                Err(_) => Err(anyhow::anyhow!("结束进程时发生内部错误")),
+                Err(_) => Err(anyhow::anyhow!(i18n.kill_process_internal_error())),
             };
             weak.update(cx, |store, cx| {
+                let i18n = store.i18n();
                 store.process_refresh_trigger = store.process_refresh_trigger.wrapping_add(1);
                 store.status_message = Some(match result {
-                    Ok(()) => format!("已结束进程 {pid}"),
-                    Err(e) => format!("结束进程失败：{e}"),
+                    Ok(()) => i18n.process_killed(pid),
+                    Err(e) => i18n.kill_process_failed(&e.to_string()),
                 });
                 cx.notify();
             })
@@ -247,11 +250,11 @@ impl AppStore {
             return;
         }
         self.scanning = true;
-        self.scan_phase = "准备扫描…".into();
+        self.scan_phase = self.i18n().scan_preparing().into();
         self.scan_items_found = 0;
         self.scan_bytes_found = 0;
         self.scan_current_path = None;
-        self.status_message = Some(scan_start_message());
+        self.status_message = Some(self.i18n().scan_start_message());
         cx.notify();
 
         let settings = self.settings.clone();
@@ -282,7 +285,7 @@ impl AppStore {
                             weak.update(cx, |store, cx| {
                                 store.scanning = false;
                                 store.scan_phase.clear();
-                                store.status_message = Some("扫描已中断".into());
+                                store.status_message = Some(store.i18n().scan_interrupted().into());
                                 cx.notify();
                             })
                             .ok();
@@ -298,7 +301,7 @@ impl AppStore {
                         store.scan_phase.clear();
                         store.scan_current_path = None;
                         store.last_report = Some(report);
-                        store.status_message = Some("扫描完成".into());
+                        store.status_message = Some(store.i18n().scan_complete().into());
                         store.refresh_disk_usage_sync();
                         store.startup_count = clv_platform::list_startup_items().len();
                         cx.notify();
@@ -334,7 +337,7 @@ impl AppStore {
         };
         let selected: Vec<_> = report.items.into_iter().filter(|i| i.selected).collect();
         if selected.is_empty() {
-            self.status_message = Some("请先选择要清理的项目".into());
+            self.status_message = Some(self.i18n().select_items_first().into());
             cx.notify();
             return false;
         }
@@ -343,7 +346,7 @@ impl AppStore {
         }
 
         self.cleaning = true;
-        self.status_message = Some("正在清理，请稍候…".into());
+        self.status_message = Some(self.i18n().cleanup_in_progress().into());
         cx.notify();
 
         let settings = self.settings.clone();
@@ -364,7 +367,7 @@ impl AppStore {
                         weak.update(cx, |store, cx| {
                             store.cleaning = false;
                             store.last_cleanup_freed = Some(result.freed_bytes);
-                            store.status_message = Some(result.summary());
+                            store.status_message = Some(store.i18n().cleanup_summary(&result));
 
                             if let Some(current) = &mut store.last_report {
                                 let removed: std::collections::HashSet<_> =
@@ -390,7 +393,7 @@ impl AppStore {
                     Err(mpsc::TryRecvError::Disconnected) => {
                         weak.update(cx, |store, cx| {
                             store.cleaning = false;
-                            store.status_message = Some("清理已中断".into());
+                            store.status_message = Some(store.i18n().cleanup_interrupted().into());
                             cx.notify();
                         })
                         .ok();
@@ -417,17 +420,6 @@ impl AppStore {
         self.settings.onboarding_done = true;
         let _ = save_settings(&self.settings);
         self.set_page(AppPage::Dashboard, cx);
-    }
-}
-
-fn scan_start_message() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        "正在极速扫描（若长时间无响应，请在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中授权本应用）".into()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        "正在极速扫描，可继续浏览其他页面".into()
     }
 }
 

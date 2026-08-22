@@ -1,4 +1,5 @@
 use crate::app::state::{AppPage, AppStore};
+use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::{colors, corner_sm};
 use clv_platform::{list_startup_items, set_startup_enabled, StartupImpact};
@@ -63,21 +64,21 @@ impl StartupView {
             Ok(()) => self.last_error = None,
             Err(e) => {
                 tracing::warn!("startup toggle: {e}");
-                self.last_error = Some(format!("启动项操作失败：{e}"));
+                self.last_error = Some(self.store.read(cx).i18n().startup_toggle_failed(&e.to_string()));
             }
         }
         self.reload_items(cx);
     }
 
-    fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> Div {
+    fn render_row(&self, ix: usize, i18n: &I18n, lang: clv_core::Language, cx: &mut Context<Self>) -> Div {
         let Some(item) = self.items.get(ix) else {
             return div().h(px(STARTUP_ROW_H));
         };
 
         let id = item.id.clone();
         let enabled = item.enabled;
-        let impact = item.impact.label();
-        let kind = item.kind.label();
+        let impact = i18n::startup_impact_label(lang, item.impact);
+        let kind = i18n::startup_kind_label(lang, &item.kind);
         let description = item.description.clone();
         let name = item.name.clone();
         let sw_id = eid(format!("sw-{id}"));
@@ -127,7 +128,7 @@ impl StartupView {
                                             .rounded(corner_sm())
                                             .bg(impact_color.opacity(0.15))
                                             .text_color(impact_color)
-                                            .child(format!("影响: {impact}")),
+                                            .child(i18n.startup_impact(impact)),
                                     ),
                             )
                             .child(
@@ -159,6 +160,8 @@ impl Render for StartupView {
             self.ensure_loaded(cx);
         }
 
+        let i18n = self.store.read(cx).i18n();
+        let lang = self.store.read(cx).language();
         let high_impact = self
             .items
             .iter()
@@ -185,11 +188,11 @@ impl Render for StartupView {
                             .justify_between()
                             .items_center()
                             .child(ui::page_header(
-                                "启动项管理",
-                                format!("共 {count} 项 · {high_impact} 项高影响启动项"),
+                                i18n.startup_page_title(),
+                                i18n.startup_page_subtitle(count, high_impact),
                             ))
                             .child(
-                                ui::action_button("startup-refresh", "刷新", None, false, cx)
+                                ui::action_button("startup-refresh", i18n.refresh(), None, false, cx)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.refresh(cx);
                                     })),
@@ -228,7 +231,7 @@ impl Render for StartupView {
                                     div()
                                         .text_base()
                                         .text_color(colors::text_muted())
-                                        .child("正在加载启动项…"),
+                                        .child(i18n.loading_startup_items()),
                                 )
                         })
                         .when(self.loaded && count == 0, |this| {
@@ -237,8 +240,8 @@ impl Render for StartupView {
                                 .justify_center()
                                 .child(ui::empty_state(
                                     ui::EMPTY_STARTUP,
-                                    "未检测到启动项",
-                                    "当前平台暂不支持，或列表为空",
+                                    i18n.startup_empty_title(),
+                                    i18n.startup_empty_hint(),
                                 ))
                         })
                         .when(self.loaded && count > 0, |this| {
@@ -249,7 +252,7 @@ impl Render for StartupView {
                                 cx,
                                 move |this, visible_range, _window, cx| {
                                     visible_range
-                                        .map(|ix| this.render_row(ix, cx))
+                                        .map(|ix| this.render_row(ix, &i18n, lang, cx))
                                         .collect()
                                 },
                             ))

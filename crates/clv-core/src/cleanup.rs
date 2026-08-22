@@ -1,3 +1,4 @@
+use crate::locale::Language;
 use crate::models::{format_bytes, RiskLevel, ScanItem};
 use crate::settings::{trash_dir, AppSettings};
 use chrono::Utc;
@@ -15,16 +16,36 @@ pub struct CleanupReport {
 
 impl CleanupReport {
     pub fn summary(&self) -> String {
-        format!(
-            "已释放 {}，成功 {} 项{}",
-            format_bytes(self.freed_bytes),
-            self.success_count,
-            if self.failed.is_empty() {
-                String::new()
-            } else {
-                format!("，失败 {} 项", self.failed.len())
+        self.summary_for(Language::Zh)
+    }
+
+    pub fn summary_for(&self, lang: Language) -> String {
+        let failed_suffix = if self.failed.is_empty() {
+            String::new()
+        } else {
+            match lang {
+                Language::Zh => format!("，失败 {} 项", self.failed.len()),
+                Language::En => format!(", {} failed", self.failed.len()),
+                Language::Ja => format!("、{} 件失敗", self.failed.len()),
             }
-        )
+        };
+        match lang {
+            Language::Zh => format!(
+                "已释放 {}，成功 {} 项{failed_suffix}",
+                format_bytes(self.freed_bytes),
+                self.success_count,
+            ),
+            Language::En => format!(
+                "Freed {}, {} item(s) cleaned{failed_suffix}",
+                format_bytes(self.freed_bytes),
+                self.success_count,
+            ),
+            Language::Ja => format!(
+                "{} を解放、{} 件を削除{failed_suffix}",
+                format_bytes(self.freed_bytes),
+                self.success_count,
+            ),
+        }
     }
 }
 

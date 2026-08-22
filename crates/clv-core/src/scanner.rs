@@ -1,3 +1,7 @@
+use crate::locale::{
+    resolve_language, scan_phase_agent_sessions, scan_phase_discovering, scan_phase_preparing,
+    scan_phase_scanning_path, scan_phase_scanning_projects,
+};
 use crate::models::{RiskLevel, ScanItem, ScanProgress, ScanReport, TechStack};
 use crate::settings::{
     agent_marker_files, agent_name_patterns, global_cache_rules, is_protected_system_path,
@@ -50,6 +54,7 @@ impl Scanner {
     where
         F: FnMut(ScanProgress),
     {
+        let lang = resolve_language(self.settings.language);
         let mut on_progress = ProgressThrottle::new(on_progress);
         let started = Instant::now();
         let mut items = Vec::new();
@@ -58,7 +63,7 @@ impl Scanner {
 
         on_progress.emit(
             ScanProgress {
-                phase: "准备扫描".into(),
+                phase: scan_phase_preparing(lang),
                 current_path: None,
                 items_found: 0,
                 bytes_found: 0,
@@ -102,7 +107,7 @@ impl Scanner {
 
             on_progress.emit(
                 ScanProgress {
-                    phase: format!("扫描 {}", root.display()),
+                    phase: scan_phase_scanning_path(lang, root),
                     current_path: Some(root.clone()),
                     items_found: items.len(),
                     bytes_found: items.iter().map(|i| i.size_bytes).sum(),
@@ -110,7 +115,7 @@ impl Scanner {
                 true,
             );
 
-            self.scan_tree(root, &mut items, &mut seen_paths, &mut on_progress);
+            self.scan_tree(root, lang, &mut items, &mut seen_paths, &mut on_progress);
         }
 
         items = drop_nested_items(items);
@@ -155,6 +160,7 @@ impl Scanner {
     fn scan_tree<F>(
         &self,
         root: &Path,
+        lang: crate::locale::Language,
         items: &mut Vec<ScanItem>,
         seen: &mut HashSet<PathBuf>,
         on_progress: &mut ProgressThrottle<F>,
@@ -184,7 +190,7 @@ impl Scanner {
             if entry.depth() > 0 && entry.depth() % 5 == 0 {
                 on_progress.emit(
                     ScanProgress {
-                        phase: "扫描项目目录".into(),
+                        phase: scan_phase_scanning_projects(lang),
                         current_path: Some(path.to_path_buf()),
                         items_found: items.len(),
                         bytes_found: items.iter().map(|i| i.size_bytes).sum(),
@@ -267,7 +273,7 @@ impl Scanner {
 
         on_progress.emit(
             ScanProgress {
-                phase: "发现 Agent 会话".into(),
+                phase: scan_phase_agent_sessions(resolve_language(self.settings.language)),
                 current_path: Some(path.to_path_buf()),
                 items_found: items.len(),
                 bytes_found: items.iter().map(|i| i.size_bytes).sum(),
@@ -340,7 +346,7 @@ impl Scanner {
 
         on_progress.emit(
             ScanProgress {
-                phase: "发现可清理项".into(),
+                phase: scan_phase_discovering(resolve_language(self.settings.language)),
                 current_path: Some(path.to_path_buf()),
                 items_found: items.len(),
                 bytes_found: items.iter().map(|i| i.size_bytes).sum(),

@@ -1,3 +1,4 @@
+use crate::locale::LanguagePreference;
 use crate::models::{RiskLevel, TechStack};
 use crate::paths::{default_scan_paths, expand_scan_path};
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,8 @@ pub struct AppSettings {
     pub include_agent_heuristics: bool,
     pub auto_scan_weekly: bool,
     pub onboarding_done: bool,
+    #[serde(default)]
+    pub language: LanguagePreference,
 }
 
 impl Default for AppSettings {
@@ -27,6 +30,7 @@ impl Default for AppSettings {
             include_agent_heuristics: true,
             auto_scan_weekly: false,
             onboarding_done: false,
+            language: LanguagePreference::default(),
         }
     }
 }

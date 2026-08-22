@@ -12,6 +12,7 @@ pub use list::*;
 pub use security::*;
 pub use text::*;
 
+use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::{colors, corner_md, corner_sm};
 use clv_core::RiskLevel;
@@ -207,12 +208,12 @@ pub fn ghost_pill(
     }
 }
 
-pub fn open_path_button(id: SharedString, path: &std::path::Path) -> Button {
+pub fn open_path_button(id: SharedString, path: &std::path::Path, i18n: &I18n) -> Button {
     let path = path.to_path_buf();
     std_button(
         Button::new(id)
             .icon(Icon::new(ACTION_OPEN_FOLDER).with_size(px(20.)))
-            .label("打开位置")
+            .label(i18n.open_location())
             .ghost(),
     )
     .on_click(move |_, _, _| {
@@ -222,7 +223,7 @@ pub fn open_path_button(id: SharedString, path: &std::path::Path) -> Button {
 
 // ── Badges ──────────────────────────────────────────────────────────────────
 
-pub fn risk_badge(risk: RiskLevel) -> Div {
+pub fn risk_badge(risk: RiskLevel, lang: clv_core::Language) -> Div {
     let (bg, border, fg) = match risk {
         RiskLevel::Safe => (
             colors::from_hex(0x0f2a1a),
@@ -261,7 +262,7 @@ pub fn risk_badge(risk: RiskLevel) -> Div {
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(fg)
-                .child(risk.label().to_string()),
+                .child(i18n::risk_label(lang, risk).to_string()),
         )
 }
 

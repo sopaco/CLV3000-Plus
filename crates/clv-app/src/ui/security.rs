@@ -1,11 +1,11 @@
 //! Security-software style visual components — lively consumer aesthetic.
 
 use crate::app::state::AppStore;
+use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::{colors, corner, corner_md, corner_sm};
 use crate::ui::controls::lg_button;
 use crate::ui::icons::*;
-use clv_core::format_bytes;
 use gpui::{Hsla, img, linear_color_stop, linear_gradient};
 use gpui_component::{Icon, IconName, progress::Progress};
 
@@ -100,12 +100,17 @@ pub fn soft_card() -> Div {
 
 // ── Health score ─────────────────────────────────────────────────────────────
 
-pub fn compute_health(store: &AppStore) -> (u8, &'static str, Hsla) {
+pub fn compute_health(store: &AppStore) -> (u8, String, Hsla) {
+    let i18n = store.i18n();
     if store.scanning {
-        return (0, "正在为你体检…", colors::accent_cyan());
+        return (0, i18n.health_scanning().to_string(), colors::accent_cyan());
     }
     let Some(report) = &store.last_report else {
-        return (0, "点一下，马上知道电脑状态", colors::text_secondary());
+        return (
+            0,
+            i18n.health_no_scan().to_string(),
+            colors::text_secondary(),
+        );
     };
     let disk_penalty = (store.disk_used_percent() * 0.25).min(30.) as u8;
     let junk_penalty = ((report.items.len().min(60) as f32 / 60.0) * 30.0) as u8;
@@ -113,18 +118,19 @@ pub fn compute_health(store: &AppStore) -> (u8, &'static str, Hsla) {
         .saturating_sub(disk_penalty)
         .saturating_sub(junk_penalty);
     let (msg, color) = if score >= 90 {
-        ("状态很棒，继续保持", colors::safe_green())
+        (i18n.health_excellent(), colors::safe_green())
     } else if score >= 75 {
-        ("整体不错，还能更轻快", colors::accent_cyan())
+        (i18n.health_good(), colors::accent_cyan())
     } else if score >= 55 {
-        ("清理一下会更流畅", colors::from_hex(0xfbbf24))
+        (i18n.health_fair(), colors::from_hex(0xfbbf24))
     } else {
-        ("建议尽快体检清理", colors::warn_orange())
+        (i18n.health_poor(), colors::warn_orange())
     };
-    (score, msg, color)
+    (score, msg.to_string(), color)
 }
 
-pub fn health_ring(score: u8, status: &str, accent: Hsla, scanning: bool) -> Div {
+pub fn health_ring(score: u8, status: impl Into<SharedString>, accent: Hsla, scanning: bool, i18n: &I18n) -> Div {
+    let status: SharedString = status.into();
     let ring_color = if scanning {
         colors::accent_cyan()
     } else if score == 0 {
@@ -192,7 +198,7 @@ pub fn health_ring(score: u8, status: &str, accent: Hsla, scanning: bool) -> Div
                                 div()
                                     .text_sm()
                                     .text_color(colors::text_muted())
-                                    .child("清爽分"),
+                                    .child(i18n.health_score_label()),
                             )
                         }),
                 ),
@@ -202,7 +208,7 @@ pub fn health_ring(score: u8, status: &str, accent: Hsla, scanning: bool) -> Div
                 .text_base()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(colors::text_primary())
-                .child(status.to_string()),
+                .child(status),
         )
 }
 
@@ -210,11 +216,12 @@ pub fn health_ring(score: u8, status: &str, accent: Hsla, scanning: bool) -> Div
 
 pub fn hero_banner(
     score: u8,
-    status: &str,
+    status: impl Into<SharedString>,
     accent: Hsla,
     scanning: bool,
     scan_label: impl Into<SharedString>,
     on_scan: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    i18n: &I18n,
     cx: &App,
 ) -> impl IntoElement {
     let scan_label: SharedString = scan_label.into();
@@ -235,7 +242,7 @@ pub fn hero_banner(
                     .justify_between()
                     .items_center()
                     .gap_10()
-                    .child(health_ring(score, status, accent, scanning))
+                    .child(health_ring(score, status, accent, scanning, i18n))
                     .child(
                         div()
                             .flex_1()
@@ -250,20 +257,20 @@ pub fn hero_banner(
                                     .rounded(corner_sm())
                                     .bg(colors::accent_blue_bg())
                                     .text_color(colors::accent_blue())
-                                    .child("实时守护中"),
+                                    .child(i18n.realtime_guard()),
                             )
                             .child(
                                 div()
                                     .text_2xl()
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(colors::text_primary())
-                                    .child("让电脑保持轻快"),
+                                    .child(i18n.hero_title()),
                             )
                             .child(
                                 div()
                                     .text_base()
                                     .text_color(colors::accent_blue().opacity(0.75))
-                                    .child("智能找出 Agent 试验项目与开发缓存，一键释放空间"),
+                                    .child(i18n.hero_subtitle()),
                             )
                             .child(
                                 h_flex()
@@ -277,7 +284,7 @@ pub fn hero_banner(
                                         div()
                                             .text_sm()
                                             .text_color(colors::accent_blue().opacity(0.85))
-                                            .child("极速扫描，可继续操作其他功能"),
+                                            .child(i18n.hero_scan_hint()),
                                     ),
                             ),
                     ),
@@ -623,28 +630,14 @@ pub fn empty_state(
 
 /// Inline scan progress — shown while background scan is running.
 pub fn scan_progress_bar(
+    i18n: &I18n,
     phase: &str,
     items_found: usize,
     bytes_found: u64,
     current_path: Option<&str>,
 ) -> Div {
     let pct = (items_found.min(80) as f32 / 80.0 * 100.0).min(99.0);
-    let detail = if let Some(path) = current_path {
-        format!(
-            "{} · 已发现 {} 项（{}）\n{}",
-            phase,
-            items_found,
-            format_bytes(bytes_found),
-            path
-        )
-    } else {
-        format!(
-            "{} · 已发现 {} 项（{}）",
-            phase,
-            items_found,
-            format_bytes(bytes_found)
-        )
-    };
+    let detail = i18n.scan_bar_detail(phase, items_found, bytes_found, current_path);
 
     glass_card()
         .mb_4()
@@ -667,14 +660,14 @@ pub fn scan_progress_bar(
                                         .text_base()
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(colors::text_primary())
-                                        .child("正在极速扫描"),
+                                        .child(i18n.fast_scanning()),
                                 ),
                         )
                         .child(
                             div()
                                 .text_sm()
                                 .text_color(colors::text_muted())
-                                .child("可切换页面，扫描不会中断"),
+                                .child(i18n.scan_switch_pages_hint()),
                         ),
                 )
                 .child(

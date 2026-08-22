@@ -1,4 +1,5 @@
 use crate::app::state::{AppPage, AppStore};
+use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::format_bytes;
@@ -105,8 +106,9 @@ impl ProcessView {
             return input.clone();
         }
 
+        let placeholder = self.store.read(cx).i18n().process_search_placeholder();
         let input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("搜索名称、PID 或类别…")
+            InputState::new(window, cx).placeholder(placeholder)
         });
         let subscription = cx.subscribe(&input, |view, input, event, cx| {
             if matches!(event, InputEvent::Change) {
@@ -228,6 +230,8 @@ impl ProcessView {
         &self,
         ix: usize,
         processes: &[ProcessInfo],
+        i18n: &I18n,
+        lang: clv_core::Language,
         store: Entity<AppStore>,
         _window: &mut Window,
         cx: &mut Context<Self>,
@@ -240,7 +244,7 @@ impl ProcessView {
         let name = proc.name.clone();
         let mem = format_bytes(proc.memory_bytes);
         let cpu = format!("{:.1}%", proc.cpu_percent);
-        let cat = proc.category.label();
+        let cat = i18n::process_category_label(lang, &proc.category);
         let kill_id = eid(format!("kill-{pid}"));
 
         ui::soft_card()
@@ -264,7 +268,7 @@ impl ProcessView {
                             .child(cell(cat.to_string(), px(80.), colors::text_muted())),
                     )
                     .child(
-                        ui::std_button(Button::new(kill_id).danger().label("结束")).on_click(
+                        ui::std_button(Button::new(kill_id).danger().label(i18n.kill_process())).on_click(
                             cx.listener({
                                 let store = store.clone();
                                 move |this, _, _, cx| {
@@ -285,6 +289,8 @@ impl Render for ProcessView {
             self.on_show(cx);
         }
 
+        let i18n = self.store.read(cx).i18n();
+        let lang = self.store.read(cx).language();
         let search_input = self.ensure_search_input(window, cx);
         let sort = self.sort;
         let processes = self.filtered_processes();
@@ -312,11 +318,11 @@ impl Render for ProcessView {
                             .justify_between()
                             .items_center()
                             .child(ui::page_header(
-                                "进程管理",
+                                i18n.process_page_title(),
                                 if searching {
-                                    format!("搜索到 {count} / {total} 个进程")
+                                    i18n.process_search_found(count, total)
                                 } else {
-                                    format!("显示前 {DEFAULT_MAX_PROCESSES} 个进程 · 共 {total} 个")
+                                    i18n.process_list_summary(DEFAULT_MAX_PROCESSES, total)
                                 },
                             ))
                             .child(
@@ -327,17 +333,17 @@ impl Render for ProcessView {
                                             .w(px(240.))
                                             .child(Input::new(&search_input)),
                                     )
-                                    .child(sort_button("sort-mem", "按内存", ProcessSort::Memory, sort, cx))
-                                    .child(sort_button("sort-cpu", "按 CPU", ProcessSort::Cpu, sort, cx))
+                                    .child(sort_button("sort-mem", i18n.sort_by_memory(), ProcessSort::Memory, sort, cx))
+                                    .child(sort_button("sort-cpu", i18n.sort_by_cpu(), ProcessSort::Cpu, sort, cx))
                                     .child(sort_button(
                                         "sort-name",
-                                        "按名称",
+                                        i18n.sort_by_name(),
                                         ProcessSort::Name,
                                         sort,
                                         cx,
                                     ))
                                     .child(
-                                        ui::action_button("proc-refresh", "刷新", None, false, cx)
+                                        ui::action_button("proc-refresh", i18n.refresh(), None, false, cx)
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.refresh_now(cx);
                                                 cx.notify();
@@ -359,11 +365,11 @@ impl Render for ProcessView {
                                 h_flex()
                                     .w_full()
                                     .gap_4()
-                                    .child(header_cell("PID", px(60.)))
-                                    .child(header_name_cell("名称"))
+                                    .child(header_cell(i18n.col_pid(), px(60.)))
+                                    .child(header_name_cell(i18n.col_name()))
                                     .child(header_cell("CPU", px(80.)))
-                                    .child(header_cell("内存", px(100.)))
-                                    .child(header_cell("类别", px(80.)))
+                                    .child(header_cell(i18n.col_memory(), px(100.)))
+                                    .child(header_cell(i18n.col_category(), px(80.)))
                                     .child(div().w(px(96.))),
                             ),
                     ),
@@ -380,11 +386,11 @@ impl Render for ProcessView {
                         .when(count == 0, |this| {
                             this.flex().items_center().justify_center().child({
                                 let message: SharedString = if searching {
-                                    "没有匹配的进程".into()
+                                    i18n.no_matching_processes().into()
                                 } else if total == 0 {
-                                    "正在加载进程列表…".into()
+                                    i18n.loading_processes().into()
                                 } else {
-                                    "没有可显示的进程".into()
+                                    i18n.no_processes_to_show().into()
                                 };
                                 div()
                                     .text_base()
@@ -403,7 +409,7 @@ impl Render for ProcessView {
                                     let processes = this.filtered_processes();
                                     visible_range
                                         .map(|ix| {
-                                            this.render_row(ix, &processes, store.clone(), window, cx)
+                                            this.render_row(ix, &processes, &i18n, lang, store.clone(), window, cx)
                                         })
                                         .collect()
                                 },

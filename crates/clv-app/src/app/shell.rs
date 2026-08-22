@@ -19,7 +19,8 @@ impl AppShell {
 impl Render for AppShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.app.read(cx).current_page(cx);
-        let page_title = page.title();
+        let i18n = self.app.read(cx).i18n(cx);
+        let page_title = page.title(&i18n);
 
         div()
             .size_full()

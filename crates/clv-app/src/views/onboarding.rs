@@ -21,6 +21,7 @@ impl OnboardingView {
 impl Render for OnboardingView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let store = self.store.clone();
+        let i18n = self.store.read(cx).i18n();
         let step = self.step;
         let expert = self.expert;
 
@@ -54,13 +55,13 @@ impl Render for OnboardingView {
                                             .text_2xl()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(colors::text_primary())
-                                            .child("欢迎使用 CLV3000 Plus"),
+                                            .child(i18n.welcome_title()),
                                     )
                                     .child(
                                         div()
                                             .text_base()
                                             .text_color(colors::text_secondary())
-                                            .child("您的电脑安全管家"),
+                                            .child(i18n.welcome_subtitle()),
                                     ),
                             ),
                     )
@@ -82,9 +83,9 @@ impl Render for OnboardingView {
                     .child(if step == 0 {
                         v_flex()
                             .gap_3()
-                            .child(feature_line("智能清理 Agent 与开发项目的缓存和依赖"))
-                            .child(feature_line("管理登录启动项，减轻开机负担"))
-                            .child(feature_line("查看并结束高占用进程"))
+                            .child(feature_line(i18n.onboard_feature_1()))
+                            .child(feature_line(i18n.onboard_feature_2()))
+                            .child(feature_line(i18n.onboard_feature_3()))
                             .into_any_element()
                     } else if step == 1 {
                         v_flex()
@@ -93,12 +94,12 @@ impl Render for OnboardingView {
                                 div()
                                     .text_base()
                                     .text_color(colors::text_secondary())
-                                    .child("选择使用模式："),
+                                    .child(i18n.choose_mode()),
                             )
                             .child(mode_option(
                                 "mode-simple",
-                                "简单模式（推荐）",
-                                "用人话解释每一项，默认只清理安全内容",
+                                i18n.simple_mode_title(),
+                                i18n.simple_mode_desc(),
                                 !expert,
                                 cx,
                                 |this, _, _, cx| {
@@ -108,8 +109,8 @@ impl Render for OnboardingView {
                             ))
                             .child(mode_option(
                                 "mode-expert",
-                                "专家模式",
-                                "显示完整路径，可清理更多项目",
+                                i18n.expert_mode_onboard_title(),
+                                i18n.expert_mode_onboard_desc(),
                                 expert,
                                 cx,
                                 |this, _, _, cx| {
@@ -125,14 +126,14 @@ impl Render for OnboardingView {
                                 div()
                                     .text_base()
                                     .text_color(colors::text_secondary())
-                                    .child("将扫描以下常见目录："),
+                                    .child(i18n.scan_dirs_intro()),
                             )
                             .child(
                                 ui::glass_card()
                                     .p_4()
                                     .text_base()
                                     .text_color(colors::text_primary())
-                                    .child("~/Projects · ~/Documents · ~/Desktop · ~/Developer 等"),
+                                    .child(i18n.default_scan_dirs()),
                             )
                             .into_any_element()
                     })
@@ -140,7 +141,7 @@ impl Render for OnboardingView {
                         h_flex()
                             .justify_between()
                             .child(
-                                ui::action_button("onboard-back", "上一步", None, false, cx)
+                                ui::action_button("onboard-back", i18n.back(), None, false, cx)
                                     .disabled(step == 0)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         if this.step > 0 {
@@ -150,14 +151,14 @@ impl Render for OnboardingView {
                                     })),
                             )
                             .child(if step < 2 {
-                                ui::scan_cta_button("onboard-next", "下一步", false, cx)
+                                ui::scan_cta_button("onboard-next", i18n.next(), false, cx)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.step += 1;
                                         cx.notify();
                                     }))
                                     .into_any_element()
                             } else {
-                                ui::scan_cta_button("onboard-finish", "开始体检", false, cx)
+                                ui::scan_cta_button("onboard-finish", i18n.start_health_scan(), false, cx)
                                     .on_click({
                                         let store = store.clone();
                                         let expert = expert;

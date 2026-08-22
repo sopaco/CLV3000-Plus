@@ -16,6 +16,7 @@ impl DashboardView {
 impl Render for DashboardView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let store = self.store.read(cx);
+        let i18n = store.i18n();
         let reclaimable = store
             .last_report
             .as_ref()
@@ -53,9 +54,9 @@ impl Render for DashboardView {
         let store_entity = self.store.clone();
         let (score, status, accent) = ui::compute_health(store);
         let scan_label = if scanning {
-            "体检中…"
+            i18n.scanning_health()
         } else {
-            "立即体检"
+            i18n.scan_now()
         };
 
         div()
@@ -80,6 +81,7 @@ impl Render for DashboardView {
                                 store.update(cx, |s, cx| s.start_scan(cx));
                             }
                         },
+                        &i18n,
                         cx,
                     ))
                     .child(
@@ -88,7 +90,7 @@ impl Render for DashboardView {
                             .flex_wrap()
                             .child(ui::quick_tile(
                                 "tile-disk",
-                                "磁盘使用",
+                                i18n.disk_usage(),
                                 format!("{disk_pct:.0}%"),
                                 format!("{disk_used} / {disk_total}"),
                                 colors::accent_cyan(),
@@ -96,9 +98,9 @@ impl Render for DashboardView {
                             ))
                             .child(ui::quick_tile(
                                 "tile-clean",
-                                "可释放空间",
+                                i18n.reclaimable_space(),
                                 reclaimable.clone(),
-                                format!("{item_count} 个可清理项"),
+                                i18n.cleanable_items_count(item_count),
                                 colors::safe_green(),
                                 {
                                     let store = store_entity.clone();
@@ -111,9 +113,9 @@ impl Render for DashboardView {
                             ))
                             .child(ui::quick_tile(
                                 "tile-agent",
-                                "Agent 项目",
+                                i18n.agent_projects_tile(),
                                 agent_count.to_string(),
-                                format!("约 {agent_bytes}"),
+                                i18n.approx_size(&agent_bytes),
                                 colors::from_hex(0xa78bfa),
                                 {
                                     let store = store_entity.clone();
@@ -126,9 +128,9 @@ impl Render for DashboardView {
                             ))
                             .child(ui::quick_tile(
                                 "tile-startup",
-                                "启动项",
+                                i18n.startup_items(),
                                 store.startup_count.to_string(),
-                                "管理开机启动",
+                                i18n.manage_startup(),
                                 colors::warn_orange(),
                                 {
                                     let store = store_entity.clone();
@@ -151,12 +153,12 @@ impl Render for DashboardView {
                                     .text_base()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(colors::text_primary())
-                                    .child("系统状态"),
+                                    .child(i18n.system_status()),
                             )
-                            .child(ui::metric_bar("磁盘占用", disk_pct, colors::accent_cyan()))
+                            .child(ui::metric_bar(i18n.disk_usage_metric(), disk_pct, colors::accent_cyan()))
                             .child(
                                 ui::metric_bar(
-                                    "可优化空间",
+                                    i18n.optimizable_space(),
                                     if item_count > 0 {
                                         ((item_count.min(50) as f32 / 50.0) * 100.0).min(100.)
                                     } else {
@@ -172,16 +174,16 @@ impl Render for DashboardView {
                                         div()
                                             .text_sm()
                                             .text_color(colors::text_secondary())
-                                            .child(format!("可用空间 {disk_free}")),
+                                            .child(i18n.free_space(&disk_free)),
                                     )
                                     .child(
                                         div()
                                             .text_sm()
                                             .text_color(colors::text_muted())
                                             .child(if store.settings.expert_mode {
-                                                "专家模式"
+                                                i18n.expert_mode_short()
                                             } else {
-                                                "简单模式"
+                                                i18n.simple_mode_short()
                                             }),
                                     ),
                             ),
@@ -196,20 +198,12 @@ impl Render for DashboardView {
                                 div()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(colors::text_primary())
-                                    .child("全方位守护"),
+                                    .child(i18n.protection_features_title()),
                             )
-                            .child(feature_line(
-                                "识别 Claude / Cursor / Codex 等 Agent 试验项目",
-                            ))
-                            .child(feature_line(
-                                "安全清理多技术栈构建产物与依赖缓存",
-                            ))
-                            .child(feature_line(
-                                "管理登录启动项，减轻开机负担",
-                            ))
-                            .child(feature_line(
-                                "查看高占用进程，一键释放系统资源",
-                            )),
+                            .child(feature_line(i18n.feature_agent_detect()))
+                            .child(feature_line(i18n.feature_safe_cleanup()))
+                            .child(feature_line(i18n.feature_startup()))
+                            .child(feature_line(i18n.feature_process())),
                     )
                     .when_some(store.last_cleanup_freed, |this, freed| {
                         this.child(
@@ -231,10 +225,7 @@ impl Render for DashboardView {
                                             div()
                                                 .text_sm()
                                                 .text_color(colors::safe_green())
-                                                .child(format!(
-                                                    "上次清理已释放 {}",
-                                                    format_bytes(freed)
-                                                )),
+                                                .child(i18n.last_cleanup_freed(&format_bytes(freed))),
                                         ),
                                 ),
                         )

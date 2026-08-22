@@ -1,7 +1,8 @@
 use crate::app::state::{AppStore, CleanupFilter};
+use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::{colors, corner_md};
-use clv_core::{format_bytes, ScanItem};
+use clv_core::{ScanItem};
 use gpui::{ScrollStrategy, UniformListScrollHandle};
 use gpui_component::Icon;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,8 @@ impl CleanupView {
         &self,
         item: &ScanItem,
         expert: bool,
+        i18n: &I18n,
+        lang: clv_core::Language,
         store: Entity<AppStore>,
         _window: &mut Window,
         cx: &mut Context<Self>,
@@ -123,18 +126,18 @@ impl CleanupView {
                                     .child(
                                         h_flex()
                                             .gap_2()
-                                            .child(ui::risk_badge(item.risk))
+                                            .child(ui::risk_badge(item.risk, lang))
                                             .child(
                                                 div()
                                                     .text_base()
                                                     .text_color(colors::text_muted())
-                                                    .child(item.stack.label()),
+                                                    .child(i18n::tech_stack_label(lang, item.stack)),
                                             )
                                             .child(
                                                 div()
                                                     .text_base()
                                                     .text_color(colors::text_muted())
-                                                    .child(item.category.clone()),
+                                                    .child(i18n::scan_category_label(lang, &item.category).to_string()),
                                             ),
                                     ),
                             )
@@ -145,7 +148,7 @@ impl CleanupView {
                                     .items_center()
                                     .h(px(CLEANUP_PATH_ROW_H))
                                     .child(
-                                        ui::std_button(Button::new(exp_id).ghost().label("详情"))
+                                        ui::std_button(Button::new(exp_id).ghost().label(i18n.details()))
                                             .on_click(cx.listener({
                                                 move |_, _, window, cx| {
                                                     open_item_detail_dialog(
@@ -167,6 +170,8 @@ impl CleanupView {
 impl Render for CleanupView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let store_ref = self.store.read(cx);
+        let i18n = store_ref.i18n();
+        let lang = store_ref.language();
         let items = store_ref.filtered_items();
         let selected_bytes = store_ref.selected_bytes();
         let selected_count = store_ref.selected_items().len();
@@ -198,11 +203,11 @@ impl Render for CleanupView {
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(colors::text_muted())
-                            .child("筛选"),
+                            .child(i18n.filter_label()),
                     )
                     .child(filter_btn(
                         "filter-all",
-                        "全部",
+                        i18n.filter_all(),
                         CleanupFilter::All,
                         &store,
                         &self.scroll_handle,
@@ -210,7 +215,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-safe",
-                        "仅安全清理项",
+                        i18n.filter_safe(),
                         CleanupFilter::SafeOnly,
                         &store,
                         &self.scroll_handle,
@@ -218,7 +223,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-project",
-                        "项目临时产物",
+                        i18n.filter_project(),
                         CleanupFilter::ProjectBuildCache,
                         &store,
                         &self.scroll_handle,
@@ -226,7 +231,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-shared",
-                        "构建下载缓存",
+                        i18n.filter_shared(),
                         CleanupFilter::SharedToolCache,
                         &store,
                         &self.scroll_handle,
@@ -234,7 +239,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-dev-env",
-                        "环境与依赖",
+                        i18n.filter_dev_env(),
                         CleanupFilter::DevEnvironment,
                         &store,
                         &self.scroll_handle,
@@ -242,7 +247,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-ai",
-                        "AI 工具数据",
+                        i18n.filter_ai(),
                         CleanupFilter::AiGenerated,
                         &store,
                         &self.scroll_handle,
@@ -270,7 +275,7 @@ impl Render for CleanupView {
                                     .gap_2()
                                     .items_center()
                                     .child(
-                                        ui::ghost_pill("select-all", "全选", false, cx).on_click({
+                                        ui::ghost_pill("select-all", i18n.select_all(), false, cx).on_click({
                                             let store = store.clone();
                                             move |_, _, cx| {
                                                 store.update(cx, |s, cx| {
@@ -281,7 +286,7 @@ impl Render for CleanupView {
                                         }),
                                     )
                                     .child(
-                                        ui::ghost_pill("deselect-all", "取消全选", false, cx).on_click({
+                                        ui::ghost_pill("deselect-all", i18n.deselect_all(), false, cx).on_click({
                                             let store = store.clone();
                                             move |_, _, cx| {
                                                 store.update(cx, |s, cx| {
@@ -296,9 +301,9 @@ impl Render for CleanupView {
                                             .text_base()
                                             .text_color(colors::text_secondary())
                                             .child(if has_report {
-                                                format!("{} 项 · 已选 {selected_count} 项", items.len())
+                                                i18n.items_selected_summary(items.len(), selected_count)
                                             } else {
-                                                "尚未扫描".into()
+                                                i18n.not_scanned_yet().to_string()
                                             }),
                                     ),
                             )
@@ -308,7 +313,7 @@ impl Render for CleanupView {
                                     .child(
                                         ui::action_button(
                                             "rescan",
-                                            if has_report { "重新扫描" } else { "开始扫描" },
+                                            if has_report { i18n.rescan() } else { i18n.start_scan() },
                                             Some(ui::ACTION_SCAN),
                                             false,
                                             cx,
@@ -324,7 +329,7 @@ impl Render for CleanupView {
                                     .child(
                                         ui::action_button(
                                             "cleanup-run",
-                                            "清理选中项",
+                                            i18n.clean_selected(),
                                             Some(ui::ACTION_CLEAN),
                                             true,
                                             cx,
@@ -335,14 +340,12 @@ impl Render for CleanupView {
                                             move |_, window, cx| {
                                                 let bytes = store.read(cx).selected_bytes();
                                                 let count = store.read(cx).selected_items().len();
+                                                let i18n = store.read(cx).i18n();
                                                 let store_confirm = store.clone();
                                                 window.open_dialog(cx, move |dialog, _window, _cx| {
                                                     dialog
-                                                        .title("确认清理")
-                                                        .child(format!(
-                                                            "即将清理 {count} 项，预计释放 {}",
-                                                            format_bytes(bytes)
-                                                        ))
+                                                        .title(i18n.confirm_cleanup_title())
+                                                        .child(i18n.confirm_cleanup_body(count, bytes))
                                                         .confirm()
                                                         .on_ok({
                                                             let store = store_confirm.clone();
@@ -370,7 +373,7 @@ impl Render for CleanupView {
                                 .flex_col()
                                 .p_4()
                                 .when(!has_report && !scanning, |this| {
-                                    this.child(cleanup_scan_prompt(&store, cx))
+                                    this.child(cleanup_scan_prompt(&store, &i18n, cx))
                                 })
                                 .when(has_report && count == 0 && !scanning, |this| {
                                     this.flex()
@@ -378,8 +381,8 @@ impl Render for CleanupView {
                                         .justify_center()
                                         .child(ui::empty_state(
                                             ui::EMPTY_SCAN,
-                                            "当前筛选下暂无项目",
-                                            "尝试切换左侧筛选条件，或重新扫描",
+                                            i18n.empty_filter_title(),
+                                            i18n.empty_filter_hint(),
                                         ))
                                 })
                                 .when(scanning, |this| {
@@ -391,23 +394,19 @@ impl Render for CleanupView {
                                         .items_center()
                                         .justify_center()
                                         .child(ui::empty_state_loading(
-                                            "正在扫描",
-                                            if let Some(p) = path {
-                                                format!(
-                                                    "{phase} · 已发现 {found} 项（{bytes}）\n{p}",
-                                                    bytes = format_bytes(bytes)
-                                                )
-                                            } else {
-                                                format!(
-                                                    "{phase} · 已发现 {found} 项（{bytes}）",
-                                                    bytes = format_bytes(bytes)
-                                                )
-                                            },
+                                            i18n.scanning_title(),
+                                            i18n.scan_progress_detail(
+                                                &phase,
+                                                found,
+                                                bytes,
+                                                path.as_deref(),
+                                            ),
                                         ))
                                 })
                                 .when(has_report && count > 0 && !scanning, |this| {
                                     let items = items.clone();
                                     let store = store.clone();
+                                    let i18n = i18n;
                                     this.child(ui::uniform_list_pane(
                                         "cleanup-rows",
                                         count,
@@ -420,6 +419,8 @@ impl Render for CleanupView {
                                                         this.render_row(
                                                             item,
                                                             expert,
+                                                            &i18n,
+                                                            lang,
                                                             store.clone(),
                                                             window,
                                                             cx,
@@ -442,10 +443,7 @@ impl Render for CleanupView {
                                 div()
                                     .text_sm()
                                     .text_color(colors::text_secondary())
-                                    .child(format!(
-                                        "已选 {selected_count} 项 · 预计释放 {}",
-                                        format_bytes(selected_bytes)
-                                    )),
+                                    .child(i18n.selected_summary(selected_count, selected_bytes)),
                             ),
                     ),
             )
@@ -488,7 +486,7 @@ fn open_item_detail_dialog(
     });
 }
 
-fn cleanup_scan_prompt(store: &Entity<AppStore>, cx: &App) -> Div {
+fn cleanup_scan_prompt(store: &Entity<AppStore>, i18n: &I18n, cx: &App) -> Div {
     let store = store.clone();
     div()
         .flex_1()
@@ -523,19 +521,19 @@ fn cleanup_scan_prompt(store: &Entity<AppStore>, cx: &App) -> Div {
                         .text_xl()
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors::text_primary())
-                        .child("还没有扫描结果"),
+                        .child(i18n.no_scan_results_title()),
                 )
                 .child(
                     div()
                         .text_base()
                         .text_color(colors::text_secondary())
-                        .child("扫描后将列出可安全清理的缓存与构建产物"),
+                        .child(i18n.no_scan_results_hint()),
                 ),
         )
         .child(
             ui::action_button(
                 "cleanup-first-scan",
-                "立即扫描",
+                i18n.scan_now_short(),
                 Some(ui::ACTION_SCAN),
                 true,
                 cx,

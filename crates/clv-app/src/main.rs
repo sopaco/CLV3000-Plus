@@ -4,6 +4,7 @@
 
 mod app;
 mod assets;
+mod i18n;
 mod platform;
 mod prelude;
 pub mod theme;

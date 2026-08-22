@@ -879,7 +879,7 @@ dependencies = [
 
 [[package]]
 name = "clv-app"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -902,13 +902,14 @@ dependencies = [
 
 [[package]]
 name = "clv-core"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "chrono",
  "directories",
  "serde",
  "serde_json",
+ "sys-locale",
  "tempfile",
  "thiserror 2.0.20",
  "tracing",
@@ -918,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "clv-platform"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "chrono",

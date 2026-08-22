@@ -1,4 +1,5 @@
 use crate::app::state::{AppPage, AppStore};
+use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::{AgentProject, RiskLevel};
@@ -67,8 +68,9 @@ impl AgentView {
             return input.clone();
         }
 
+        let placeholder = self.store.read(cx).i18n().agent_search_placeholder();
         let input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("搜索名称、路径、技术栈或原因…")
+            InputState::new(window, cx).placeholder(placeholder)
         });
         let subscription = cx.subscribe(&input, |view, input, event, cx| {
             if matches!(event, InputEvent::Change) {
@@ -85,6 +87,8 @@ impl AgentView {
     fn render_row(
         &self,
         project: &clv_core::AgentProject,
+        i18n: &I18n,
+        lang: clv_core::Language,
         store: Entity<AppStore>,
         scanning: bool,
         cx: &mut Context<Self>,
@@ -92,13 +96,13 @@ impl AgentView {
         let stacks: String = project
             .stacks
             .iter()
-            .map(|s| s.label())
+            .map(|s| i18n::tech_stack_label(lang, *s))
             .collect::<Vec<_>>()
             .join(" · ");
         let inactive = project
             .days_inactive
-            .map(|d| format!("{d} 天未使用"))
-            .unwrap_or_else(|| "未知".into());
+            .map(|d| i18n.days_inactive(d))
+            .unwrap_or_else(|| i18n.unknown().to_string());
         let risk = if project.days_inactive.unwrap_or(0) > 14 {
             RiskLevel::Safe
         } else {
@@ -141,7 +145,7 @@ impl AgentView {
                                     .child(
                                         h_flex()
                                             .gap_2()
-                                            .child(ui::risk_badge(risk))
+                                            .child(ui::risk_badge(risk, lang))
                                             .child(
                                                 div()
                                                     .text_sm()
@@ -181,11 +185,11 @@ impl AgentView {
                                     .child(
                                         h_flex()
                                             .gap_2()
-                                            .child(ui::open_path_button(open_id, &path))
+                                            .child(ui::open_path_button(open_id, &path, i18n))
                                             .child(
                                                 ui::action_button(
                                                     clean_id,
-                                                    "清理缓存",
+                                                    i18n.clean_cache(),
                                                     Some(ui::ACTION_CLEAN),
                                                     true,
                                                     cx,
@@ -221,6 +225,8 @@ impl Render for AgentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let search_input = self.ensure_search_input(window, cx);
         let store_ref = self.store.read(cx);
+        let i18n = store_ref.i18n();
+        let lang = store_ref.language();
         let total = store_ref
             .last_report
             .as_ref()
@@ -250,13 +256,13 @@ impl Render for AgentView {
                     .flex_col()
                     .gap_4()
                     .child(ui::page_banner(
-                        "Agent 试验项目",
+                        i18n.agent_page_title(),
                         if searching {
-                            format!("搜索到 {count} / {total} 个项目")
+                            i18n.agent_projects_found(count, total)
                         } else if total > 0 {
-                            format!("共 {total} 个 Agent 项目")
+                            i18n.agent_projects_total(total)
                         } else {
-                            "识别 Codex / Claude / Cursor 等 Agent 可能创建的项目".into()
+                            i18n.agent_page_subtitle_default().to_string()
                         },
                     ))
                     .child(
@@ -272,7 +278,7 @@ impl Render for AgentView {
                             .child(
                                 ui::action_button(
                                     "agent-scan",
-                                    if scanning { "扫描中…" } else { "扫描 Agent 项目" },
+                                    if scanning { i18n.scanning_ellipsis() } else { i18n.scan_agent_projects() },
                                     Some(ui::ACTION_SCAN),
                                     true,
                                     cx,
@@ -303,8 +309,8 @@ impl Render for AgentView {
                                 .justify_center()
                                 .child(ui::empty_state(
                                     ui::EMPTY_AGENT,
-                                    "暂无 Agent 项目",
-                                    "点击上方「扫描 Agent 项目」，将识别含 .agents / .claude 等标记的目录",
+                                    i18n.agent_empty_title(),
+                                    i18n.agent_empty_hint(),
                                 ))
                         })
                         .when(total > 0 && count == 0, |this| {
@@ -312,11 +318,12 @@ impl Render for AgentView {
                                 div()
                                     .text_base()
                                     .text_color(colors::text_muted())
-                                    .child("没有匹配的项目"),
+                                    .child(i18n.no_matching_projects()),
                             )
                         })
                         .when(count > 0, |this| {
                             let projects = projects.clone();
+                            let i18n = i18n;
                             this.child(ui::uniform_list_pane(
                                 "agent-rows",
                                 count,
@@ -326,7 +333,7 @@ impl Render for AgentView {
                                     visible_range
                                         .filter_map(|ix| {
                                             projects.get(ix).map(|project| {
-                                                this.render_row(project, store.clone(), scanning, cx)
+                                                this.render_row(project, &i18n, lang, store.clone(), scanning, cx)
                                             })
                                         })
                                         .collect()

@@ -1,6 +1,7 @@
 pub mod shell;
 pub mod state;
 
+use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::colors;
 use crate::views::{
@@ -132,6 +133,10 @@ impl ClvApp {
         self.store.read(cx).page
     }
 
+    pub fn i18n(&self, cx: &App) -> I18n {
+        self.store.read(cx).i18n()
+    }
+
     fn render_page(&mut self, page: AppPage, cx: &mut Context<Self>) -> impl IntoElement {
         match page {
             AppPage::Dashboard => self.dashboard(cx).into_any_element(),
@@ -148,6 +153,7 @@ impl ClvApp {
 impl Render for ClvApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.store.read(cx).page;
+        let i18n = self.store.read(cx).i18n();
 
         if page == AppPage::Onboarding {
             return div()
@@ -192,7 +198,7 @@ impl Render for ClvApp {
                             .child(self.nav_icon(
                                 "nav-home",
                                 ui::NAV_HOME,
-                                "首页",
+                                i18n.nav_home(),
                                 AppPage::Dashboard,
                                 window,
                                 cx,
@@ -200,7 +206,7 @@ impl Render for ClvApp {
                             .child(self.nav_icon(
                                 "nav-clean",
                                 ui::nav_cleanup_icon(),
-                                "清理",
+                                i18n.nav_cleanup(),
                                 AppPage::Cleanup,
                                 window,
                                 cx,
@@ -208,7 +214,7 @@ impl Render for ClvApp {
                             .child(self.nav_icon(
                                 "nav-agent",
                                 ui::NAV_AGENT,
-                                "Agent",
+                                i18n.nav_agent(),
                                 AppPage::Agent,
                                 window,
                                 cx,
@@ -216,7 +222,7 @@ impl Render for ClvApp {
                             .child(self.nav_icon(
                                 "nav-startup",
                                 ui::NAV_STARTUP,
-                                "启动",
+                                i18n.nav_startup(),
                                 AppPage::Startup,
                                 window,
                                 cx,
@@ -224,7 +230,7 @@ impl Render for ClvApp {
                             .child(self.nav_icon(
                                 "nav-process",
                                 ui::NAV_PROCESS,
-                                "进程",
+                                i18n.nav_process(),
                                 AppPage::Process,
                                 window,
                                 cx,
@@ -240,7 +246,7 @@ impl Render for ClvApp {
                             .child(self.nav_icon(
                                 "nav-settings",
                                 ui::NAV_SETTINGS,
-                                "设置",
+                                i18n.nav_settings(),
                                 AppPage::Settings,
                                 window,
                                 cx,
@@ -264,6 +270,7 @@ impl Render for ClvApp {
                             .p_6()
                             .when(show_scan_bar, |this| {
                                 this.child(ui::scan_progress_bar(
+                                    &i18n,
                                     &scan_phase,
                                     scan_items_found,
                                     scan_bytes_found,
@@ -283,23 +290,19 @@ impl Render for ClvApp {
 impl ClvApp {
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let store = self.store.read(cx);
+        let i18n = store.i18n();
         let scanning = store.scanning;
         let cleaning = store.cleaning;
         let status = if cleaning {
-            "正在清理选中项，请稍候…".into()
+            i18n.status_cleaning().to_string()
         } else if scanning {
-            // Detailed scan progress is shown in the top bar — keep status bar minimal.
-            "极速扫描中 · 可切换页面继续操作".into()
+            i18n.status_scanning().to_string()
         } else if let Some(msg) = &store.status_message {
             msg.clone()
         } else if let Some(report) = &store.last_report {
-            format!(
-                "保护中 · 可释放 {} · {} 项待清理",
-                report.total_reclaimable_human(),
-                report.items.len()
-            )
+            i18n.status_protected(&report.total_reclaimable_human(), report.items.len())
         } else {
-            "实时防护已开启 — 点击首页「立即体检」".into()
+            i18n.status_idle().to_string()
         };
 
         h_flex()
