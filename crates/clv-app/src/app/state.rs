@@ -1,12 +1,12 @@
 use crate::prelude::*;
 use clv_core::{
-    cleanup::CleanupExecutor, detect_agent_projects, item_cleanup_bucket, save_settings,
     AppSettings, CleanupBucket, RiskLevel, ScanProgress, ScanReport, Scanner,
+    cleanup::CleanupExecutor, detect_agent_projects, item_cleanup_bucket, save_settings,
 };
-use sysinfo::Disks;
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
+use sysinfo::Disks;
 
 enum ScanEvent {
     Progress(ScanProgress),
@@ -297,9 +297,8 @@ impl AppStore {
                         store.scan_phase = progress.phase;
                         store.scan_items_found = progress.items_found;
                         store.scan_bytes_found = progress.bytes_found;
-                        store.scan_current_path = progress
-                            .current_path
-                            .map(|p| truncate_path_display(&p, 96));
+                        store.scan_current_path =
+                            progress.current_path.map(|p| truncate_path_display(&p, 96));
                         cx.notify();
                     })
                     .ok();
@@ -357,9 +356,7 @@ impl AppStore {
                             if let Some(current) = &mut store.last_report {
                                 let removed: std::collections::HashSet<_> =
                                     removed_paths.into_iter().collect();
-                                current
-                                    .items
-                                    .retain(|i| !removed.contains(&i.path));
+                                current.items.retain(|i| !removed.contains(&i.path));
                                 current.agent_projects = detect_agent_projects(
                                     &current.items,
                                     &store.settings.scan_paths,
@@ -394,7 +391,12 @@ impl AppStore {
         true
     }
 
-    pub fn finish_onboarding(&mut self, expert: bool, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
+    pub fn finish_onboarding(
+        &mut self,
+        expert: bool,
+        paths: Vec<std::path::PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.expert_mode = expert;
         if !paths.is_empty() {
             self.settings.scan_paths = paths;
@@ -408,11 +410,11 @@ impl AppStore {
 fn scan_start_message() -> String {
     #[cfg(target_os = "macos")]
     {
-        "正在后台扫描（若长时间无响应，请在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中授权本应用）".into()
+        "正在极速扫描（若长时间无响应，请在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中授权本应用）".into()
     }
     #[cfg(not(target_os = "macos"))]
     {
-        "正在后台扫描，可继续浏览其他页面".into()
+        "正在极速扫描，可继续浏览其他页面".into()
     }
 }
 
@@ -421,7 +423,14 @@ fn truncate_path_display(path: &Path, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         s
     } else {
-        let tail: String = s.chars().rev().take(max_chars - 1).collect::<Vec<_>>().into_iter().rev().collect();
+        let tail: String = s
+            .chars()
+            .rev()
+            .take(max_chars - 1)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
         format!("…{tail}")
     }
 }
