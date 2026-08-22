@@ -287,6 +287,8 @@ fn theme_option(
     };
     let bg = if active {
         colors::accent_blue_bg()
+    } else if colors::is_light() {
+        colors::bg_card()
     } else {
         colors::bg_card().opacity(0.5)
     };

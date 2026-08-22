@@ -84,18 +84,22 @@ fn glow_orb_left(size: f32, color: Hsla, bottom: f32, left: f32) -> Div {
 }
 
 pub fn glass_card() -> Div {
-    div()
+    let card = div()
         .rounded(corner())
         .border_1()
-        .border_color(colors::from_hex(0xffffff).opacity(0.1))
-        .bg(colors::from_hex(0xffffff).opacity(0.06))
-        .shadow_lg()
+        .border_color(colors::glass_border())
+        .bg(colors::glass_bg());
+    if colors::is_light() {
+        card.shadow_md()
+    } else {
+        card.shadow_lg()
+    }
 }
 
 pub fn soft_card() -> Div {
     div()
         .rounded(corner())
-        .bg(colors::from_hex(0xffffff).opacity(0.04))
+        .bg(colors::glass_bg_soft())
 }
 
 // ── Health score ─────────────────────────────────────────────────────────────
@@ -168,7 +172,7 @@ pub fn health_ring(score: u8, status: impl Into<SharedString>, accent: Hsla, sca
                         .absolute()
                         .inset(px(8.))
                         .rounded_full()
-                        .bg(colors::from_hex(0x0a2540).opacity(0.75))
+                        .bg(colors::ring_center_bg())
                         .flex()
                         .flex_col()
                         .items_center()
@@ -337,18 +341,18 @@ pub fn quick_tile(
         .p_4()
         .rounded(corner())
         .border_1()
-        .border_color(colors::from_hex(0xffffff).opacity(0.07))
-        .bg(colors::from_hex(0xffffff).opacity(0.04))
+        .border_color(colors::glass_border())
+        .bg(colors::glass_bg_soft())
         .cursor_pointer()
         .shadow_md()
         .on_click(on_click)
         .hover(|s| {
-            s.bg(colors::from_hex(0xffffff).opacity(0.09))
+            s.bg(colors::glass_bg_hover())
                 .border_color(tint.opacity(0.4))
                 .shadow_lg()
         })
         .active(|s| {
-            s.bg(colors::from_hex(0xffffff).opacity(0.05))
+            s.bg(colors::glass_bg_active())
                 .border_color(tint.opacity(0.55))
                 .shadow_sm()
         })

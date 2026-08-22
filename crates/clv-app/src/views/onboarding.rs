@@ -207,9 +207,9 @@ fn mode_option(
         .border_color(if selected {
             colors::accent_cyan()
         } else {
-            colors::from_hex(0xffffff).opacity(0.08)
+            colors::glass_border()
         })
-        .when(selected, |el| el.bg(colors::accent_blue_bg().opacity(0.5)))
+        .when(selected, |el| el.bg(colors::accent_blue_bg()))
         .cursor_pointer()
         .id(id)
         .on_click(cx.listener(on_click))

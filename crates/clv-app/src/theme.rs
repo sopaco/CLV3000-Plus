@@ -49,6 +49,8 @@ pub struct ThemePalette {
     pub risk_caution_fg: u32,
     pub corner_control: f32,
     pub corner_md: f32,
+    pub is_light: bool,
+    pub ring_center_bg: u32,
 }
 
 impl ThemePalette {
@@ -92,50 +94,54 @@ impl ThemePalette {
             risk_caution_fg: 0xf59e0b,
             corner_control: 6.,
             corner_md: 8.,
+            is_light: false,
+            ring_center_bg: 0x0a2540,
         }
     }
 
-    /// Soft rose & lavender — airy cherry-blossom palette with lifted mid-tones.
+    /// Soft rose & lavender — light cherry-blossom palette on airy white-pink bases.
     fn blossom() -> Self {
         Self {
-            accent: 0xfb7185,
-            accent_bg: 0x5c3048,
-            accent_bg_hover: 0x6e3a56,
-            accent_bg_pressed: 0x4a2838,
-            accent_active: 0xf43f5e,
-            accent_pressed: 0xe11d48,
+            accent: 0xf43f5e,
+            accent_bg: 0xfff1f5,
+            accent_bg_hover: 0xffe4e6,
+            accent_bg_pressed: 0xfecdd3,
+            accent_active: 0xe11d48,
+            accent_pressed: 0xbe123c,
             accent_secondary: 0xc4b5fd,
-            bg_app: 0x2a2030,
-            bg_sidebar: 0x261c2c,
-            bg_titlebar: 0x2e2438,
-            bg_card: 0x3a3040,
-            border: 0x7a5a6e,
-            panel_divider: 0x4a3848,
-            safe_green: 0xfda4af,
-            green: 0xfb7185,
-            warn_orange: 0xfcd34d,
-            red: 0xf87171,
-            red_bg: 0x4a2838,
-            red_border: 0x7a4050,
-            text_primary: 0xfff5f7,
-            text_secondary: 0xf0c4d0,
-            text_muted: 0xb894a4,
-            gradient_hero_start: 0x7a5068,
-            gradient_hero_alt_start: 0x3a2838,
-            gradient_sidebar_start: 0x241a28,
-            gradient_sidebar_end: 0x302438,
-            gradient_content_start: 0x2a2030,
-            gradient_content_end: 0x363040,
-            gradient_titlebar_end: 0x302438,
-            gradient_warm_start: 0xe879f9,
-            status_bar_bg: 0x261c2c,
-            risk_safe_bg: 0x4a3848,
-            risk_safe_border: 0x6e5060,
-            risk_caution_bg: 0x4a4030,
-            risk_caution_border: 0x7a6040,
-            risk_caution_fg: 0xfcd34d,
+            bg_app: 0xfff7f9,
+            bg_sidebar: 0xfff1f5,
+            bg_titlebar: 0xfffafb,
+            bg_card: 0xffffff,
+            border: 0xfbcfe8,
+            panel_divider: 0xfce7f3,
+            safe_green: 0x10b981,
+            green: 0x059669,
+            warn_orange: 0xf59e0b,
+            red: 0xef4444,
+            red_bg: 0xfff1f2,
+            red_border: 0xfecaca,
+            text_primary: 0x1f2937,
+            text_secondary: 0x6b7280,
+            text_muted: 0x9ca3af,
+            gradient_hero_start: 0xffe4e6,
+            gradient_hero_alt_start: 0xfff1f5,
+            gradient_sidebar_start: 0xfffafb,
+            gradient_sidebar_end: 0xfff1f5,
+            gradient_content_start: 0xfff7f9,
+            gradient_content_end: 0xfff1f5,
+            gradient_titlebar_end: 0xfff1f5,
+            gradient_warm_start: 0xf9a8d4,
+            status_bar_bg: 0xfff1f5,
+            risk_safe_bg: 0xd1fae5,
+            risk_safe_border: 0xa7f3d0,
+            risk_caution_bg: 0xfef3c7,
+            risk_caution_border: 0xfde68a,
+            risk_caution_fg: 0xd97706,
             corner_control: 8.,
             corner_md: 12.,
+            is_light: true,
+            ring_center_bg: 0xffffff,
         }
     }
 
@@ -180,50 +186,54 @@ impl ThemePalette {
             risk_caution_fg: 0xfbbf24,
             corner_control: 4.,
             corner_md: 6.,
+            is_light: false,
+            ring_center_bg: 0x0a2540,
         }
     }
 
-    /// Fresh mint & sky — light sage greens with bright teal accents.
+    /// Fresh mint & sky — light airy greens on white-mint bases.
     fn aurora() -> Self {
         Self {
-            accent: 0x5eead4,
-            accent_bg: 0x1e5e54,
-            accent_bg_hover: 0x267060,
-            accent_bg_pressed: 0x184840,
-            accent_active: 0x2dd4bf,
-            accent_pressed: 0x14b8a6,
-            accent_secondary: 0x7dd3fc,
-            bg_app: 0x1a302a,
-            bg_sidebar: 0x162a24,
-            bg_titlebar: 0x1c3430,
-            bg_card: 0x243e38,
-            border: 0x3d6b60,
-            panel_divider: 0x2a4a40,
-            safe_green: 0x86efac,
-            green: 0x4ade80,
-            warn_orange: 0xfcd34d,
-            red: 0xf87171,
-            red_bg: 0x3a2828,
-            red_border: 0x604040,
-            text_primary: 0xf0fdf9,
-            text_secondary: 0xa8d4c4,
-            text_muted: 0x78a898,
-            gradient_hero_start: 0x2a6e60,
-            gradient_hero_alt_start: 0x1a3028,
-            gradient_sidebar_start: 0x142820,
-            gradient_sidebar_end: 0x203830,
-            gradient_content_start: 0x1a302a,
-            gradient_content_end: 0x243e38,
-            gradient_titlebar_end: 0x203830,
+            accent: 0x14b8a6,
+            accent_bg: 0xccfbf1,
+            accent_bg_hover: 0x99f6e4,
+            accent_bg_pressed: 0x5eead4,
+            accent_active: 0x0d9488,
+            accent_pressed: 0x0f766e,
+            accent_secondary: 0x38bdf8,
+            bg_app: 0xf0fdf9,
+            bg_sidebar: 0xecfdf5,
+            bg_titlebar: 0xf5fffe,
+            bg_card: 0xffffff,
+            border: 0xa7f3d0,
+            panel_divider: 0xd1fae5,
+            safe_green: 0x10b981,
+            green: 0x059669,
+            warn_orange: 0xf59e0b,
+            red: 0xef4444,
+            red_bg: 0xfff1f2,
+            red_border: 0xfecaca,
+            text_primary: 0x134e4a,
+            text_secondary: 0x4b5563,
+            text_muted: 0x6b7280,
+            gradient_hero_start: 0xccfbf1,
+            gradient_hero_alt_start: 0xecfdf5,
+            gradient_sidebar_start: 0xf5fffe,
+            gradient_sidebar_end: 0xecfdf5,
+            gradient_content_start: 0xf0fdf9,
+            gradient_content_end: 0xe6fffa,
+            gradient_titlebar_end: 0xecfdf5,
             gradient_warm_start: 0x7dd3fc,
-            status_bar_bg: 0x162a24,
-            risk_safe_bg: 0x1a4030,
-            risk_safe_border: 0x2a6050,
-            risk_caution_bg: 0x3a3420,
-            risk_caution_border: 0x5a5030,
-            risk_caution_fg: 0xfcd34d,
+            status_bar_bg: 0xecfdf5,
+            risk_safe_bg: 0xd1fae5,
+            risk_safe_border: 0xa7f3d0,
+            risk_caution_bg: 0xfef3c7,
+            risk_caution_border: 0xfde68a,
+            risk_caution_fg: 0xd97706,
             corner_control: 8.,
             corner_md: 10.,
+            is_light: true,
+            ring_center_bg: 0xffffff,
         }
     }
 
@@ -388,13 +398,77 @@ pub mod colors {
         super::hex(super::palette().gradient_warm_start)
     }
 
+    pub fn is_light() -> bool {
+        super::palette().is_light
+    }
+
+    pub fn ring_center_bg() -> Hsla {
+        let p = super::palette();
+        if p.is_light {
+            super::hex(p.ring_center_bg)
+        } else {
+            super::hex(p.ring_center_bg).opacity(0.75)
+        }
+    }
+
+    /// Elevated card / glass surface border.
+    pub fn glass_border() -> Hsla {
+        let p = super::palette();
+        if p.is_light {
+            super::hex(p.border).opacity(0.65)
+        } else {
+            super::hex(0xffffff).opacity(0.1)
+        }
+    }
+
+    /// Elevated card / glass surface background.
+    pub fn glass_bg() -> Hsla {
+        let p = super::palette();
+        if p.is_light {
+            super::hex(p.bg_card)
+        } else {
+            super::hex(0xffffff).opacity(0.06)
+        }
+    }
+
+    pub fn glass_bg_hover() -> Hsla {
+        let p = super::palette();
+        if p.is_light {
+            super::hex(p.accent_bg_hover)
+        } else {
+            super::hex(0xffffff).opacity(0.09)
+        }
+    }
+
+    pub fn glass_bg_active() -> Hsla {
+        let p = super::palette();
+        if p.is_light {
+            super::hex(p.accent_bg)
+        } else {
+            super::hex(0xffffff).opacity(0.05)
+        }
+    }
+
+    pub fn glass_bg_soft() -> Hsla {
+        let p = super::palette();
+        if p.is_light {
+            super::hex(p.bg_app)
+        } else {
+            super::hex(0xffffff).opacity(0.04)
+        }
+    }
+
     pub fn from_hex(v: u32) -> Hsla {
         super::hex(v)
     }
 }
 
 fn build_gpui_palette(p: ThemePalette) -> ThemeColor {
-    let mut t = *ThemeColor::dark();
+    let mut t = if p.is_light {
+        *ThemeColor::light()
+    } else {
+        *ThemeColor::dark()
+    };
     let accent = hex(p.accent);
     let accent_bg = hex(p.accent_bg);
     let accent_active = hex(p.accent_active);
@@ -426,7 +500,11 @@ fn build_gpui_palette(p: ThemePalette) -> ThemeColor {
     t.info_hover = accent_active;
     t.info_active = accent_pressed;
     t.success = hex(p.safe_green);
-    t.success_foreground = hex(0xffffff);
+    t.success_foreground = if p.is_light {
+        hex(p.green)
+    } else {
+        hex(0xffffff)
+    };
     t.success_hover = hex(p.green);
     t.danger = hex(p.red);
     t.danger_foreground = hex(0xffffff);
@@ -459,7 +537,11 @@ fn build_gpui_palette(p: ThemePalette) -> ThemeColor {
     t.caret = accent;
     t.drag_border = accent;
     t.drop_target = accent_bg;
-    t.switch = hex(p.border);
+    t.switch = if p.is_light {
+        hex(0xd1d5db)
+    } else {
+        hex(p.border)
+    };
     t.switch_thumb = hex(0xffffff);
     t.slider_bar = accent;
     t.slider_thumb = hex(0xffffff);
@@ -483,14 +565,22 @@ pub fn apply_theme(preference: ThemePreference, cx: &mut App) {
     if let Ok(mut guard) = PALETTE.write() {
         *guard = palette;
     }
-    Theme::change(ThemeMode::Dark, None, cx);
+    Theme::change(
+        if palette.is_light {
+            ThemeMode::Light
+        } else {
+            ThemeMode::Dark
+        },
+        None,
+        cx,
+    );
     let theme = Theme::global_mut(cx);
     theme.colors = build_gpui_palette(palette);
     theme.radius = corner_control();
     theme.radius_lg = corner_md();
     theme.scrollbar_show = ScrollbarShow::Hover;
     theme.font_size = font_base();
-    theme.shadow = true;
+    theme.shadow = !palette.is_light;
 }
 
 /// Apply the default defender theme (alias for startup).
