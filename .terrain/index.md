@@ -35,4 +35,5 @@ source: .
     - bundle-macos.sh
   - AGENTS.md
   - assets/
+    - snapshots/
     - icons/

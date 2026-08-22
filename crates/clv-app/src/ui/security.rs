@@ -14,7 +14,7 @@ use gpui_component::{Icon, IconName, progress::Progress};
 pub fn hero_gradient() -> gpui::Background {
     linear_gradient(
         128.,
-        linear_color_stop(colors::from_hex(0x1e3a5f), 0.0),
+        linear_color_stop(colors::gradient_hero_start(), 0.0),
         linear_color_stop(colors::accent_blue_bg(), 0.45),
     )
 }
@@ -22,7 +22,7 @@ pub fn hero_gradient() -> gpui::Background {
 pub fn hero_gradient_alt() -> gpui::Background {
     linear_gradient(
         145.,
-        linear_color_stop(colors::from_hex(0x0f172a), 0.0),
+        linear_color_stop(colors::gradient_hero_alt_start(), 0.0),
         linear_color_stop(colors::accent_blue_bg(), 1.0),
     )
 }
@@ -38,7 +38,7 @@ pub fn cta_gradient() -> gpui::Background {
 pub fn warm_gradient() -> gpui::Background {
     linear_gradient(
         120.,
-        linear_color_stop(colors::from_hex(0x818cf8), 0.0),
+        linear_color_stop(colors::gradient_warm_start(), 0.0),
         linear_color_stop(colors::accent_blue(), 1.0),
     )
 }
@@ -46,16 +46,16 @@ pub fn warm_gradient() -> gpui::Background {
 pub fn sidebar_gradient() -> gpui::Background {
     linear_gradient(
         175.,
-        linear_color_stop(colors::from_hex(0x0c1222), 0.0),
-        linear_color_stop(colors::from_hex(0x101c30), 1.0),
+        linear_color_stop(colors::gradient_sidebar_start(), 0.0),
+        linear_color_stop(colors::gradient_sidebar_end(), 1.0),
     )
 }
 
 pub fn content_gradient() -> gpui::Background {
     linear_gradient(
         168.,
-        linear_color_stop(colors::from_hex(0x0b1120), 0.0),
-        linear_color_stop(colors::from_hex(0x111b2e), 1.0),
+        linear_color_stop(colors::gradient_content_start(), 0.0),
+        linear_color_stop(colors::gradient_content_end(), 1.0),
     )
 }
 

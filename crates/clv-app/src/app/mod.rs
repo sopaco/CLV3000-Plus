@@ -13,6 +13,7 @@ use state::{AppPage, AppStore};
 
 pub struct ClvApp {
     store: Entity<AppStore>,
+    _store_subscription: gpui::Subscription,
     dashboard: Option<Entity<DashboardView>>,
     cleanup: Option<Entity<CleanupView>>,
     agent: Option<Entity<AgentView>>,
@@ -26,6 +27,9 @@ impl ClvApp {
     pub fn new(window: &Window, cx: &mut Context<Self>) -> Self {
         let settings = load_settings();
         let store = cx.new(|cx| AppStore::new(settings, cx));
+        let store_subscription = cx.observe(&store, |_this, _store, cx| {
+            cx.notify();
+        });
         store.update(cx, |s, cx| s.refresh_disk_usage_async(cx));
 
         if !store.read(cx).settings.onboarding_done {
@@ -38,6 +42,7 @@ impl ClvApp {
         let _ = window;
         Self {
             store,
+            _store_subscription: store_subscription,
             dashboard: None,
             cleanup: None,
             agent: None,
@@ -314,7 +319,7 @@ impl ClvApp {
             .gap_2()
             .border_t_1()
             .border_color(colors::panel_divider())
-            .bg(colors::from_hex(0x0a1628).opacity(0.6))
+            .bg(colors::status_bar_bg().opacity(0.6))
             .child(
                 div()
                     .text_sm()

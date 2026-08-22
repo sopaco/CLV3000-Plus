@@ -1,6 +1,21 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// Application color theme / visual skin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemePreference {
+    /// Default security-software dark blue aesthetic.
+    #[default]
+    Defender,
+    /// Soft rose & lavender — warm, feminine palette.
+    Blossom,
+    /// Electric cyan & purple — vibrant youth style.
+    Neon,
+    /// Fresh mint & sky — light, energetic feel.
+    Aurora,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LanguagePreference {

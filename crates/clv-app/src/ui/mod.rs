@@ -226,14 +226,14 @@ pub fn open_path_button(id: SharedString, path: &std::path::Path, i18n: &I18n) -
 pub fn risk_badge(risk: RiskLevel, lang: clv_core::Language) -> Div {
     let (bg, border, fg) = match risk {
         RiskLevel::Safe => (
-            colors::from_hex(0x0f2a1a),
-            colors::from_hex(0x1a4d2e),
+            colors::risk_safe_bg(),
+            colors::risk_safe_border(),
             colors::green(),
         ),
         RiskLevel::Caution => (
-            colors::from_hex(0x2a2414),
-            colors::from_hex(0x4d3d1a),
-            colors::from_hex(0xf59e0b),
+            colors::risk_caution_bg(),
+            colors::risk_caution_border(),
+            colors::risk_caution_fg(),
         ),
         RiskLevel::Protected => (
             colors::red_bg(),

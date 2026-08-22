@@ -74,6 +74,6 @@ fn titlebar_content_gradient() -> gpui::Background {
     linear_gradient(
         180.,
         linear_color_stop(colors::bg_app(), 0.0),
-        linear_color_stop(colors::from_hex(0x0d1b2e), 1.0),
+        linear_color_stop(colors::gradient_titlebar_end(), 1.0),
     )
 }

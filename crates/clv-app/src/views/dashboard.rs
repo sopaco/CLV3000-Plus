@@ -116,7 +116,7 @@ impl Render for DashboardView {
                                 i18n.agent_projects_tile(),
                                 agent_count.to_string(),
                                 i18n.approx_size(&agent_bytes),
-                                colors::from_hex(0xa78bfa),
+                                colors::accent_secondary(),
                                 {
                                     let store = store_entity.clone();
                                     move |_, _, cx| {

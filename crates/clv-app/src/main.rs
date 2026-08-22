@@ -14,11 +14,14 @@ mod views;
 use app::{shell::AppShell, ClvApp};
 use gpui::*;
 use gpui_component::*;
-use theme::apply_clv_theme;
+use clv_core::load_settings;
+use theme::apply_theme;
 
 fn main() {
     init_tracing();
 
+    let settings = load_settings();
+    let theme = settings.theme;
     let application = Application::new().with_assets(assets::Assets);
     application.on_reopen(|app| {
         app.activate(true);
@@ -26,9 +29,9 @@ fn main() {
             tracing::error!("reopen window: {e}");
         }
     });
-    application.run(|cx| {
+    application.run(move |cx| {
         gpui_component::init(cx);
-        apply_clv_theme(cx);
+        apply_theme(theme, cx);
         platform::apply_app_icon();
         let options = window_options(cx);
         cx.spawn(async move |cx| {

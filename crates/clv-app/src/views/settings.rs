@@ -1,8 +1,8 @@
 use crate::app::state::AppStore;
 use crate::i18n::I18n;
 use crate::prelude::*;
-use crate::theme::colors;
-use clv_core::{format_scan_paths, parse_scan_paths, save_settings, LanguagePreference};
+use crate::theme::{colors, ThemePalette, apply_theme};
+use clv_core::{format_scan_paths, parse_scan_paths, save_settings, LanguagePreference, ThemePreference};
 use gpui::{Subscription, Window};
 use gpui_component::input::{Input, InputEvent, InputState};
 
@@ -74,6 +74,7 @@ impl Render for SettingsView {
                     .flex_col()
                     .gap_5()
                     .child(ui::page_header(i18n.settings_title(), i18n.settings_subtitle()))
+                    .child(theme_selector(&i18n, settings.theme, store.clone(), cx))
                     .child(language_selector(&i18n, settings.language, store.clone(), cx))
                     .child(ui::setting_row(
                         i18n.expert_mode_label(),
@@ -216,6 +217,142 @@ impl Render for SettingsView {
                     ),
             ))
     }
+}
+
+fn theme_selector(
+    i18n: &I18n,
+    current: ThemePreference,
+    store: Entity<AppStore>,
+    cx: &App,
+) -> Div {
+    const THEMES: [ThemePreference; 4] = [
+        ThemePreference::Defender,
+        ThemePreference::Blossom,
+        ThemePreference::Neon,
+        ThemePreference::Aurora,
+    ];
+
+    ui::card()
+        .p_5()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors::text_primary())
+                .child(i18n.theme_section_title()),
+        )
+        .child(
+            div()
+                .text_base()
+                .text_color(colors::text_secondary())
+                .child(i18n.theme_section_desc()),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .children(THEMES.into_iter().map(|theme| {
+                    theme_option(
+                        theme,
+                        current == theme,
+                        i18n,
+                        store.clone(),
+                        cx,
+                    )
+                })),
+        )
+}
+
+fn theme_option(
+    theme: ThemePreference,
+    active: bool,
+    i18n: &I18n,
+    store: Entity<AppStore>,
+    _cx: &App,
+) -> impl IntoElement {
+    let id = match theme {
+        ThemePreference::Defender => "theme-defender",
+        ThemePreference::Blossom => "theme-blossom",
+        ThemePreference::Neon => "theme-neon",
+        ThemePreference::Aurora => "theme-aurora",
+    };
+    let swatches = ThemePalette::for_preference(theme).preview_swatches();
+    let border = if active {
+        colors::accent_blue()
+    } else {
+        colors::border()
+    };
+    let bg = if active {
+        colors::accent_blue_bg()
+    } else {
+        colors::bg_card().opacity(0.5)
+    };
+
+    div()
+        .id(id)
+        .w_full()
+        .p_3()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(border)
+        .bg(bg)
+        .cursor_pointer()
+        .on_click({
+            let store = store.clone();
+            move |_, _, cx| {
+                store.update(cx, |s, cx| {
+                    s.settings.theme = theme;
+                    let _ = save_settings(&s.settings);
+                    cx.notify();
+                });
+                apply_theme(theme, cx);
+            }
+        })
+        .child(
+            h_flex()
+                .gap_3()
+                .items_center()
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .children(swatches.into_iter().map(|hex| {
+                            div()
+                                .size(px(18.))
+                                .rounded(px(4.))
+                                .bg(colors::from_hex(hex))
+                        })),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(colors::text_primary())
+                                .child(i18n.theme_label(theme)),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(colors::text_secondary())
+                                .child(i18n.theme_desc(theme)),
+                        ),
+                )
+                .when(active, |this| {
+                    this.child(
+                        Icon::new(IconName::Check)
+                            .with_size(px(18.))
+                            .text_color(colors::accent_blue()),
+                    )
+                }),
+        )
 }
 
 fn language_selector(

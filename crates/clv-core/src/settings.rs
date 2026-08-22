@@ -1,4 +1,4 @@
-use crate::locale::LanguagePreference;
+use crate::locale::{LanguagePreference, ThemePreference};
 use crate::models::{RiskLevel, TechStack};
 use crate::paths::{default_scan_paths, expand_scan_path};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,8 @@ pub struct AppSettings {
     pub onboarding_done: bool,
     #[serde(default)]
     pub language: LanguagePreference,
+    #[serde(default)]
+    pub theme: ThemePreference,
 }
 
 impl Default for AppSettings {
@@ -31,6 +33,7 @@ impl Default for AppSettings {
             auto_scan_weekly: false,
             onboarding_done: false,
             language: LanguagePreference::default(),
+            theme: ThemePreference::default(),
         }
     }
 }

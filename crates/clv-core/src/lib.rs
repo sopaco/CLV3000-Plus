@@ -14,7 +14,7 @@ pub use scanner::Scanner;
 pub use locale::{
     detect_system_language, resolve_language, scan_phase_agent_sessions, scan_phase_discovering,
     scan_phase_preparing, scan_phase_scanning_path, scan_phase_scanning_projects, tr, Language,
-    LanguagePreference,
+    LanguagePreference, ThemePreference,
 };
 pub use settings::{format_scan_paths, load_settings, parse_scan_paths, save_settings, AppSettings};
 

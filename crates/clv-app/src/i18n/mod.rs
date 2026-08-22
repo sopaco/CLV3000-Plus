@@ -152,6 +152,84 @@ impl I18n {
         "日本語"
     }
 
+    pub fn theme_section_title(&self) -> &'static str {
+        self.t("界面主题", "Appearance", "テーマ")
+    }
+
+    pub fn theme_section_desc(&self) -> &'static str {
+        self.t(
+            "选择你喜欢的视觉风格，立即生效",
+            "Pick a visual style — changes apply instantly",
+            "好みのスタイルを選択 — すぐに反映",
+        )
+    }
+
+    pub fn theme_defender_name(&self) -> &'static str {
+        self.t("守护蓝", "Defender Blue", "ディフェンダーブルー")
+    }
+
+    pub fn theme_defender_desc(&self) -> &'static str {
+        self.t(
+            "专业安全软件风格，沉稳可靠",
+            "Professional security aesthetic — calm and reliable",
+            "プロのセキュリティ風 — 落ち着いた信頼感",
+        )
+    }
+
+    pub fn theme_blossom_name(&self) -> &'static str {
+        self.t("樱花粉", "Cherry Blossom", "桜ピンク")
+    }
+
+    pub fn theme_blossom_desc(&self) -> &'static str {
+        self.t(
+            "清透樱花粉与薰衣草，明快不沉闷",
+            "Airy cherry blossom and lavender — light and fresh",
+            "桜ピンクとラベンダー — 明るく軽やか",
+        )
+    }
+
+    pub fn theme_neon_name(&self) -> &'static str {
+        self.t("霓虹活力", "Neon Pulse", "ネオンパルス")
+    }
+
+    pub fn theme_neon_desc(&self) -> &'static str {
+        self.t(
+            "电光青紫，年轻潮流感十足",
+            "Electric cyan and purple — bold youth energy",
+            "シアンとパープル — 若々しいエネルギー",
+        )
+    }
+
+    pub fn theme_aurora_name(&self) -> &'static str {
+        self.t("极光薄荷", "Aurora Mint", "オーロラミント")
+    }
+
+    pub fn theme_aurora_desc(&self) -> &'static str {
+        self.t(
+            "明亮薄荷与天蓝，通透清爽",
+            "Bright mint and sky blue — crisp and refreshing",
+            "明るいミントとスカイブルー — すっきり爽やか",
+        )
+    }
+
+    pub fn theme_label(&self, theme: clv_core::ThemePreference) -> &'static str {
+        match theme {
+            clv_core::ThemePreference::Defender => self.theme_defender_name(),
+            clv_core::ThemePreference::Blossom => self.theme_blossom_name(),
+            clv_core::ThemePreference::Neon => self.theme_neon_name(),
+            clv_core::ThemePreference::Aurora => self.theme_aurora_name(),
+        }
+    }
+
+    pub fn theme_desc(&self, theme: clv_core::ThemePreference) -> &'static str {
+        match theme {
+            clv_core::ThemePreference::Defender => self.theme_defender_desc(),
+            clv_core::ThemePreference::Blossom => self.theme_blossom_desc(),
+            clv_core::ThemePreference::Neon => self.theme_neon_desc(),
+            clv_core::ThemePreference::Aurora => self.theme_aurora_desc(),
+        }
+    }
+
     pub fn expert_mode_label(&self) -> &'static str {
         self.t("专家模式", "Expert Mode", "エキスパートモード")
     }
