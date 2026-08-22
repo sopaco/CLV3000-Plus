@@ -40,6 +40,19 @@ impl AppPage {
             Self::Onboarding => "欢迎",
         }
     }
+
+    /// Stable id for page-transition animations (changes when navigating).
+    pub fn transition_key(self) -> &'static str {
+        match self {
+            Self::Dashboard => "page-dashboard",
+            Self::Cleanup => "page-cleanup",
+            Self::Agent => "page-agent",
+            Self::Startup => "page-startup",
+            Self::Process => "page-process",
+            Self::Settings => "page-settings",
+            Self::Onboarding => "page-onboarding",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

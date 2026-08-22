@@ -277,7 +277,7 @@ pub fn hero_banner(
                                         div()
                                             .text_sm()
                                             .text_color(colors::accent_blue().opacity(0.85))
-                                            .child("后台扫描，可继续操作其他功能"),
+                                            .child("极速扫描，可继续操作其他功能"),
                                     ),
                             ),
                     ),

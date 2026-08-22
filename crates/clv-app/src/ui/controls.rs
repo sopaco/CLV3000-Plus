@@ -3,8 +3,8 @@
 use crate::prelude::*;
 use gpui_component::button::Button;
 
-/// Standard corner radius — square corners.
-pub const BTN_RADIUS: f32 = 0.;
+/// Standard corner radius — slightly rounded (matches `theme::corner_control`).
+pub const BTN_RADIUS: f32 = 6.;
 /// Standard button height (≈ Windows default control).
 pub const BTN_H: f32 = 38.;
 /// Primary / CTA button height.

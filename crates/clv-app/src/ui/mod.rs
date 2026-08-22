@@ -13,7 +13,8 @@ pub use security::*;
 use crate::prelude::*;
 use crate::theme::{colors, corner_md, corner_sm};
 use clv_core::RiskLevel;
-use gpui::{Hsla, Stateful};
+use gpui::{Animation, AnimationExt, ease_in_out, ElementId, Hsla, Stateful};
+use std::time::Duration;
 use gpui_component::{
     button::ButtonCustomVariant,
     Icon, IconName,
@@ -35,6 +36,20 @@ pub fn scroll_y(content: impl IntoElement) -> impl IntoElement {
         .min_w_0()
         .overflow_y_scrollbar()
         .child(content)
+}
+
+/// Fade-in wrapper when switching main content pages.
+pub fn page_transition(page_key: impl Into<ElementId>, content: impl IntoElement) -> impl IntoElement {
+    div()
+        .size_full()
+        .min_h_0()
+        .min_w_0()
+        .child(content)
+        .with_animation(
+            page_key,
+            Animation::new(Duration::from_millis(220)).with_easing(ease_in_out),
+            |el, delta| el.opacity(delta),
+        )
 }
 
 /// Subtle horizontal rule between panels.
