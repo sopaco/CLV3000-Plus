@@ -5,8 +5,8 @@ mod labels;
 pub use labels::*;
 
 use clv_core::{
-    format_agent_reason, format_bytes, resolve_language, tr, AgentReasonPart, AppSettings,
-    CleanupBucket, CleanupReport, Language, RuleDescription,
+    AgentReasonPart, AppSettings, CleanupBucket, CleanupReport, Language, RuleDescription,
+    format_agent_reason, format_bytes, resolve_language, tr,
 };
 
 use crate::app::state::{AppPage, CleanupFilter};
@@ -244,7 +244,11 @@ impl I18n {
     }
 
     pub fn soft_delete_label(&self) -> &'static str {
-        self.t("软删除（推荐）", "Soft Delete (Recommended)", "ソフト削除（推奨）")
+        self.t(
+            "软删除（推荐）",
+            "Soft Delete (Recommended)",
+            "ソフト削除（推奨）",
+        )
     }
 
     pub fn soft_delete_desc(&self) -> &'static str {
@@ -256,7 +260,11 @@ impl I18n {
     }
 
     pub fn agent_heuristics_label(&self) -> &'static str {
-        self.t("Agent 项目识别", "Agent Project Detection", "Agent プロジェクト検出")
+        self.t(
+            "Agent 项目识别",
+            "Agent Project Detection",
+            "Agent プロジェクト検出",
+        )
     }
 
     pub fn agent_heuristics_desc(&self) -> &'static str {
@@ -300,7 +308,11 @@ impl I18n {
     }
 
     pub fn supported_stacks_title(&self) -> &'static str {
-        self.t("支持清理的技术栈", "Supported Tech Stacks", "対応技術スタック")
+        self.t(
+            "支持清理的技术栈",
+            "Supported Tech Stacks",
+            "対応技術スタック",
+        )
     }
 
     pub fn supported_stacks_list(&self) -> &'static str {
@@ -308,10 +320,7 @@ impl I18n {
     }
 
     pub fn app_version(&self) -> String {
-        format!(
-            "CLV3000 Plus v{}",
-            env!("CARGO_PKG_VERSION")
-        )
+        format!("CLV3000 Plus v{}", env!("CARGO_PKG_VERSION"))
     }
 
     // ── Dashboard ────────────────────────────────────────────────────────
@@ -333,7 +342,7 @@ impl I18n {
     }
 
     pub fn hero_title(&self) -> &'static str {
-        self.t("让电脑保持轻快", "Keep Your Mac Light", "PC を快適に")
+        self.t("让电脑保持轻快", "Keep Your PC Light", "PC を快適に")
     }
 
     pub fn hero_subtitle(&self) -> &'static str {
@@ -475,19 +484,35 @@ impl I18n {
     }
 
     pub fn health_excellent(&self) -> &'static str {
-        self.t("状态很棒，继续保持", "Excellent — keep it up", "良好 — この調子で")
+        self.t(
+            "状态很棒，继续保持",
+            "Excellent — keep it up",
+            "良好 — この調子で",
+        )
     }
 
     pub fn health_good(&self) -> &'static str {
-        self.t("整体不错，还能更轻快", "Good — room to improve", "まずまず — さらに快適に")
+        self.t(
+            "整体不错，还能更轻快",
+            "Good — room to improve",
+            "まずまず — さらに快適に",
+        )
     }
 
     pub fn health_fair(&self) -> &'static str {
-        self.t("清理一下会更流畅", "Cleanup will help", "削除するとさらに快適")
+        self.t(
+            "清理一下会更流畅",
+            "Cleanup will help",
+            "削除するとさらに快適",
+        )
     }
 
     pub fn health_poor(&self) -> &'static str {
-        self.t("建议尽快体检清理", "Scan and clean soon", "早めの診断・削除を推奨")
+        self.t(
+            "建议尽快体检清理",
+            "Scan and clean soon",
+            "早めの診断・削除を推奨",
+        )
     }
 
     // ── Cleanup ──────────────────────────────────────────────────────────
@@ -585,7 +610,11 @@ impl I18n {
     }
 
     pub fn empty_filter_title(&self) -> &'static str {
-        self.t("当前筛选下暂无项目", "No items in this filter", "このフィルターに該当なし")
+        self.t(
+            "当前筛选下暂无项目",
+            "No items in this filter",
+            "このフィルターに該当なし",
+        )
     }
 
     pub fn empty_filter_hint(&self) -> &'static str {
@@ -648,7 +677,11 @@ impl I18n {
     // ── Agent ────────────────────────────────────────────────────────────
 
     pub fn agent_page_title(&self) -> &'static str {
-        self.t("Agent 试验项目", "Agent Trial Projects", "Agent 試験プロジェクト")
+        self.t(
+            "Agent 试验项目",
+            "Agent Trial Projects",
+            "Agent 試験プロジェクト",
+        )
     }
 
     pub fn agent_search_placeholder(&self) -> &'static str {
@@ -684,7 +717,11 @@ impl I18n {
     }
 
     pub fn scan_agent_projects(&self) -> &'static str {
-        self.t("扫描 Agent 项目", "Scan Agent Projects", "Agent プロジェクトをスキャン")
+        self.t(
+            "扫描 Agent 项目",
+            "Scan Agent Projects",
+            "Agent プロジェクトをスキャン",
+        )
     }
 
     pub fn scanning_ellipsis(&self) -> &'static str {
@@ -692,7 +729,11 @@ impl I18n {
     }
 
     pub fn agent_empty_title(&self) -> &'static str {
-        self.t("暂无 Agent 项目", "No Agent Projects", "Agent プロジェクトなし")
+        self.t(
+            "暂无 Agent 项目",
+            "No Agent Projects",
+            "Agent プロジェクトなし",
+        )
     }
 
     pub fn agent_empty_hint(&self) -> &'static str {
@@ -704,7 +745,11 @@ impl I18n {
     }
 
     pub fn no_matching_projects(&self) -> &'static str {
-        self.t("没有匹配的项目", "No matching projects", "一致するプロジェクトなし")
+        self.t(
+            "没有匹配的项目",
+            "No matching projects",
+            "一致するプロジェクトなし",
+        )
     }
 
     pub fn days_inactive(&self, days: i64) -> String {
@@ -746,7 +791,11 @@ impl I18n {
     }
 
     pub fn loading_startup_items(&self) -> &'static str {
-        self.t("正在加载启动项…", "Loading startup items…", "起動項目を読み込み中…")
+        self.t(
+            "正在加载启动项…",
+            "Loading startup items…",
+            "起動項目を読み込み中…",
+        )
     }
 
     pub fn startup_empty_title(&self) -> &'static str {
@@ -820,25 +869,45 @@ impl I18n {
     }
 
     pub fn no_matching_processes(&self) -> &'static str {
-        self.t("没有匹配的进程", "No matching processes", "一致するプロセスなし")
+        self.t(
+            "没有匹配的进程",
+            "No matching processes",
+            "一致するプロセスなし",
+        )
     }
 
     pub fn loading_processes(&self) -> &'static str {
-        self.t("正在加载进程列表…", "Loading processes…", "プロセスを読み込み中…")
+        self.t(
+            "正在加载进程列表…",
+            "Loading processes…",
+            "プロセスを読み込み中…",
+        )
     }
 
     pub fn no_processes_to_show(&self) -> &'static str {
-        self.t("没有可显示的进程", "No processes to show", "表示するプロセスなし")
+        self.t(
+            "没有可显示的进程",
+            "No processes to show",
+            "表示するプロセスなし",
+        )
     }
 
     // ── Onboarding ───────────────────────────────────────────────────────
 
     pub fn welcome_title(&self) -> &'static str {
-        self.t("欢迎使用 CLV3000 Plus", "Welcome to CLV3000 Plus", "CLV3000 Plus へようこそ")
+        self.t(
+            "欢迎使用 CLV3000 Plus",
+            "Welcome to CLV3000 Plus",
+            "CLV3000 Plus へようこそ",
+        )
     }
 
     pub fn welcome_subtitle(&self) -> &'static str {
-        self.t("您的电脑安全管家", "Your PC maintenance companion", "PC メンテナンスの相棒")
+        self.t(
+            "您的电脑安全管家",
+            "Your PC maintenance companion",
+            "PC メンテナンスの相棒",
+        )
     }
 
     pub fn onboard_feature_1(&self) -> &'static str {
@@ -866,7 +935,11 @@ impl I18n {
     }
 
     pub fn simple_mode_title(&self) -> &'static str {
-        self.t("简单模式（推荐）", "Simple Mode (Recommended)", "シンプルモード（推奨）")
+        self.t(
+            "简单模式（推荐）",
+            "Simple Mode (Recommended)",
+            "シンプルモード（推奨）",
+        )
     }
 
     pub fn simple_mode_desc(&self) -> &'static str {
@@ -890,7 +963,11 @@ impl I18n {
     }
 
     pub fn scan_dirs_intro(&self) -> &'static str {
-        self.t("将扫描以下常见目录：", "Will scan common directories:", "次の一般的なディレクトリをスキャン:")
+        self.t(
+            "将扫描以下常见目录：",
+            "Will scan common directories:",
+            "次の一般的なディレクトリをスキャン:",
+        )
     }
 
     pub fn default_scan_dirs(&self) -> &'static str {
@@ -969,11 +1046,19 @@ impl I18n {
     }
 
     pub fn select_items_first(&self) -> &'static str {
-        self.t("请先选择要清理的项目", "Select items to clean first", "削除する項目を選択してください")
+        self.t(
+            "请先选择要清理的项目",
+            "Select items to clean first",
+            "削除する項目を選択してください",
+        )
     }
 
     pub fn cleanup_in_progress(&self) -> &'static str {
-        self.t("正在清理，请稍候…", "Cleaning, please wait…", "削除中、お待ちください…")
+        self.t(
+            "正在清理，请稍候…",
+            "Cleaning, please wait…",
+            "削除中、お待ちください…",
+        )
     }
 
     pub fn cleanup_progress_title(&self) -> &'static str {
