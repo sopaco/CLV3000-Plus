@@ -895,7 +895,6 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
- "sysinfo 0.39.6",
  "tracing",
  "tracing-subscriber",
 ]

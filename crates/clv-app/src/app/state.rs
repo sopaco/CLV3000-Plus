@@ -4,10 +4,10 @@ use clv_core::{
     resolve_language, AppSettings, CleanupBucket, RiskLevel, ScanProgress, ScanReport, Scanner,
     cleanup::CleanupExecutor, detect_agent_projects, item_cleanup_bucket, save_settings, Language,
 };
+use clv_platform::primary_disk_usage;
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
-use sysinfo::Disks;
 
 enum ScanEvent {
     Progress(ScanProgress),
@@ -440,16 +440,5 @@ fn default_disk_usage() -> (u64, u64) {
 }
 
 fn disk_usage() -> (u64, u64) {
-    let disks = Disks::new_with_refreshed_list();
-    let mut total = 0u64;
-    let mut available = 0u64;
-    for disk in disks.list() {
-        total += disk.total_space();
-        available += disk.available_space();
-    }
-    if total > 0 {
-        (total, total.saturating_sub(available))
-    } else {
-        default_disk_usage()
-    }
+    primary_disk_usage().unwrap_or_else(default_disk_usage)
 }
