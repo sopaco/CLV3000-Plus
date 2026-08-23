@@ -134,11 +134,6 @@ impl Scanner {
             self.tag_agent_items(&mut report);
         }
 
-        // Default selection: safe items in simple mode
-        for item in &mut report.items {
-            item.selected = item.risk == RiskLevel::Safe;
-        }
-
         report
     }
 
@@ -264,11 +259,10 @@ impl Scanner {
             size_bytes: size,
             stack: target.stack,
             risk: target.risk,
-            category: target.category.to_string(),
+            category: target.category,
             description: target.description.to_string(),
             project_root: None,
             last_modified: last_modified(path),
-            selected: false,
         });
 
         on_progress.emit(
@@ -337,11 +331,10 @@ impl Scanner {
             size_bytes: size,
             stack: rule.stack,
             risk,
-            category: rule.category.to_string(),
+            category: rule.category,
             description: rule.description.to_string(),
             project_root,
             last_modified,
-            selected: false,
         });
 
         on_progress.emit(

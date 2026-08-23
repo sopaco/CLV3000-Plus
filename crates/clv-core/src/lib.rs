@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod agent_sessions;
+pub mod category;
 pub mod cleanup;
 pub mod locale;
 pub mod models;
@@ -8,6 +9,7 @@ pub mod scanner;
 pub mod settings;
 
 pub use agent::detect_agent_projects;
+pub use category::CleanupCategory;
 pub use cleanup::{CleanupExecutor, CleanupReport};
 pub use models::*;
 pub use scanner::Scanner;
@@ -118,6 +120,7 @@ mod tests {
 
     #[test]
     fn rule_prefix_and_marker_matching() {
+        use crate::category::CleanupCategory;
         use crate::scanner::{rule_matches_dir_name, rule_matches_marker};
         use crate::settings::CleanupRule;
 
@@ -125,7 +128,7 @@ mod tests {
             relative: "",
             stack: TechStack::Cpp,
             risk: RiskLevel::Safe,
-            category: "构建目录",
+            category: CleanupCategory::BuildDir,
             description: "CMake 构建输出",
             global: false,
             requires_marker: None,
@@ -139,7 +142,7 @@ mod tests {
             relative: "",
             stack: TechStack::Python,
             risk: RiskLevel::Safe,
-            category: "构建产物",
+            category: CleanupCategory::BuildOutput,
             description: "egg-info",
             global: false,
             requires_marker: None,
@@ -152,7 +155,7 @@ mod tests {
             relative: "dist",
             stack: TechStack::NodeWeb,
             risk: RiskLevel::Safe,
-            category: "构建产物",
+            category: CleanupCategory::BuildOutput,
             description: "dist",
             global: false,
             requires_marker: Some("package.json"),
@@ -168,6 +171,7 @@ mod tests {
 
     #[test]
     fn cleanup_bucket_classification() {
+        use crate::category::CleanupCategory;
         use crate::item_cleanup_bucket;
         use std::path::PathBuf;
 
@@ -178,11 +182,10 @@ mod tests {
             size_bytes: 2 * 1024 * 1024,
             stack: TechStack::Rust,
             risk: RiskLevel::Caution,
-            category: "全局缓存".into(),
+            category: CleanupCategory::GlobalCache,
             description: "Cargo 下载缓存".into(),
             project_root: None,
             last_modified: None,
-            selected: false,
         };
         assert_eq!(
             item_cleanup_bucket(&cargo_cache),
@@ -196,11 +199,10 @@ mod tests {
             size_bytes: 5 * 1024 * 1024,
             stack: TechStack::Rust,
             risk: RiskLevel::Protected,
-            category: "工具链".into(),
+            category: CleanupCategory::Toolchain,
             description: "Rust 工具链".into(),
             project_root: None,
             last_modified: None,
-            selected: false,
         };
         assert_eq!(
             item_cleanup_bucket(&rustup),
@@ -214,15 +216,89 @@ mod tests {
             size_bytes: 3 * 1024 * 1024,
             stack: TechStack::Rust,
             risk: RiskLevel::Safe,
-            category: "编译缓存".into(),
+            category: CleanupCategory::CompileCache,
             description: "Rust 编译产物".into(),
             project_root: Some(PathBuf::from("/Users/me/project")),
             last_modified: None,
-            selected: true,
         };
         assert_eq!(
             item_cleanup_bucket(&target),
             CleanupBucket::ProjectBuildCache
+        );
+
+        let agent_session = ScanItem {
+            id: "4".into(),
+            path: PathBuf::from("/Users/me/.claude/projects"),
+            name: "projects".into(),
+            size_bytes: 1024,
+            stack: TechStack::Agent,
+            risk: RiskLevel::Caution,
+            category: CleanupCategory::AgentSession,
+            description: "Claude sessions".into(),
+            project_root: None,
+            last_modified: None,
+        };
+        assert_eq!(
+            item_cleanup_bucket(&agent_session),
+            CleanupBucket::AiGenerated
+        );
+    }
+
+    #[test]
+    fn default_selected_item_ids_only_safe() {
+        use crate::category::CleanupCategory;
+        use std::path::PathBuf;
+
+        let items = vec![
+            ScanItem {
+                id: "safe".into(),
+                path: PathBuf::from("/tmp/safe"),
+                name: "safe".into(),
+                size_bytes: 1,
+                stack: TechStack::Rust,
+                risk: RiskLevel::Safe,
+                category: CleanupCategory::CompileCache,
+                description: String::new(),
+                project_root: None,
+                last_modified: None,
+            },
+            ScanItem {
+                id: "caution".into(),
+                path: PathBuf::from("/tmp/caution"),
+                name: "caution".into(),
+                size_bytes: 1,
+                stack: TechStack::Rust,
+                risk: RiskLevel::Caution,
+                category: CleanupCategory::GlobalCache,
+                description: String::new(),
+                project_root: None,
+                last_modified: None,
+            },
+        ];
+        let selected = default_selected_item_ids(&items);
+        assert_eq!(selected.len(), 1);
+        assert!(selected.contains("safe"));
+    }
+
+    #[test]
+    fn cleanup_category_bucket_mapping() {
+        use crate::category::CleanupCategory;
+
+        assert_eq!(
+            CleanupCategory::GlobalCache.cleanup_bucket(),
+            CleanupBucket::SharedToolCache
+        );
+        assert_eq!(
+            CleanupCategory::Dependencies.cleanup_bucket(),
+            CleanupBucket::DevEnvironment
+        );
+        assert_eq!(
+            CleanupCategory::BuildCache.cleanup_bucket(),
+            CleanupBucket::ProjectBuildCache
+        );
+        assert_eq!(
+            CleanupCategory::AgentCache.cleanup_bucket(),
+            CleanupBucket::AiGenerated
         );
     }
 

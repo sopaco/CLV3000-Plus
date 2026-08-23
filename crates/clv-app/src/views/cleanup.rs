@@ -36,6 +36,7 @@ impl CleanupView {
         cx: &mut Context<Self>,
     ) -> Div {
         let id = item.id.clone();
+        let selected = store.read(cx).is_item_selected(&id);
         let path_display = if expert {
             item.path.display().to_string()
         } else {
@@ -76,7 +77,7 @@ impl CleanupView {
                                     .h(px(CLEANUP_PATH_ROW_H))
                                     .child(
                                         Checkbox::new(cb_id)
-                                            .checked(item.selected)
+                                            .checked(selected)
                                             .cursor_pointer()
                                             .on_click(cx.listener({
                                                 let id = id.clone();
@@ -84,13 +85,7 @@ impl CleanupView {
                                                 move |_, checked, _, cx| {
                                                     let selected = *checked;
                                                     store.update(cx, |s, cx| {
-                                                        if let Some(report) = &mut s.last_report {
-                                                            if let Some(item) =
-                                                                report.items.iter_mut().find(|i| i.id == id)
-                                                            {
-                                                                item.selected = selected;
-                                                            }
-                                                        }
+                                                        s.set_item_selected(&id, selected);
                                                         cx.notify();
                                                     });
                                                 }
@@ -137,7 +132,7 @@ impl CleanupView {
                                                 div()
                                                     .text_base()
                                                     .text_color(colors::text_muted())
-                                                    .child(i18n::scan_category_label(lang, &item.category).to_string()),
+                                                    .child(i18n::scan_category_label(lang, item.category)),
                                             ),
                                     ),
                             )

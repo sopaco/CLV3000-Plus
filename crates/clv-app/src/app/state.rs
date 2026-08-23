@@ -1,22 +1,17 @@
 use crate::i18n::I18n;
 use crate::prelude::*;
+use crate::services::{
+    cleanup::{poll_cleanup, spawn_cleanup, CleanupPoll},
+    scan::{poll_scan, spawn_scan, ScanPoll},
+};
 use clv_core::{
-    resolve_language, AppSettings, CleanupBucket, RiskLevel, ScanProgress, ScanReport, Scanner,
-    cleanup::CleanupExecutor, detect_agent_projects, item_cleanup_bucket, save_settings, Language,
+    default_selected_item_ids, resolve_language, AppSettings, CleanupBucket, RiskLevel,
+    ScanReport, detect_agent_projects, item_cleanup_bucket, save_settings, Language,
 };
 use clv_platform::primary_disk_usage;
+use std::collections::HashSet;
 use std::path::Path;
-use std::sync::mpsc;
 use std::time::Duration;
-
-enum ScanEvent {
-    Progress(ScanProgress),
-    Done(ScanReport),
-}
-
-enum CleanupEvent {
-    Done(clv_core::cleanup::CleanupReport, Vec<std::path::PathBuf>),
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppPage {
@@ -62,6 +57,7 @@ pub struct AppStore {
     pub settings: AppSettings,
     pub page: AppPage,
     pub last_report: Option<ScanReport>,
+    pub selected_item_ids: HashSet<String>,
     pub scanning: bool,
     pub cleaning: bool,
     pub scan_phase: String,
@@ -93,6 +89,7 @@ impl AppStore {
             settings,
             page: AppPage::Dashboard,
             last_report: None,
+            selected_item_ids: HashSet::new(),
             scanning: false,
             cleaning: false,
             scan_phase: String::new(),
@@ -109,6 +106,10 @@ impl AppStore {
             startup_count: 0,
             process_refresh_trigger: 0,
         }
+    }
+
+    pub fn is_item_selected(&self, id: &str) -> bool {
+        self.selected_item_ids.contains(id)
     }
 
     pub fn kill_process_pid(&mut self, pid: u32, cx: &mut Context<Self>) {
@@ -218,7 +219,7 @@ impl AppStore {
     pub fn selected_items(&self) -> Vec<clv_core::ScanItem> {
         self.filtered_items()
             .into_iter()
-            .filter(|i| i.selected)
+            .filter(|i| self.is_item_selected(&i.id))
             .collect()
     }
 
@@ -226,20 +227,38 @@ impl AppStore {
         self.selected_items().iter().map(|i| i.size_bytes).sum()
     }
 
+    pub fn set_item_selected(&mut self, id: &str, selected: bool) {
+        if selected {
+            self.selected_item_ids.insert(id.to_string());
+        } else {
+            self.selected_item_ids.remove(id);
+        }
+    }
+
     pub fn toggle_item(&mut self, id: &str) {
-        if let Some(report) = &mut self.last_report {
-            if let Some(item) = report.items.iter_mut().find(|i| i.id == id) {
-                item.selected = !item.selected;
-            }
+        if self.selected_item_ids.contains(id) {
+            self.selected_item_ids.remove(id);
+        } else {
+            self.selected_item_ids.insert(id.to_string());
         }
     }
 
     pub fn select_all_filtered(&mut self, selected: bool) {
         let ids: Vec<String> = self.filtered_items().iter().map(|i| i.id.clone()).collect();
-        if let Some(report) = &mut self.last_report {
-            for item in &mut report.items {
-                if ids.contains(&item.id) {
-                    item.selected = selected;
+        if selected {
+            self.selected_item_ids.extend(ids);
+        } else {
+            for id in ids {
+                self.selected_item_ids.remove(&id);
+            }
+        }
+    }
+
+    pub fn select_project_items(&mut self, project_path: &Path) {
+        if let Some(report) = &self.last_report {
+            for item in &report.items {
+                if item.project_root.as_deref() == Some(project_path) {
+                    self.selected_item_ids.insert(item.id.clone());
                 }
             }
         }
@@ -258,66 +277,49 @@ impl AppStore {
         cx.notify();
 
         let settings = self.settings.clone();
-        let (tx, rx) = mpsc::sync_channel::<ScanEvent>(64);
-
-        std::thread::spawn(move || {
-            let scanner = Scanner::new(settings);
-            let report = scanner.scan(|progress| {
-                let _ = tx.try_send(ScanEvent::Progress(progress));
-            });
-            let _ = tx.send(ScanEvent::Done(report));
-        });
+        let job = spawn_scan(settings);
 
         cx.spawn(async move |weak, cx| {
             let mut finished = false;
             while !finished {
-                let mut latest_progress = None;
-                let mut done_report = None;
-                loop {
-                    match rx.try_recv() {
-                        Ok(ScanEvent::Progress(progress)) => latest_progress = Some(progress),
-                        Ok(ScanEvent::Done(report)) => {
-                            done_report = Some(report);
-                            break;
-                        }
-                        Err(mpsc::TryRecvError::Empty) => break,
-                        Err(mpsc::TryRecvError::Disconnected) => {
-                            weak.update(cx, |store, cx| {
-                                store.scanning = false;
-                                store.scan_phase.clear();
-                                store.status_message = Some(store.i18n().scan_interrupted().into());
-                                cx.notify();
-                            })
-                            .ok();
-                            finished = true;
-                            break;
-                        }
+                match poll_scan(&job.rx) {
+                    ScanPoll::Done(report) => {
+                        weak.update(cx, |store, cx| {
+                            store.scanning = false;
+                            store.scan_phase.clear();
+                            store.scan_current_path = None;
+                            store.selected_item_ids = default_selected_item_ids(&report.items);
+                            store.last_report = Some(report);
+                            store.status_message = Some(store.i18n().scan_complete().into());
+                            store.refresh_disk_usage_sync();
+                            store.startup_count = clv_platform::list_startup_items().len();
+                            cx.notify();
+                        })
+                        .ok();
+                        finished = true;
                     }
-                }
-
-                if let Some(report) = done_report {
-                    weak.update(cx, |store, cx| {
-                        store.scanning = false;
-                        store.scan_phase.clear();
-                        store.scan_current_path = None;
-                        store.last_report = Some(report);
-                        store.status_message = Some(store.i18n().scan_complete().into());
-                        store.refresh_disk_usage_sync();
-                        store.startup_count = clv_platform::list_startup_items().len();
-                        cx.notify();
-                    })
-                    .ok();
-                    finished = true;
-                } else if let Some(progress) = latest_progress {
-                    weak.update(cx, |store, cx| {
-                        store.scan_phase = progress.phase;
-                        store.scan_items_found = progress.items_found;
-                        store.scan_bytes_found = progress.bytes_found;
-                        store.scan_current_path =
-                            progress.current_path.map(|p| truncate_path_display(&p, 96));
-                        cx.notify();
-                    })
-                    .ok();
+                    ScanPoll::Progress(progress) => {
+                        weak.update(cx, |store, cx| {
+                            store.scan_phase = progress.phase;
+                            store.scan_items_found = progress.items_found;
+                            store.scan_bytes_found = progress.bytes_found;
+                            store.scan_current_path =
+                                progress.current_path.map(|p| truncate_path_display(&p, 96));
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                    ScanPoll::Disconnected => {
+                        weak.update(cx, |store, cx| {
+                            store.scanning = false;
+                            store.scan_phase.clear();
+                            store.status_message = Some(store.i18n().scan_interrupted().into());
+                            cx.notify();
+                        })
+                        .ok();
+                        finished = true;
+                    }
+                    ScanPoll::Idle => {}
                 }
 
                 if finished {
@@ -332,10 +334,7 @@ impl AppStore {
     }
 
     pub fn run_cleanup(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(report) = self.last_report.clone() else {
-            return false;
-        };
-        let selected: Vec<_> = report.items.into_iter().filter(|i| i.selected).collect();
+        let selected = self.selected_items();
         if selected.is_empty() {
             self.status_message = Some(self.i18n().select_items_first().into());
             cx.notify();
@@ -350,33 +349,28 @@ impl AppStore {
         cx.notify();
 
         let settings = self.settings.clone();
-        let selected_paths: Vec<_> = selected.iter().map(|i| i.path.clone()).collect();
-        let (tx, rx) = mpsc::channel::<CleanupEvent>();
-
-        std::thread::spawn(move || {
-            let executor = CleanupExecutor::new(settings);
-            let result = executor.execute(&selected);
-            let _ = tx.send(CleanupEvent::Done(result, selected_paths));
-        });
+        let job = spawn_cleanup(settings, selected);
 
         cx.spawn(async move |weak, cx| {
             let mut finished = false;
             while !finished {
-                match rx.try_recv() {
-                    Ok(CleanupEvent::Done(result, removed_paths)) => {
+                match poll_cleanup(&job.rx) {
+                    CleanupPoll::Done(result, removed_paths) => {
                         weak.update(cx, |store, cx| {
                             store.cleaning = false;
                             store.last_cleanup_freed = Some(result.freed_bytes);
                             store.status_message = Some(store.i18n().cleanup_summary(&result));
 
                             if let Some(current) = &mut store.last_report {
-                                let removed: std::collections::HashSet<_> =
-                                    removed_paths.into_iter().collect();
+                                let removed: HashSet<_> = removed_paths.into_iter().collect();
                                 current.items.retain(|i| !removed.contains(&i.path));
                                 current.agent_projects = detect_agent_projects(
                                     &current.items,
                                     &store.settings.scan_paths,
                                 );
+                                store
+                                    .selected_item_ids
+                                    .retain(|id| current.items.iter().any(|i| &i.id == id));
                             }
 
                             store.refresh_disk_usage_sync();
@@ -385,12 +379,7 @@ impl AppStore {
                         .ok();
                         finished = true;
                     }
-                    Err(mpsc::TryRecvError::Empty) => {
-                        cx.background_executor()
-                            .timer(Duration::from_millis(80))
-                            .await;
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {
+                    CleanupPoll::Disconnected => {
                         weak.update(cx, |store, cx| {
                             store.cleaning = false;
                             store.status_message = Some(store.i18n().cleanup_interrupted().into());
@@ -398,6 +387,11 @@ impl AppStore {
                         })
                         .ok();
                         finished = true;
+                    }
+                    CleanupPoll::Idle => {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(80))
+                            .await;
                     }
                 }
             }

@@ -1,5 +1,7 @@
+use crate::category::CleanupCategory;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -126,10 +128,6 @@ pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
         return CleanupBucket::AiGenerated;
     }
 
-    if item.category == "Agent 会话" || item.category == "Agent 缓存" {
-        return CleanupBucket::AiGenerated;
-    }
-
     let path = item.path.to_string_lossy().to_lowercase();
     for marker in [
         ".claude",
@@ -148,27 +146,16 @@ pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
         }
     }
 
-    if item.category == "全局缓存" || item.category == "系统临时" {
-        return CleanupBucket::SharedToolCache;
-    }
+    item.category.cleanup_bucket()
+}
 
-    match item.category.as_str() {
-        "工具链" | "虚拟环境" | "测试环境" | "依赖包" | "依赖" | "依赖缓存" | "Provider 缓存" => {
-            CleanupBucket::DevEnvironment
-        }
-        "编译缓存" | "构建缓存" | "构建产物" | "字节码缓存" | "中间产物" | "Xcode 缓存"
-        | "构建目录" | "测试缓存" | "工具缓存" | "测试产物" | "Lint 缓存" | "类型检查缓存"
-        | "Gradle 缓存" | "插件缓存" | "编辑器缓存" | "临时文件" | "日志" => {
-            CleanupBucket::ProjectBuildCache
-        }
-        _ => {
-            if item.risk == RiskLevel::Protected || item.risk == RiskLevel::Caution {
-                CleanupBucket::DevEnvironment
-            } else {
-                CleanupBucket::ProjectBuildCache
-            }
-        }
-    }
+/// Item ids that should be selected by default after a scan (safe-risk only).
+pub fn default_selected_item_ids(items: &[ScanItem]) -> HashSet<String> {
+    items
+        .iter()
+        .filter(|i| i.risk == RiskLevel::Safe)
+        .map(|i| i.id.clone())
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,11 +166,10 @@ pub struct ScanItem {
     pub size_bytes: u64,
     pub stack: TechStack,
     pub risk: RiskLevel,
-    pub category: String,
+    pub category: CleanupCategory,
     pub description: String,
     pub project_root: Option<PathBuf>,
     pub last_modified: Option<DateTime<Utc>>,
-    pub selected: bool,
 }
 
 impl ScanItem {

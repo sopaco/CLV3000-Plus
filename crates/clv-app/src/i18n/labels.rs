@@ -1,4 +1,4 @@
-use clv_core::{Language, RiskLevel, TechStack, tr};
+use clv_core::{CleanupCategory, Language, RiskLevel, TechStack, tr};
 use clv_platform::{ProcessCategory, StartupImpact, StartupKind};
 
 pub fn risk_label(lang: Language, risk: RiskLevel) -> &'static str {
@@ -61,20 +61,37 @@ pub fn process_category_label(lang: Language, category: &ProcessCategory) -> &'s
     }
 }
 
-/// Translate common scan-item category strings from rules.
-pub fn scan_category_label(lang: Language, category: &str) -> &str {
-    if lang == Language::Zh {
-        return category;
-    }
+/// Translate scan-item category for display.
+pub fn scan_category_label(lang: Language, category: CleanupCategory) -> &'static str {
+    use CleanupCategory::*;
     match category {
-        "编译缓存" => tr(lang, "编译缓存", "Build Cache", "ビルドキャッシュ"),
-        "依赖包" => tr(lang, "依赖包", "Dependencies", "依存パッケージ"),
-        "构建缓存" => tr(lang, "构建缓存", "Build Cache", "ビルドキャッシュ"),
-        "构建产物" => tr(lang, "构建产物", "Build Output", "ビルド成果物"),
-        "全局缓存" => tr(lang, "全局缓存", "Global Cache", "グローバルキャッシュ"),
-        "工具链" => tr(lang, "工具链", "Toolchain", "ツールチェーン"),
-        "Agent 会话" => tr(lang, "Agent 会话", "Agent Session", "Agent セッション"),
-        "Agent 缓存" => tr(lang, "Agent 缓存", "Agent Cache", "Agent キャッシュ"),
-        _ => category,
+        CompileCache => tr(lang, "编译缓存", "Build Cache", "ビルドキャッシュ"),
+        Dependencies => tr(lang, "依赖包", "Dependencies", "依存パッケージ"),
+        BuildCache => tr(lang, "构建缓存", "Build Cache", "ビルドキャッシュ"),
+        BuildOutput => tr(lang, "构建产物", "Build Output", "ビルド成果物"),
+        GlobalCache => tr(lang, "全局缓存", "Global Cache", "グローバルキャッシュ"),
+        Toolchain => tr(lang, "工具链", "Toolchain", "ツールチェーン"),
+        AgentSession => tr(lang, "Agent 会话", "Agent Session", "Agent セッション"),
+        AgentCache => tr(lang, "Agent 缓存", "Agent Cache", "Agent キャッシュ"),
+        BuildDir => tr(lang, "构建目录", "Build Directory", "ビルドディレクトリ"),
+        BytecodeCache => tr(lang, "字节码缓存", "Bytecode Cache", "バイトコードキャッシュ"),
+        IntermediateOutput => tr(lang, "中间产物", "Intermediate Output", "中間成果物"),
+        XcodeCache => tr(lang, "Xcode 缓存", "Xcode Cache", "Xcode キャッシュ"),
+        TestCache => tr(lang, "测试缓存", "Test Cache", "テストキャッシュ"),
+        ToolCache => tr(lang, "工具缓存", "Tool Cache", "ツールキャッシュ"),
+        TestOutput => tr(lang, "测试产物", "Test Output", "テスト成果物"),
+        LintCache => tr(lang, "Lint 缓存", "Lint Cache", "Lint キャッシュ"),
+        TypeCheckCache => tr(lang, "类型检查缓存", "Type-check Cache", "型チェックキャッシュ"),
+        GradleCache => tr(lang, "Gradle 缓存", "Gradle Cache", "Gradle キャッシュ"),
+        PluginCache => tr(lang, "插件缓存", "Plugin Cache", "プラグインキャッシュ"),
+        EditorCache => tr(lang, "编辑器缓存", "Editor Cache", "エディタキャッシュ"),
+        TempFiles => tr(lang, "临时文件", "Temp Files", "一時ファイル"),
+        Logs => tr(lang, "日志", "Logs", "ログ"),
+        Dependency => tr(lang, "依赖", "Dependencies", "依存"),
+        DependencyCache => tr(lang, "依赖缓存", "Dependency Cache", "依存キャッシュ"),
+        SystemTemp => tr(lang, "系统临时", "System Temp", "システム一時"),
+        VirtualEnv => tr(lang, "虚拟环境", "Virtual Env", "仮想環境"),
+        TestEnv => tr(lang, "测试环境", "Test Env", "テスト環境"),
+        ProviderCache => tr(lang, "Provider 缓存", "Provider Cache", "Provider キャッシュ"),
     }
 }

@@ -200,15 +200,7 @@ impl AgentView {
                                                     let project_path = path.clone();
                                                     move |_, _, cx| {
                                                         store.update(cx, |s, cx| {
-                                                            if let Some(report) = &mut s.last_report {
-                                                                for item in &mut report.items {
-                                                                    if item.project_root.as_ref()
-                                                                        == Some(&project_path)
-                                                                    {
-                                                                        item.selected = true;
-                                                                    }
-                                                                }
-                                                            }
+                                                            s.select_project_items(&project_path);
                                                             s.set_page(AppPage::Cleanup, cx);
                                                         });
                                                     }

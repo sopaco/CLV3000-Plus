@@ -8,6 +8,7 @@ mod assets;
 mod i18n;
 mod platform;
 mod prelude;
+mod services;
 pub mod theme;
 pub mod ui;
 mod views;

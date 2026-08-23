@@ -1,3 +1,4 @@
+use crate::category::CleanupCategory;
 use crate::models::{RiskLevel, TechStack};
 use std::env;
 use std::path::{Path, PathBuf};
@@ -7,7 +8,7 @@ pub struct AgentSessionTarget {
     pub path: PathBuf,
     pub stack: TechStack,
     pub risk: RiskLevel,
-    pub category: &'static str,
+    pub category: CleanupCategory,
     pub description: &'static str,
 }
 
@@ -24,14 +25,14 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             &mut targets,
             codex_home.join("sessions"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "Codex 活跃会话记录（JSONL），删除后无法恢复对话历史",
         );
         push_dir(
             &mut targets,
             codex_home.join("archived_sessions"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "Codex 归档会话记录，删除后无法恢复",
         );
     }
@@ -41,7 +42,7 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             &mut targets,
             claude_root.join("projects"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "Claude Code 项目会话目录（JSONL），删除后无法恢复对话历史",
         );
     }
@@ -51,35 +52,35 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             &mut targets,
             cursor_root.join("CachedData"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Cursor Electron 缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             cursor_root.join("GPUCache"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Cursor GPU 缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             cursor_root.join("Code Cache"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Cursor 代码缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             cursor_root.join("CachedExtensionVSIXs"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Cursor 扩展 VSIX 下载缓存",
         );
         push_dir(
             &mut targets,
             cursor_root.join("logs"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Cursor 运行日志",
         );
     }
@@ -89,28 +90,28 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             &mut targets,
             windsurf_root.join("CachedData"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Windsurf Electron 缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             windsurf_root.join("GPUCache"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Windsurf GPU 缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             windsurf_root.join("Code Cache"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Windsurf 代码缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             windsurf_root.join("logs"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Windsurf 运行日志",
         );
     }
@@ -119,7 +120,7 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
         &mut targets,
         home.join(".cursor/projects"),
         RiskLevel::Caution,
-        "Agent 会话",
+        CleanupCategory::AgentSession,
         "Cursor 项目聊天历史，删除后无法恢复",
     );
 
@@ -128,35 +129,35 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             &mut targets,
             workbuddy_root.join("sessions"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "WorkBuddy / CodeBuddy 活跃会话数据",
         );
         push_dir(
             &mut targets,
             workbuddy_root.join("logs"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "WorkBuddy / CodeBuddy 运行日志",
         );
         push_dir(
             &mut targets,
             workbuddy_root.join("traces"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "WorkBuddy / CodeBuddy 执行追踪数据",
         );
         push_dir(
             &mut targets,
             workbuddy_root.join("file-history"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "WorkBuddy / CodeBuddy 文件操作快照（/rewind 依赖）",
         );
         push_dir(
             &mut targets,
             workbuddy_root.join("shell-snapshots"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "WorkBuddy / CodeBuddy Bash 沙箱快照缓存",
         );
     }
@@ -166,56 +167,56 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             &mut targets,
             trae_root.join("CachedData"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Trae Electron 缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             trae_root.join("GPUCache"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Trae GPU 缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             trae_root.join("Code Cache"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Trae 代码缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             trae_root.join("Cache"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Trae Electron 缓存，可安全清理",
         );
         push_dir(
             &mut targets,
             trae_root.join("logs"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "Trae 运行日志",
         );
         push_dir(
             &mut targets,
             trae_root.join("ModularData/ai-agent/snapshot"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "Trae AI 对话快照，删除后无法回滚到对话前状态",
         );
         push_dir(
             &mut targets,
             trae_root.join("User/workspaceStorage"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "Trae 项目聊天历史，删除后无法恢复",
         );
         push_dir(
             &mut targets,
             trae_root.join("User/globalStorage"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "Trae 全局聊天历史，删除后无法恢复",
         );
     }
@@ -225,14 +226,14 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             &mut targets,
             traex_root.join("sessions"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "TraeX CLI 活跃会话记录（JSONL），删除后无法恢复对话历史",
         );
         push_dir(
             &mut targets,
             traex_root.join("archived_sessions"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "TraeX CLI 归档会话记录，删除后无法恢复",
         );
     }
@@ -242,21 +243,21 @@ pub fn discover_agent_session_targets() -> Vec<AgentSessionTarget> {
             &mut targets,
             opencode_root.join("log"),
             RiskLevel::Safe,
-            "Agent 缓存",
+            CleanupCategory::AgentCache,
             "OpenCode 运行日志，可安全清理",
         );
         push_dir(
             &mut targets,
             opencode_root.join("project"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "OpenCode 项目会话与消息数据，删除后无法恢复对话历史",
         );
         push_dir(
             &mut targets,
             opencode_root.join("storage"),
             RiskLevel::Caution,
-            "Agent 会话",
+            CleanupCategory::AgentSession,
             "OpenCode 会话存储（JSON/SQLite），删除后无法恢复对话历史",
         );
     }
@@ -268,7 +269,7 @@ fn push_dir(
     targets: &mut Vec<AgentSessionTarget>,
     path: PathBuf,
     risk: RiskLevel,
-    category: &'static str,
+    category: CleanupCategory,
     description: &'static str,
 ) {
     if !path.exists() {

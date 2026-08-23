@@ -67,9 +67,6 @@ impl CleanupExecutor {
         };
 
         for item in items {
-            if !item.selected {
-                continue;
-            }
             if item.risk == RiskLevel::Protected && !self.settings.expert_mode {
                 continue;
             }
