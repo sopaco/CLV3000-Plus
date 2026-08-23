@@ -22,12 +22,12 @@ CLV3000 Plus 是一款装在电脑上的清理工具，支持Windows、MacOS，�
 
 | | | |
 |:---:|:---:|:---:|
-| ![主界面](assets/snapshots/snapshot_operation_center.webp) | ![Agent生成物清理](assets/snapshots/snapshot_aigc_cleaner.webp) | ![电脑存储优化](assets/snapshots/snapshot_clean.webp) |
+| <img src="assets/snapshots/snapshot_operation_center.webp" width="280" alt="主界面"> | <img src="assets/snapshots/snapshot_aigc_cleaner.webp" height="180" alt="Agent生成物清理"> | <img src="assets/snapshots/snapshot_clean.webp" height="180" alt="电脑存储优化"> |
 | 主界面 / 仪表盘 | Agent生成物清理 | 电脑存储优化 |
 
 | | | |
 |:---:|:---:|:---:|
-| ![樱花](assets/snapshots/snapshot_theme_cherry.webp) | ![晨曦](assets/snapshots/snapshot_theme_aurora.webp) | ![霓虹](assets/snapshots/snapshot_theme_neon.webp) |
+| <img src="assets/snapshots/snapshot_theme_cherry.webp" height="180" alt="樱花"> | <img src="assets/snapshots/snapshot_theme_aurora.webp" height="180" alt="晨曦"> | <img src="assets/snapshots/snapshot_theme_neon.webp" height="180" alt="霓虹"> |
 | 个性主题 - 樱花 | 个性主题 - 晨曦 | 个性主题 - 霓虹 |
 
 ---
