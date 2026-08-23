@@ -2,13 +2,24 @@ use crate::models::{RiskLevel, ScanItem};
 use crate::settings::{trash_dir, AppSettings};
 use chrono::Utc;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+#[derive(Debug, Clone)]
+pub struct CleanupProgress {
+    pub completed: usize,
+    pub total: usize,
+    pub current_name: String,
+    pub current_path: PathBuf,
+    pub freed_bytes: u64,
+}
 
 #[derive(Debug, Clone)]
 pub struct CleanupReport {
     pub freed_bytes: u64,
     pub success_count: usize,
+    pub successful_paths: Vec<PathBuf>,
     pub failed: Vec<(PathBuf, String)>,
     pub trashed: Vec<PathBuf>,
 }
@@ -22,23 +33,41 @@ impl CleanupExecutor {
         Self { settings }
     }
 
-    pub fn execute(&self, items: &[ScanItem]) -> CleanupReport {
+    pub fn execute<F>(&self, items: &[ScanItem], mut on_progress: F) -> CleanupReport
+    where
+        F: FnMut(CleanupProgress),
+    {
         let mut report = CleanupReport {
             freed_bytes: 0,
             success_count: 0,
+            successful_paths: Vec::new(),
             failed: Vec::new(),
             trashed: Vec::new(),
         };
 
-        for item in items {
-            if item.risk == RiskLevel::Protected && !self.settings.expert_mode {
-                continue;
-            }
+        let runnable: Vec<&ScanItem> = items
+            .iter()
+            .filter(|item| {
+                !(item.risk == RiskLevel::Protected && !self.settings.expert_mode)
+            })
+            .collect();
+        let total = runnable.len();
+
+        for (index, item) in runnable.iter().enumerate() {
+            on_progress(CleanupProgress {
+                completed: index,
+                total,
+                current_name: item.name.clone(),
+                current_path: item.path.clone(),
+                freed_bytes: report.freed_bytes,
+            });
+
             let size = item.size_bytes;
             match self.remove_path(&item.path) {
                 Ok(trash_path) => {
                     report.freed_bytes += size;
                     report.success_count += 1;
+                    report.successful_paths.push(item.path.clone());
                     if let Some(p) = trash_path {
                         report.trashed.push(p);
                     }
@@ -47,6 +76,14 @@ impl CleanupExecutor {
                     report.failed.push((item.path.clone(), e.to_string()));
                 }
             }
+
+            on_progress(CleanupProgress {
+                completed: index + 1,
+                total,
+                current_name: item.name.clone(),
+                current_path: item.path.clone(),
+                freed_bytes: report.freed_bytes,
+            });
         }
 
         report
@@ -66,21 +103,92 @@ impl CleanupExecutor {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "item".into());
             let dest = trash.join(format!("{stamp}-{name}-{}", Uuid::new_v4()));
-            if path.is_dir() {
-                fs::rename(path, &dest)?;
-            } else {
-                fs::rename(path, &dest)?;
-            }
+            move_entry(path, &dest)?;
             Ok(Some(dest))
         } else {
-            if path.is_dir() {
-                fs::remove_dir_all(path)?;
-            } else {
-                fs::remove_file(path)?;
-            }
+            force_remove(path)?;
             Ok(None)
         }
     }
+}
+
+/// Move or rename `src` to `dest`, falling back to copy+delete on cross-volume moves (Windows).
+fn move_entry(src: &Path, dest: &Path) -> io::Result<()> {
+    match fs::rename(src, dest) {
+        Ok(()) => Ok(()),
+        Err(e) if is_cross_device_error(&e) => {
+            if src.is_dir() {
+                copy_dir_all(src, dest)?;
+                force_remove(src)?;
+            } else {
+                fs::copy(src, dest)?;
+                force_remove(src)?;
+            }
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn force_remove(path: &Path) -> io::Result<()> {
+    if path.is_dir() {
+        clear_readonly_tree(path)?;
+        fs::remove_dir_all(path)
+    } else {
+        clear_readonly(path)?;
+        fs::remove_file(path)
+    }
+}
+
+fn clear_readonly_tree(root: &Path) -> io::Result<()> {
+    if root.is_dir() {
+        for entry in walkdir::WalkDir::new(root).contents_first(true) {
+            clear_readonly(&entry?.path())?;
+        }
+    }
+    clear_readonly(root)
+}
+
+#[cfg(windows)]
+fn clear_readonly(path: &Path) -> io::Result<()> {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_READONLY: u32 = 0x1;
+    let meta = match fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    if meta.file_attributes() & FILE_ATTRIBUTE_READONLY != 0 {
+        let mut perms = meta.permissions();
+        perms.set_readonly(false);
+        fs::set_permissions(path, perms)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn clear_readonly(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+fn is_cross_device_error(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::CrossesDevices || error.raw_os_error() == Some(17)
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            copy_dir_all(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn purge_old_trash(days: u32) -> anyhow::Result<u64> {
@@ -102,11 +210,7 @@ pub fn purge_old_trash(days: u32) -> anyhow::Result<u64> {
                 } else {
                     meta.len()
                 };
-                if meta.is_dir() {
-                    fs::remove_dir_all(entry.path())?;
-                } else {
-                    fs::remove_file(entry.path())?;
-                }
+                force_remove(&entry.path())?;
                 freed += size;
             }
         }
@@ -121,4 +225,111 @@ fn dir_size_quick(path: &Path) -> u64 {
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::category::CleanupCategory;
+    use crate::messages::RuleDescription;
+    use crate::models::{RiskLevel, ScanItem, TechStack};
+    use crate::settings::AppSettings;
+
+    fn scan_item(path: PathBuf) -> ScanItem {
+        ScanItem {
+            id: "test".into(),
+            path,
+            name: "item".into(),
+            size_bytes: 1024,
+            stack: TechStack::Rust,
+            risk: RiskLevel::Safe,
+            category: CleanupCategory::CompileCache,
+            description: RuleDescription::R001,
+            project_root: None,
+            last_modified: None,
+        }
+    }
+
+    #[test]
+    fn soft_delete_moves_directory_into_trash() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("target");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("artifact"), "x".repeat(1024)).unwrap();
+
+        let mut settings = AppSettings::default();
+        settings.soft_delete = true;
+        let report =
+            CleanupExecutor::new(settings).execute(&[scan_item(src.clone())], |_| {});
+
+        assert_eq!(report.success_count, 1);
+        assert!(!src.exists());
+        assert_eq!(report.successful_paths, vec![src]);
+        assert_eq!(report.trashed.len(), 1);
+        assert!(report.trashed[0].exists());
+    }
+
+    #[test]
+    fn hard_delete_removes_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("node_modules");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("pkg.js"), "x".repeat(1024)).unwrap();
+
+        let mut settings = AppSettings::default();
+        settings.soft_delete = false;
+        let report =
+            CleanupExecutor::new(settings).execute(&[scan_item(src.clone())], |_| {});
+
+        assert_eq!(report.success_count, 1);
+        assert!(!src.exists());
+        assert!(report.trashed.is_empty());
+    }
+
+    #[test]
+    fn protected_items_are_skipped_without_expert_mode() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("toolchains");
+        fs::create_dir_all(&src).unwrap();
+
+        let mut item = scan_item(src.clone());
+        item.risk = RiskLevel::Protected;
+
+        let settings = AppSettings::default();
+        let report = CleanupExecutor::new(settings).execute(&[item], |_| {});
+
+        assert_eq!(report.success_count, 0);
+        assert!(src.exists());
+        assert!(report.successful_paths.is_empty());
+    }
+
+    #[test]
+    fn missing_paths_count_as_success_without_failure() {
+        let missing = PathBuf::from("/definitely/missing/path/for/clv-test");
+        let mut settings = AppSettings::default();
+        settings.soft_delete = false;
+
+        let report =
+            CleanupExecutor::new(settings).execute(&[scan_item(missing.clone())], |_| {});
+
+        assert_eq!(report.success_count, 1);
+        assert_eq!(report.successful_paths, vec![missing]);
+        assert!(report.failed.is_empty());
+    }
+
+    #[test]
+    fn move_entry_falls_back_when_rename_crosses_devices() {
+        if is_cross_device_error(&io::Error::from_raw_os_error(17)) {
+            // Windows / platforms that surface ERROR_NOT_SAME_DEVICE.
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("src.txt");
+        let dest = temp.path().join("nested").join("dest.txt");
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        fs::write(&src, "payload").unwrap();
+
+        move_entry(&src, &dest).unwrap();
+        assert!(!src.exists());
+        assert_eq!(fs::read_to_string(dest).unwrap(), "payload");
+    }
 }

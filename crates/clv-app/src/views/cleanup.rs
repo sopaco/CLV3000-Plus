@@ -398,7 +398,25 @@ impl Render for CleanupView {
                                             ),
                                         ))
                                 })
-                                .when(has_report && count > 0 && !scanning, |this| {
+                                .when(cleaning, |this| {
+                                    let completed = store_ref.cleanup_completed;
+                                    let total = store_ref.cleanup_total;
+                                    let freed = store_ref.cleanup_freed_bytes;
+                                    let path = store_ref.cleanup_current_path.clone();
+                                    this.flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(ui::empty_state_loading(
+                                            i18n.cleanup_progress_title(),
+                                            i18n.cleanup_progress_detail(
+                                                completed,
+                                                total,
+                                                freed,
+                                                path.as_deref(),
+                                            ),
+                                        ))
+                                })
+                                .when(has_report && count > 0 && !scanning && !cleaning, |this| {
                                     let items = items.clone();
                                     let store = store.clone();
                                     let i18n = i18n;

@@ -65,6 +65,10 @@ pub struct AppStore {
     pub scan_items_found: usize,
     pub scan_bytes_found: u64,
     pub scan_current_path: Option<String>,
+    pub cleanup_completed: usize,
+    pub cleanup_total: usize,
+    pub cleanup_freed_bytes: u64,
+    pub cleanup_current_path: Option<String>,
     pub status_message: Option<String>,
     pub cleanup_filter: CleanupFilter,
     pub search_query: String,
@@ -97,6 +101,10 @@ impl AppStore {
             scan_items_found: 0,
             scan_bytes_found: 0,
             scan_current_path: None,
+            cleanup_completed: 0,
+            cleanup_total: 0,
+            cleanup_freed_bytes: 0,
+            cleanup_current_path: None,
             status_message: None,
             cleanup_filter: CleanupFilter::All,
             search_query: String::new(),
@@ -217,10 +225,16 @@ impl AppStore {
             .collect()
     }
 
+    /// All checked items in the scan report, regardless of the active sidebar filter.
     pub fn selected_items(&self) -> Vec<clv_core::ScanItem> {
-        self.filtered_items()
-            .into_iter()
+        let Some(report) = &self.last_report else {
+            return Vec::new();
+        };
+        report
+            .items
+            .iter()
             .filter(|i| self.is_item_selected(&i.id))
+            .cloned()
             .collect()
     }
 
@@ -346,6 +360,10 @@ impl AppStore {
         }
 
         self.cleaning = true;
+        self.cleanup_completed = 0;
+        self.cleanup_total = selected.len();
+        self.cleanup_freed_bytes = 0;
+        self.cleanup_current_path = None;
         self.status_message = Some(self.i18n().cleanup_in_progress().into());
         cx.notify();
 
@@ -356,9 +374,24 @@ impl AppStore {
             let mut finished = false;
             while !finished {
                 match poll_cleanup(&job.rx) {
+                    CleanupPoll::Progress(progress) => {
+                        weak.update(cx, |store, cx| {
+                            store.cleanup_completed = progress.completed;
+                            store.cleanup_total = progress.total;
+                            store.cleanup_freed_bytes = progress.freed_bytes;
+                            store.cleanup_current_path =
+                                Some(truncate_path_display(&progress.current_path, 96));
+                            cx.notify();
+                        })
+                        .ok();
+                    }
                     CleanupPoll::Done(result, removed_paths) => {
                         weak.update(cx, |store, cx| {
                             store.cleaning = false;
+                            store.cleanup_completed = 0;
+                            store.cleanup_total = 0;
+                            store.cleanup_freed_bytes = 0;
+                            store.cleanup_current_path = None;
                             store.last_cleanup_freed = Some(result.freed_bytes);
                             store.status_message = Some(store.i18n().cleanup_summary(&result));
 
@@ -374,15 +407,32 @@ impl AppStore {
                                     .retain(|id| current.items.iter().any(|i| &i.id == id));
                             }
 
-                            store.refresh_disk_usage_sync();
                             cx.notify();
                         })
                         .ok();
+
+                        let disk = std::thread::spawn(|| primary_disk_usage())
+                            .join()
+                            .ok()
+                            .flatten();
+                        weak.update(cx, |store, cx| {
+                            if let Some((total, used)) = disk {
+                                store.disk_total = total;
+                                store.disk_used = used;
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+
                         finished = true;
                     }
                     CleanupPoll::Disconnected => {
                         weak.update(cx, |store, cx| {
                             store.cleaning = false;
+                            store.cleanup_completed = 0;
+                            store.cleanup_total = 0;
+                            store.cleanup_freed_bytes = 0;
+                            store.cleanup_current_path = None;
                             store.status_message = Some(store.i18n().cleanup_interrupted().into());
                             cx.notify();
                         })

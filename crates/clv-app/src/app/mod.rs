@@ -168,10 +168,15 @@ impl Render for ClvApp {
         }
 
         let show_scan_bar = self.store.read(cx).scanning;
+        let show_cleanup_bar = self.store.read(cx).cleaning;
         let scan_phase = self.store.read(cx).scan_phase.clone();
         let scan_items_found = self.store.read(cx).scan_items_found;
         let scan_bytes_found = self.store.read(cx).scan_bytes_found;
         let scan_current_path = self.store.read(cx).scan_current_path.clone();
+        let cleanup_completed = self.store.read(cx).cleanup_completed;
+        let cleanup_total = self.store.read(cx).cleanup_total;
+        let cleanup_freed_bytes = self.store.read(cx).cleanup_freed_bytes;
+        let cleanup_current_path = self.store.read(cx).cleanup_current_path.clone();
 
         div()
             .size_full()
@@ -282,6 +287,15 @@ impl Render for ClvApp {
                                     scan_current_path.as_deref(),
                                 ))
                             })
+                            .when(show_cleanup_bar, |this| {
+                                this.child(ui::cleanup_progress_bar(
+                                    &i18n,
+                                    cleanup_completed,
+                                    cleanup_total,
+                                    cleanup_freed_bytes,
+                                    cleanup_current_path.as_deref(),
+                                ))
+                            })
                             .child(ui::page_transition(
                                 page.transition_key(),
                                 self.render_page(page, cx),
@@ -299,7 +313,11 @@ impl ClvApp {
         let scanning = store.scanning;
         let cleaning = store.cleaning;
         let status = if cleaning {
-            i18n.status_cleaning().to_string()
+            if store.cleanup_total > 0 {
+                i18n.cleanup_status_detail(store.cleanup_completed, store.cleanup_total)
+            } else {
+                i18n.status_cleaning().to_string()
+            }
         } else if scanning {
             i18n.status_scanning().to_string()
         } else if let Some(msg) = &store.status_message {

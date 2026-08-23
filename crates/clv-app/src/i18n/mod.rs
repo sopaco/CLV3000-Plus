@@ -976,6 +976,46 @@ impl I18n {
         self.t("正在清理，请稍候…", "Cleaning, please wait…", "削除中、お待ちください…")
     }
 
+    pub fn cleanup_progress_title(&self) -> &'static str {
+        self.t("正在清理", "Cleaning", "削除中")
+    }
+
+    pub fn cleanup_progress_detail(
+        &self,
+        completed: usize,
+        total: usize,
+        freed_bytes: u64,
+        path: Option<&str>,
+    ) -> String {
+        let size = format_bytes(freed_bytes);
+        let base = match self.lang {
+            Language::Zh => format!("已完成 {completed}/{total} · 已释放 {size}"),
+            Language::En => format!("{completed}/{total} done · {size} freed"),
+            Language::Ja => format!("{completed}/{total} 完了 · {size} 解放"),
+        };
+        if let Some(path) = path {
+            format!("{base}\n{path}")
+        } else {
+            base
+        }
+    }
+
+    pub fn cleanup_status_detail(&self, completed: usize, total: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("正在清理 {completed}/{total}…"),
+            Language::En => format!("Cleaning {completed}/{total}…"),
+            Language::Ja => format!("削除中 {completed}/{total}…"),
+        }
+    }
+
+    pub fn cleanup_switch_pages_hint(&self) -> &'static str {
+        self.t(
+            "可切换页面，清理不会中断",
+            "Switch pages — cleanup continues",
+            "ページ切替可 — 削除は継続",
+        )
+    }
+
     pub fn cleanup_interrupted(&self) -> &'static str {
         self.t("清理已中断", "Cleanup interrupted", "削除が中断されました")
     }

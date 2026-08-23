@@ -678,3 +678,65 @@ pub fn scan_progress_bar(
                 ),
         )
 }
+
+/// Inline cleanup progress — shown while background cleanup is running.
+pub fn cleanup_progress_bar(
+    i18n: &I18n,
+    completed: usize,
+    total: usize,
+    freed_bytes: u64,
+    current_path: Option<&str>,
+) -> Div {
+    let pct = if total == 0 {
+        0.0
+    } else {
+        (completed as f32 / total as f32 * 100.0).min(99.0)
+    };
+    let detail = i18n.cleanup_progress_detail(completed, total, freed_bytes, current_path);
+
+    glass_card()
+        .mb_4()
+        .p_4()
+        .border_color(colors::accent_blue().opacity(0.35))
+        .child(
+            v_flex()
+                .gap_3()
+                .child(
+                    h_flex()
+                        .justify_between()
+                        .items_center()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(crate::ui::loading_spinner(18., colors::accent_blue()))
+                                .child(
+                                    div()
+                                        .text_base()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(colors::text_primary())
+                                        .child(i18n.cleanup_progress_title()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(colors::text_muted())
+                                .child(i18n.cleanup_switch_pages_hint()),
+                        ),
+                )
+                .child(
+                    Progress::new()
+                        .value(pct)
+                        .bg(colors::accent_blue())
+                        .h(px(8.))
+                        .rounded(corner()),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(colors::text_secondary())
+                        .child(detail),
+                ),
+        )
+}
