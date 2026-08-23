@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use sysinfo::Disks;
 
 /// Returns `(total_bytes, used_bytes)` for system storage.
@@ -29,17 +29,17 @@ fn disk_usage_from_disks(disks: &[sysinfo::Disk]) -> Option<(u64, u64)> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn primary_disk_target() -> PathBuf {
+fn primary_disk_target() -> std::path::PathBuf {
     #[cfg(target_os = "macos")]
     {
-        let data = PathBuf::from("/System/Volumes/Data");
+        let data = std::path::PathBuf::from("/System/Volumes/Data");
         if data.exists() {
             return data;
         }
     }
     directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("/"))
+        .unwrap_or_else(|| std::path::PathBuf::from("/"))
 }
 
 #[cfg(target_os = "windows")]
@@ -51,7 +51,7 @@ struct MountStats<'a> {
 }
 
 #[cfg(target_os = "windows")]
-fn sum_local_fixed_disks(mounts: impl Iterator<Item = MountStats<'_>>) -> Option<(u64, u64)> {
+fn sum_local_fixed_disks<'a>(mounts: impl Iterator<Item = MountStats<'a>>) -> Option<(u64, u64)> {
     let mut total = 0u64;
     let mut available = 0u64;
 
@@ -80,6 +80,7 @@ fn is_windows_drive_letter(path: &Path) -> bool {
         && (bytes[2] == b'\\' || bytes[2] == b'/')
 }
 
+#[cfg(not(target_os = "windows"))]
 fn disk_usage_for_target(disks: &[sysinfo::Disk], target: &Path) -> Option<(u64, u64)> {
     select_mount_stats(
         disks.iter().map(|disk| {
@@ -93,6 +94,7 @@ fn disk_usage_for_target(disks: &[sysinfo::Disk], target: &Path) -> Option<(u64,
     )
 }
 
+#[cfg(not(target_os = "windows"))]
 fn select_mount_stats<'a>(
     mounts: impl Iterator<Item = (&'a Path, u64, u64)>,
     target: &Path,
@@ -108,6 +110,7 @@ fn select_mount_stats<'a>(
     Some((total, total.saturating_sub(available)))
 }
 
+#[cfg(not(target_os = "windows"))]
 fn mount_prefix_len(path: &Path) -> usize {
     path.as_os_str().len()
 }
@@ -115,8 +118,10 @@ fn mount_prefix_len(path: &Path) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn picks_longest_mount_prefix_on_macos() {
         let mounts = [
             (PathBuf::from("/"), 1_000_u64, 400_u64),
@@ -133,6 +138,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn picks_root_when_target_is_home_on_legacy_layout() {
         let mounts = [(PathBuf::from("/"), 2_000_u64, 500_u64)];
         let target = Path::new("/Users/test");
@@ -146,6 +152,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn returns_none_when_no_mount_matches() {
         let mounts = [(PathBuf::from("/Volumes/USB"), 500_u64, 100_u64)];
         let target = Path::new("/Users/test");
