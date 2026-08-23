@@ -32,8 +32,11 @@ source: .
   - README.md
   - .gitignore
   - scripts/
+    - rule-description-translations.json
     - bundle-macos.sh
+    - generate-rule-descriptions.py
   - AGENTS.md
   - assets/
     - snapshots/
     - icons/
+  - CLAUDE.md

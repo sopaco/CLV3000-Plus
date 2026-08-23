@@ -1,96 +1,84 @@
 # Platform Domain
 
 **Module path:** `crates/clv-platform/src/`  
-**Generated:** 2026-08-22
+**Generated:** 2026-08-23
 
 ---
 
 ## What This Module Does
 
-`clv-platform` is the OS adapter crate. macOS and Windows differ wildly in how startup items and processes are managed; this crate hides that behind small public functions so `clv-app` never imports `winreg` or `launchctl` directly. Linux support is partial—startup listing returns empty on non-macOS/non-Windows targets.
+`clv-platform` is the thin operating-system adapter crate. Domain logic in `clv-core` stays free of sysinfo calls and platform-specific startup APIs; when the dashboard needs disk usage or the process page needs to kill a PID, it calls into this crate. Think of it as the "lab" that talks to the OS while the "clinic" (`clv-core`) stays pure.
 
 ---
 
-## Process Module (`process.rs`)
+## Core Capabilities
 
-### Capabilities
-- List processes with CPU/memory via sysinfo (`process.rs:60-64`).
-- Reusable `ProcessEnumerator` avoids reallocating `System` on each poll (`process.rs:43-58`).
-- Kill by PID: Unix uses `/bin/kill -9` then `libc::kill` with process group (`process.rs:115-146`); Windows uses `TerminateProcess` (`process.rs:149-187`).
-- Category heuristics: System, User, Dev, Agent (`process.rs:189-206`).
+1. **Disk usage** — `primary_disk_usage()` (`disk.rs:11`) returns `(total_bytes, used_bytes)` with mount-aware logic.
 
-### Key Types
-| Type | Path | Role |
-|------|------|------|
-| `ProcessInfo` | `process.rs:34` | pid, name, cpu, memory, category |
-| `ProcessSort` | `process.rs:8` | Memory, Cpu, Name ordering |
-| `kill_process` | `process.rs:102` | Platform dispatch |
+2. **Process enumeration** — `ProcessEnumerator` (`process.rs:32`) reuses `sysinfo::System` for efficient polling; `list_processes` for one-shot lists.
 
-Filters zombie/dead processes from listings (`process.rs:66-68`).
+3. **Process metadata** — `ProcessInfo` with pid, name, CPU%, memory, `ProcessCategory` (System/User/Dev/Agent).
+
+4. **Process kill** — `kill_process(pid)` with error propagation to UI status messages.
+
+5. **Startup items** — `list_startup_items`, `set_startup_enabled` (`startup.rs`) for StartupView.
 
 ---
 
-## Startup Module (`startup.rs`)
+## Key Components
 
-### Public API
-- `list_startup_items()` — Platform dispatch (`startup.rs:74-87`)
-- `set_startup_enabled(id, enabled)` — Toggle (`startup.rs:89-103`)
-
-### macOS (`startup.rs:106-321`)
-- Scans `~/Library/LaunchAgents`, `/Library/LaunchAgents`
-- Parses login items via osascript System Events (`startup.rs:172-198`)
-- Disable LaunchAgent: rename to `.plist.disabled`, launchctl bootout (`startup.rs:253-297`)
-- Disable login item: osascript delete—requires Automation permission (`startup.rs:299-320`)
-
-### Windows (`startup.rs:323-560`)
-- Registry Run/RunOnce keys HKCU + HKLM (`RUN_SOURCES` at `startup.rs:347-383`)
-- User and common Startup folders (`startup.rs:418-441`)
-- Enable/disable via `StartupApproved` registry binary—Task Manager compatible (`startup.rs:499-508`)
+| Component | File path | Responsibility |
+|-----------|-----------|----------------|
+| `primary_disk_usage` | `clv-platform/src/disk.rs:11` | Primary volume disk stats |
+| `disk_usage_from_disks` | `disk.rs:16–28` | Platform-specific aggregation |
+| `ProcessEnumerator` | `process.rs:32` | Reusable sysinfo wrapper |
+| `ProcessInfo` | `process.rs:23` | Process row data |
+| `ProcessCategory` | `process.rs:15` | UI classification |
+| `kill_process` | `process.rs` | Terminate by PID |
+| `list_startup_items` | `startup.rs` | OS startup/login items |
 
 ---
 
-## Internal Architecture
+## Internal Data Flow
 
 ```mermaid
 flowchart TD
-    A["clv-app ProcessView"] --> B["list_processes / kill_process<br/>process.rs"]
-    A --> C["list_startup_items<br/>startup.rs:74"]
-    C --> D{"target_os"}
-    D -->|macos| E["macos module"]
-    D -->|windows| F["windows module"]
-    B --> G["sysinfo / libc / windows_sys"]
+    A["AppStore"] --> B["primary_disk_usage<br/>disk.rs:11"]
+    B --> C["sysinfo::Disks"]
+    C --> D["disk_total / disk_used"]
+    E["ProcessView"] --> F["ProcessEnumerator::list<br/>process.rs:43"]
+    F --> G["sysinfo::System"]
+    H["AppStore.kill_process_pid"] --> I["kill_process"]
 ```
 
 ---
 
-## Interaction With Other Modules
+## Platform-Specific Behavior
 
-| Caller | API | Context |
-|--------|-----|---------|
-| `AppStore::kill_process_pid` | `kill_process` | `state.rs:120` |
-| `AppStore::start_scan` (on done) | `list_startup_items` | `state.rs:306` |
-| `StartupView` | `set_startup_enabled` | Toggle UI |
+**macOS** — Uses `/System/Volumes/Data` as disk target to avoid APFS double-counting `/` and Data volume (`disk.rs:33–38`).
 
----
+**Windows** — Sums all local fixed drive letters, excludes removable (`disk.rs:16–24`, `sum_local_fixed_disks`).
 
-## Role in Core Business Flows
-
-**Startup management:** Independent of scan—user toggles items from Startup sidebar.
-
-**Process kill:** Supplementary utility for freeing RAM; not tied to cleanup pipeline.
+**Linux** — Targets volume hosting user home (`disk.rs:27–28`).
 
 ---
 
-## Testing
+## Cross-Module Interactions
 
-`process.rs` kill tests spawn `sleep 999` and verify exit (`process.rs:214-245`).
+| Module | Direction | Interface | Notes |
+|--------|-----------|-----------|-------|
+| app-store | calls | `primary_disk_usage`, `kill_process` | Async threads |
+| views | calls | ProcessView, StartupView, Dashboard | Direct platform use |
+| clv-core | none | — | No dependency on platform |
 
-Windows `approval_roundtrip` test writes/deletes StartupApproved entries (`startup.rs:545-558`).
+**Dependency rule** — `clv-app` → `clv-platform`; `clv-core` does not import platform (keeps domain tests headless).
 
 ---
 
 ## Implementation Highlights
 
-Windows startup disable does not delete Registry Run values—it flips approval flags so items remain but don't launch—mirrors Task Manager behavior.
+`ProcessEnumerator` avoids `System::new_all()` on every UI tick — refresh only inside `list()` (`process.rs:43–46`).
 
-macOS LaunchAgent enable only calls `launchctl enable` without bootstrap—to avoid immediately running disabled agents (`startup.rs:272-273` comment).
+`is_listable_process` filters zombie/dead processes from display (`process.rs:55–57`).
+
+Agent-related process names get `ProcessCategory::Agent` for visual grouping in ProcessView.

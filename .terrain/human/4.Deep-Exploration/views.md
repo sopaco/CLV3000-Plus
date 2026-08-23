@@ -1,29 +1,31 @@
 # Views Domain
 
 **Module path:** `crates/clv-app/src/views/`  
-**Generated:** 2026-08-22
+**Generated:** 2026-08-23
 
 ---
 
 ## What This Module Does
 
-Views are GPUI `Render` implementations for each major screen. They do not own business logic— they read `AppStore`, compose `ui` components, and dispatch actions back to the store. `ClvApp` lazily constructs each view entity on first navigation (`app/mod.rs:56-117`), keeping startup light.
+Views are the GPUI presentation layer — each file implements one navigable "page" of the application. They render snapshots from `AppStore`, translate typed domain enums into human language via `I18n`, and forward user gestures back to store mutations. `ClvApp` lazily constructs each view on first visit (`app/mod.rs:56–80`), so startup only pays for the onboarding or dashboard page initially.
 
 ---
 
-## View Inventory
+## Core Capabilities
 
-| View | File | Primary actions |
-|------|------|-----------------|
-| `DashboardView` | `views/dashboard.rs` | Health score, disk stats, trigger scan |
-| `CleanupView` | `views/cleanup.rs` | Virtualized item list, filters, clean CTA |
-| `AgentView` | `views/agent.rs` | Agent project cards, search, navigate to cleanup |
-| `StartupView` | `views/startup.rs` | Toggle startup items via platform API |
-| `ProcessView` | `views/process.rs` | List processes, kill by PID |
-| `SettingsView` | `views/settings.rs` | Mode, paths, theme, language |
-| `OnboardingView` | `views/onboarding.rs` | First-run wizard |
+1. **Dashboard** — `dashboard.rs` — Disk usage summary, scan entry point, high-level status from `AppStore` disk fields.
 
-Module barrel: `views/mod.rs` exports all view types.
+2. **Cleanup** — `cleanup.rs` — Filterable list of `ScanItem`s, risk badges, `rule_description_label`, cleanup confirmation.
+
+3. **Agent** — `agent.rs` — `AgentProject` cards with `format_agent_reason`, search, link to select project items for cleanup.
+
+4. **Startup** — `startup.rs` — Lists OS startup items via `clv-platform::list_startup_items`, toggle enable.
+
+5. **Process** — `process.rs` — Process table from `ProcessEnumerator`, sort, search, kill via `AppStore.kill_process_pid`.
+
+6. **Settings** — `settings.rs` — Scan paths editor, expert/soft-delete toggles, theme, language; saves via `save_settings`.
+
+7. **Onboarding** — `onboarding.rs` — First-run flow; sets `onboarding_done`.
 
 ---
 
@@ -31,11 +33,16 @@ Module barrel: `views/mod.rs` exports all view types.
 
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `DashboardView` | `crates/clv-app/src/views/dashboard.rs:6` | Hero banner, health `compute_health` |
-| `CleanupView` | `crates/clv-app/src/views/cleanup.rs:15` | `UniformListScrollHandle`, row height 108px |
-| `AgentView` | `crates/clv-app/src/views/agent.rs:13` | Local search + store projects |
-| `CleanupView::render_row` | `crates/clv-app/src/views/cleanup.rs:28` | Per-item card with expert path mode |
-| `ClvApp::render_page` | `crates/clv-app/src/app/mod.rs:145` | Page → view dispatch |
+| `DashboardView` | `views/dashboard.rs` | Home / disk overview |
+| `CleanupView` | `views/cleanup.rs` | Main cleanup UI |
+| `AgentView` | `views/agent.rs` | Agent experiment browser |
+| `StartupView` | `views/startup.rs` | Startup item manager |
+| `ProcessView` | `views/process.rs` | Process list and kill |
+| `SettingsView` | `views/settings.rs` | Preferences editor |
+| `OnboardingView` | `views/onboarding.rs` | First-run wizard |
+| `AppShell` | `app/shell.rs` | Sidebar + page transitions |
+| `rule_description_label` | `i18n/labels.rs` | Rule text for UI |
+| `theme.rs` | `crates/clv-app/src/theme.rs` | Theme colors |
 
 ---
 
@@ -43,49 +50,49 @@ Module barrel: `views/mod.rs` exports all view types.
 
 ```mermaid
 flowchart TD
-    A["ClvApp sidebar click"] --> B["AppStore::set_page"]
-    B --> C["ClvApp::render_page<br/>mod.rs:145"]
-    C --> D["Specific View Render"]
-    D --> E["Read AppStore via store.read cx"]
-    E --> F["Compose ui::* components"]
-    F --> G["User action"]
-    G --> H["store.update start_scan etc"]
+    A["AppShell sidebar"] --> B["ClvApp page switch<br/>app/mod.rs"]
+    B --> C["Lazy view entity"]
+    C --> D["read AppStore"]
+    D --> E["GPUI render"]
+    F["User click"] --> G["store.update"]
+    G --> H["cx.notify"]
+    H --> E
 ```
 
 ---
 
-## UI Patterns
+## Expert vs Simple Mode
 
-**Virtualization:** Cleanup and Agent views use `UniformListScrollHandle` with fixed row heights (`CLEANUP_ROW_H = 108`, `AGENT_ROW_H = 104`) for smooth scrolling over hundreds of items.
+Controlled by `settings.expert_mode`:
 
-**Expert vs Simple:** CleanupView shows full `item.path` in expert mode; otherwise project root or name (`cleanup.rs:39-46`).
+- **Simple** — Plain-language `RuleDescription::text(lang)`; hidden protected items in lists.
+- **Expert** — Full filesystem paths; protected items visible; more cleanup categories selectable.
 
-**Page transitions:** `ui::page_transition` wraps content with stable keys from `AppPage::transition_key` (`state.rs:38-48`).
-
----
-
-## Interaction With Other Modules
-
-| Module | Relationship |
-|--------|--------------|
-| App store | Data + actions |
-| ui | Visual components (cards, scan bar, nav icons) |
-| i18n | `I18n` from store for all labels |
-| theme | `colors`, `corner` for styling |
-| clv-core | `ScanItem`, `AgentProject`, `RiskLevel` types |
+Views consult `AppStore.settings.expert_mode` and `filtered_items` rather than duplicating filter logic.
 
 ---
 
-## Role in Core Business Flows
+## Cross-Module Interactions
 
-- **Scan:** Dashboard hero triggers `store.start_scan` (`dashboard.rs` scan button handler).
-- **Cleanup:** CleanupView calls `run_cleanup` on confirm.
-- **Agent review:** AgentView displays `agent_projects`; may link to cleanup with pre-filter.
+| Module | Direction | Interface | Notes |
+|--------|-----------|-----------|-------|
+| app-store | depends | `Entity<AppStore>` | All views |
+| i18n | depends | `I18n`, labels | Trilingual UI |
+| platform | some views | startup, process APIs | StartupView, ProcessView |
+| clv-core types | display | `ScanItem`, `AgentProject` | Read-only render |
+
+---
+
+## UI Kit
+
+Shared widgets under `crates/clv-app/src/ui/` — `controls.rs`, `list.rs`, `security.rs` (risk badges), `icons.rs`, `text.rs`. Assets embedded via `assets.rs` and `build.rs`.
 
 ---
 
 ## Implementation Highlights
 
-`AgentView` maintains local `search_query` separate from store search (agent-specific filter on projects vs cleanup items).
+Page transition keys on `AppPage::transition_key` (`state.rs:34`) enable shell animations without conflating page identity.
 
-`CleanupView` uses expandable rows with `expanded_item` id from store for path detail rows.
+`CleanupView` uses `expanded_item` on store for accordion detail rows (`state.rs:71`).
+
+Agent view search matches `agent_reason_matches_query` in addition to path/name (`lib.rs` exports).

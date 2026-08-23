@@ -1,24 +1,27 @@
 # Cleanup Domain
 
 **Module path:** `crates/clv-core/src/cleanup.rs`  
-**Generated:** 2026-08-22
+**Generated:** 2026-08-23
 
 ---
 
 ## What This Module Does
 
-Cleanup is where user intent becomes filesystem action. After the Scanner builds a checklist, `CleanupExecutor` removes only the paths the user selected—respecting risk gates and soft-delete preferences. Think of it as the "shredder with a recycle bin option": by default items go to an app trash folder rather than immediate permanent deletion.
+After the user reviews scan results and checks boxes, the cleanup module performs the actual filesystem operations. `CleanupExecutor` is deliberately small: it loops selected `ScanItem`s, respects risk and expert-mode gates, and either renames paths into an app-managed trash folder (default) or deletes them permanently. Think of it as the "disposal dock" at the end of the factory line — separate from discovery so deletion policy can evolve without touching scan logic.
 
 ---
 
 ## Core Capabilities
 
-1. **Selective execution** — Iterates items where `selected == true` (`cleanup.rs:69-72`).
-2. **Expert gating** — Skips `RiskLevel::Protected` unless `settings.expert_mode` (`cleanup.rs:73-75`).
-3. **Soft delete** — Renames to timestamped path in `trash_dir()` (`cleanup.rs:99-113`).
-4. **Hard delete** — `remove_dir_all` / `remove_file` when `soft_delete` is false (`cleanup.rs:115-120`).
-5. **Localized summaries** — `CleanupReport::summary_for` supports zh/en/ja (`cleanup.rs:22-48`).
-6. **Trash TTL** — `purge_old_trash(days)` removes aged trash entries (`cleanup.rs:125-154`).
+1. **Batch execution** — `execute(&[ScanItem])` (`cleanup.rs:25`) processes items sequentially and aggregates `CleanupReport`.
+
+2. **Risk gating** — Skips `RiskLevel::Protected` when `!settings.expert_mode` (`cleanup.rs:34–36`).
+
+3. **Soft delete** — `remove_path` renames to `trash_dir()` with `{stamp}-{name}-{uuid}` (`cleanup.rs:60–74`).
+
+4. **Hard delete** — When `soft_delete` is false, uses `fs::remove_dir_all` / `fs::remove_file` (`cleanup.rs:76–81`).
+
+5. **Trash purge** — `purge_old_trash(days)` (`cleanup.rs:86`) deletes aged trash entries by modification time.
 
 ---
 
@@ -26,11 +29,11 @@ Cleanup is where user intent becomes filesystem action. After the Scanner builds
 
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `CleanupExecutor` | `crates/clv-core/src/cleanup.rs:52` | Settings-aware deletion loop |
-| `CleanupReport` | `crates/clv-core/src/cleanup.rs:10` | `freed_bytes`, `success_count`, `failed`, `trashed` |
-| `remove_path` | `crates/clv-core/src/cleanup.rs:94` | Soft vs hard delete per path |
-| `purge_old_trash` | `crates/clv-core/src/cleanup.rs:125` | Age-based trash cleanup |
-| `trash_dir` | `crates/clv-core/src/settings.rs:83` | Resolves app data trash location |
+| `CleanupExecutor` | `crates/clv-core/src/cleanup.rs:16` | Deletion orchestrator |
+| `CleanupReport` | `crates/clv-core/src/cleanup.rs:9` | freed_bytes, success_count, failed, trashed |
+| `remove_path` | `crates/clv-core/src/cleanup.rs:55` | Per-path soft/hard delete |
+| `trash_dir` | `crates/clv-core/src/paths.rs` | Quarantine directory path |
+| `spawn_cleanup` | `crates/clv-app/src/services/cleanup.rs` | Background thread wrapper |
 
 ---
 
@@ -38,51 +41,40 @@ Cleanup is where user intent becomes filesystem action. After the Scanner builds
 
 ```mermaid
 flowchart TD
-    A["Selected ScanItems"] --> B["CleanupExecutor::execute<br/>cleanup.rs:61"]
-    B --> C{"item.selected?"}
-    C -->|no| Skip["skip"]
-    C -->|yes| D{"Protected and not expert?"}
-    D -->|yes| Skip
-    D -->|no| E["remove_path<br/>cleanup.rs:94"]
-    E --> F{"soft_delete?"}
-    F -->|yes| G["fs::rename to trash"]
-    F -->|no| H["remove_dir_all/file"]
-    G --> I["CleanupReport"]
-    H --> I
-    Skip --> I
+    A["selected ScanItems"] --> B["CleanupExecutor::execute<br/>cleanup.rs:25"]
+    B --> C{"Protected and not expert?<br/>cleanup.rs:34"}
+    C -->|skip| B
+    C -->|proceed| D["remove_path<br/>cleanup.rs:55"]
+    D --> E{"soft_delete?<br/>cleanup.rs:60"}
+    E -->|yes| F["fs::rename to trash_dir"]
+    E -->|no| G["fs::remove_dir_all / remove_file"]
+    F --> H["CleanupReport"]
+    G --> H
 ```
 
-**Trash naming:** `{YYYYMMDD-HHMMSS}-{basename}-{uuid}` (`cleanup.rs:102-107`).
+---
+
+## Cross-Module Interactions
+
+| Module | Direction | Interface | Notes |
+|--------|-----------|-----------|-------|
+| models | depends | `ScanItem`, `RiskLevel` | Input items |
+| settings | depends | `AppSettings`, `trash_dir` | Mode flags |
+| app-store | consumed by | `start_cleanup` | Spawns worker |
+| views | triggers | CleanupView confirm | User action |
+
+**After cleanup** — `AppStore` clears selection, stores `last_cleanup_freed`, calls `refresh_disk_usage_async` (`state.rs:141`).
 
 ---
 
-## Interaction With Other Modules
+## Safety Notes
 
-| Module | Direction | Interface | Description |
-|--------|-----------|-----------|-------------|
-| App store | caller | `run_cleanup` → `execute` | `state.rs:357-358` |
-| Settings | depends | `AppSettings`, `trash_dir` | Soft delete flag |
-| Models | input | `ScanItem` | Paths and sizes |
-| Agent | post-cleanup | `detect_agent_projects` | Rebuild agent list after delete |
-
-After cleanup, `AppStore` removes deleted paths from `last_report.items` and re-runs agent detection (`state.rs:372-379`).
-
----
-
-## Role in Core Business Flows
-
-**Cleanup Execution workflow:** User confirms in `CleanupView` → `AppStore::run_cleanup` spawns thread → `CleanupExecutor::execute` → UI shows `cleanup_summary` in status bar.
-
----
-
-## Performance and Safety
-
-- Sequential per-item deletion (no parallel rm—reduces FS contention and permission surprises).
-- Missing paths return `Ok(None)` without error (`cleanup.rs:95-97`).
-- Failed paths accumulated; partial success is normal.
+- Scanner should not list protected system paths; executor does not re-validate `is_protected_system_path` on every delete — defense in depth relies on scan + UI gates.
+- Missing paths return `Ok(None)` without error (`cleanup.rs:56–58`).
+- Failed deletes preserve path in `report.failed` for user visibility.
 
 ---
 
 ## Implementation Highlights
 
-Soft delete uses `fs::rename` for both files and directories—fast for large trees on same volume. Hard delete uses `remove_dir_all` which can be slow for huge `node_modules` but is intentional for users who disable soft delete.
+Soft-delete naming includes UUID to avoid collisions when deleting multiple `cache` folders from different projects in one batch (`cleanup.rs:68`).

@@ -1,25 +1,29 @@
 # App Store Domain
 
 **Module path:** `crates/clv-app/src/app/state.rs`  
-**Generated:** 2026-08-22
+**Generated:** 2026-08-23
 
 ---
 
 ## What This Module Does
 
-`AppStore` is the central state container and workflow coordinator for the entire UI. Every view reads from this `Entity<AppStore>`; every long-running operation (scan, cleanup, disk refresh, process kill) is initiated here. It bridges GPUI's reactive model with blocking Rust filesystem work—a pattern similar to a Redux store, but integrated with GPUI's `cx.notify()` rendering cycle.
+`AppStore` is the control tower for the entire GPUI application. Every page reads scan results, selection state, disk metrics, and job flags from this single entity — views do not own copies of `ScanReport` or maintain their own checkbox state. Long-running scan and cleanup jobs are started here, polled on the GPUI executor, and merged back into store fields that trigger `cx.notify()` for all subscribed views.
 
 ---
 
 ## Core Capabilities
 
-1. **Page navigation** — `AppPage` enum and `set_page` (`state.rs:22-30`, `state.rs:154-160`).
-2. **Scan orchestration** — Thread spawn, mpsc progress, `last_report` update (`state.rs:248-332`).
-3. **Cleanup orchestration** — Selected items to `CleanupExecutor`, report mutation (`state.rs:334-408`).
-4. **Filtering** — `CleanupFilter` buckets, search query, expert mode gating (`state.rs:174-216`).
-5. **Selection management** — Toggle, select-all-filtered (`state.rs:229-246`).
-6. **Disk metrics** — sysinfo `Disks` aggregation (`state.rs:442-455`).
-7. **Onboarding completion** — Saves paths and mode (`state.rs:410-423`).
+1. **Page routing state** — `AppPage` enum (`state.rs:18`) — Dashboard, Cleanup, Agent, Startup, Process, Settings, Onboarding.
+
+2. **Scan orchestration** — `start_scan` spawns `spawn_scan`, polls `poll_scan` until `ScanPoll::Done`, sets `last_report` and `default_selected_item_ids`.
+
+3. **Cleanup orchestration** — `start_cleanup` via `spawn_cleanup` / `poll_cleanup`.
+
+4. **Filtering** — `filtered_items` (`state.rs:176`) applies expert mode, `CleanupFilter` bucket, and search query (name, path, `rule_description_matches_query`).
+
+5. **Selection management** — `selected_item_ids` HashSet; `select_project_items` for agent bulk select (`state.rs:258`).
+
+6. **Async side jobs** — `refresh_disk_usage_async` (`state.rs:141`), `kill_process_pid` (`state.rs:116`) on background threads.
 
 ---
 
@@ -27,12 +31,14 @@
 
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `AppStore` | `crates/clv-app/src/app/state.rs:61` | Central state struct |
-| `AppPage` | `crates/clv-app/src/app/state.rs:22` | Sidebar page enum |
-| `CleanupFilter` | `crates/clv-app/src/app/state.rs:52` | UI filter chips |
-| `ScanEvent` / `CleanupEvent` | `crates/clv-app/src/app/state.rs:12-19` | Channel message types |
-| `ClvApp` | `crates/clv-app/src/app/mod.rs:14` | View factory + layout |
-| `AppShell` | `crates/clv-app/src/app/shell.rs:9` | Title bar + dialog layers |
+| `AppStore` | `app/state.rs:57` | Central state entity |
+| `AppPage` | `app/state.rs:18` | Navigation pages |
+| `CleanupFilter` | `app/state.rs:48` | Bucket filter enum |
+| `filtered_items` | `app/state.rs:176` | List for CleanupView |
+| `selected_items` | `app/state.rs:220` | Items marked for deletion |
+| `spawn_scan` | `services/scan.rs:20` | Scan worker thread |
+| `spawn_cleanup` | `services/cleanup.rs` | Cleanup worker thread |
+| `ClvApp` | `app/mod.rs:14` | Holds `Entity<AppStore>`, lazy views |
 
 ---
 
@@ -40,58 +46,46 @@
 
 ```mermaid
 flowchart TD
-    A["View action"] --> B["AppStore method"]
-    B --> C{"Background work?"}
-    C -->|scan/cleanup| D["std::thread"]
-    D --> E["mpsc channel"]
-    E --> F["cx.spawn poll<br/>state.rs:271"]
-    F --> G["store.update cx.notify"]
-    G --> H["Views re-render"]
-    C -->|sync| I["immediate cx.notify"]
+    A["View action"] --> B["AppStore.update"]
+    B --> C{"scan or cleanup?"}
+    C -->|scan| D["spawn_scan<br/>scan.rs:20"]
+    C -->|cleanup| E["spawn_cleanup"]
+    D --> F["poll_scan on GPUI loop"]
+    E --> G["poll_cleanup"]
+    F --> H["last_report + selection"]
+    G --> I["last_cleanup_freed"]
+    H --> J["cx.notify all views"]
+    I --> J
 ```
 
 ---
 
-## Key State Fields
+## Cross-Module Interactions
 
-| Field | Purpose |
-|-------|---------|
-| `last_report` | Latest `ScanReport` from scanner |
-| `scanning` / `cleaning` | Mutex-like operation guards |
-| `scan_phase`, `scan_items_found`, `scan_bytes_found` | Progress bar data |
-| `cleanup_filter`, `search_query` | Cleanup view filters |
-| `disk_total`, `disk_used` | Dashboard disk chart |
-| `startup_count` | Updated after scan via `list_startup_items` |
-
----
-
-## Interaction With Other Modules
-
-| Module | Interface | Usage |
-|--------|-----------|-------|
-| clv-core Scanner | `Scanner::new(settings).scan` | `state.rs:264-267` |
-| clv-core Cleanup | `CleanupExecutor::execute` | `state.rs:357-358` |
-| clv-platform | `kill_process`, `list_startup_items` | Process/startup features |
-| All views | `Entity<AppStore>` read | Render data source |
+| Module | Direction | Interface | Notes |
+|--------|-----------|-----------|-------|
+| scanner | via services | `Scanner::scan` | Worker thread |
+| cleanup | via services | `CleanupExecutor` | Worker thread |
+| platform | direct | `primary_disk_usage`, `kill_process` | Short threads |
+| views | observe | `Entity<AppStore>` | All pages |
+| i18n | uses | `I18n::from_settings` | `state.rs:80` |
 
 ---
 
-## Role in Core Business Flows
+## In Core Workflows
 
-**Every primary workflow** starts in AppStore: bootstrap creates store in `ClvApp::new`; scan/cleanup from Dashboard/Cleanup views call store methods; status bar reads `status_message` and report totals (`app/mod.rs:296-329`).
+**Startup** — `ClvApp::new` creates store, subscribes observer, routes onboarding (`app/mod.rs:27–40`).
 
----
+**Scan** — User action → `start_scan` → progress fields `scan_phase`, `scan_items_found`, `scan_bytes_found` update during poll.
 
-## Concurrency Notes
-
-Scan uses `sync_channel(64)` for backpressure; cleanup uses regular `mpsc::channel`. Polling intervals: 200ms scan, 80ms cleanup—balances responsiveness vs CPU.
-
-`kill_process_pid` uses `thread::spawn` + `join` inside `cx.spawn` (`state.rs:119-124`).
+**Cleanup** — `cleaning` flag blocks double-submit; completion triggers disk refresh.
 
 ---
 
 ## Implementation Highlights
 
-`filtered_items` applies expert mode, bucket filter, and search in one iterator chain (`state.rs:181-215`)—single source for Cleanup list and selection totals.
+Expert mode hides `RiskLevel::Protected` from `filtered_items` (`state.rs:187–189`) unless enabled — UI gate separate from cleanup executor gate.
 
-`finish_onboarding` persists settings and navigates to Dashboard (`state.rs:410-423`).
+`process_refresh_trigger` wrapping counter signals ProcessView to re-fetch without tight coupling (`state.rs:76`, `state.rs:129`).
+
+`disk_free` and `disk_used_percent` derived helpers for Dashboard (`state.rs:164–174`).
