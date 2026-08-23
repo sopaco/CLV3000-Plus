@@ -1,3 +1,4 @@
+use crate::messages::AgentReasonPart;
 use crate::models::{AgentProject, ScanItem, TechStack};
 use crate::scanner::{detect_project_stacks, is_agent_project_path};
 use crate::settings::{agent_marker_files, is_protected_system_path};
@@ -63,7 +64,7 @@ pub fn detect_agent_projects(items: &[ScanItem], scan_paths: &[PathBuf]) -> Vec<
     let mut projects = Vec::new();
 
     for (root, root_items) in by_root {
-        let (is_agent, reason) = is_agent_project_path(&root);
+        let (is_agent, mut reason_parts) = is_agent_project_path(&root);
         let stacks = detect_project_stacks(&root);
         let is_zombie = !root_items.is_empty()
             && root_items.iter().all(|i| {
@@ -85,14 +86,11 @@ pub fn detect_agent_projects(items: &[ScanItem], scan_paths: &[PathBuf]) -> Vec<
 
         let days_inactive = last_modified.map(|m| (Utc::now() - m).num_days());
 
-        let mut reason = if is_agent {
-            reason
-        } else {
-            "长期未使用的项目".to_string()
-        };
-
+        if !is_agent {
+            reason_parts = vec![AgentReasonPart::LongUnusedProject];
+        }
         if is_zombie {
-            reason.push_str("；超过 30 天未修改");
+            reason_parts.push(AgentReasonPart::InactiveOver30Days);
         }
 
         let name = root
@@ -120,7 +118,7 @@ pub fn detect_agent_projects(items: &[ScanItem], scan_paths: &[PathBuf]) -> Vec<
             stacks: stack_list,
             last_modified,
             days_inactive,
-            reason,
+            reason_parts,
             items: root_items,
         });
     }

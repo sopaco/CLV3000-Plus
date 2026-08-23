@@ -19,17 +19,6 @@ pub enum ProcessCategory {
     Agent,
 }
 
-impl ProcessCategory {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::System => "系统",
-            Self::User => "用户",
-            Self::Dev => "开发",
-            Self::Agent => "Agent",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,

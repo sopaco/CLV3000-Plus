@@ -1,5 +1,21 @@
-use clv_core::{CleanupCategory, Language, RiskLevel, TechStack, tr};
+use clv_core::{CleanupBucket, CleanupCategory, Language, RiskLevel, RuleDescription, TechStack, tr};
 use clv_platform::{ProcessCategory, StartupImpact, StartupKind};
+
+const ALL_LANGUAGES: [Language; 3] = [Language::Zh, Language::En, Language::Ja];
+
+fn localized_label_matches_query(query: &str, label: impl Fn(Language) -> &'static str) -> bool {
+    ALL_LANGUAGES.iter().any(|&lang| {
+        label(lang).to_lowercase().contains(query)
+    })
+}
+
+pub fn tech_stack_matches_query(stack: TechStack, query: &str) -> bool {
+    localized_label_matches_query(query, |lang| tech_stack_label(lang, stack))
+}
+
+pub fn process_category_matches_query(category: &ProcessCategory, query: &str) -> bool {
+    localized_label_matches_query(query, |lang| process_category_label(lang, category))
+}
 
 pub fn risk_label(lang: Language, risk: RiskLevel) -> &'static str {
     match risk {
@@ -93,5 +109,51 @@ pub fn scan_category_label(lang: Language, category: CleanupCategory) -> &'stati
         VirtualEnv => tr(lang, "虚拟环境", "Virtual Env", "仮想環境"),
         TestEnv => tr(lang, "测试环境", "Test Env", "テスト環境"),
         ProviderCache => tr(lang, "Provider 缓存", "Provider Cache", "Provider キャッシュ"),
+    }
+}
+
+pub fn rule_description_label(lang: Language, description: RuleDescription) -> &'static str {
+    description.text(lang)
+}
+
+pub fn cleanup_bucket_label(lang: Language, bucket: CleanupBucket) -> &'static str {
+    match bucket {
+        CleanupBucket::ProjectBuildCache => {
+            tr(lang, "项目临时产物", "Project Build Cache", "プロジェクト一時ファイル")
+        }
+        CleanupBucket::SharedToolCache => {
+            tr(lang, "构建下载缓存", "Shared Tool Cache", "共有ツールキャッシュ")
+        }
+        CleanupBucket::DevEnvironment => tr(lang, "环境与依赖", "Dev Environment", "環境と依存"),
+        CleanupBucket::AiGenerated => tr(lang, "AI 工具数据", "AI Tool Data", "AI ツールデータ"),
+    }
+}
+
+pub fn cleanup_bucket_hint(lang: Language, bucket: CleanupBucket) -> &'static str {
+    match bucket {
+        CleanupBucket::ProjectBuildCache => tr(
+            lang,
+            "项目里的编译/测试临时文件，多数可安全清理",
+            "Build and test temp files inside projects; usually safe to clean",
+            "プロジェクト内のビルド/テスト一時ファイル。多くは安全に削除できます",
+        ),
+        CleanupBucket::SharedToolCache => tr(
+            lang,
+            "各工具共用的下载缓存，删后首次使用会重新下载",
+            "Shared download caches; tools will re-download on first use after cleanup",
+            "各ツールの共有ダウンロードキャッシュ。削除後は初回利用時に再ダウンロードされます",
+        ),
+        CleanupBucket::DevEnvironment => tr(
+            lang,
+            "依赖包、虚拟环境、语言工具链，删后需重新安装",
+            "Dependencies, virtual environments, and toolchains; reinstall after cleanup",
+            "依存パッケージ、仮想環境、ツールチェーン。削除後は再インストールが必要です",
+        ),
+        CleanupBucket::AiGenerated => tr(
+            lang,
+            "AI 助手会话、缓存与相关试验项目",
+            "AI assistant sessions, caches, and related experiment projects",
+            "AI アシスタントのセッション、キャッシュ、関連する実験プロジェクト",
+        ),
     }
 }

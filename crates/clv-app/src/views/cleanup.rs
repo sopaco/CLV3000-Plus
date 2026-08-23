@@ -47,7 +47,7 @@ impl CleanupView {
         };
         let item_path = item.path.clone();
         let item_name = item.name.clone();
-        let item_description = item.description.clone();
+        let item_description = i18n::rule_description_label(lang, item.description);
         let cb_id = eid(format!("cb-{id}"));
         let exp_id = eid(format!("exp-{id}"));
         let path_id = eid(format!("path-{id}"));

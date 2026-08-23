@@ -2,7 +2,7 @@ use crate::app::state::{AppPage, AppStore};
 use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::colors;
-use clv_core::{AgentProject, RiskLevel};
+use clv_core::{agent_reason_matches_query, format_agent_reason, AgentProject, RiskLevel};
 use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
 use gpui_component::input::{Input, InputEvent, InputState};
 
@@ -49,12 +49,12 @@ impl AgentView {
             .into_iter()
             .filter(|project| {
                 project.name.to_lowercase().contains(&query)
-                    || project.reason.to_lowercase().contains(&query)
+                    || agent_reason_matches_query(&project.reason_parts, &query)
                     || project.path.to_string_lossy().to_lowercase().contains(&query)
                     || project
                         .stacks
                         .iter()
-                        .any(|stack| stack.label().to_lowercase().contains(&query))
+                        .any(|stack| i18n::tech_stack_matches_query(*stack, &query))
             })
             .collect()
     }
@@ -165,7 +165,7 @@ impl AgentView {
                                             .text_xs()
                                             .text_color(colors::text_secondary())
                                             .truncate()
-                                            .child(project.reason.clone()),
+                                            .child(format_agent_reason(lang, &project.reason_parts)),
                                     ),
                             )
                             .child(

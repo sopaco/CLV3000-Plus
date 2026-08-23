@@ -1,4 +1,5 @@
 use crate::category::CleanupCategory;
+use crate::messages::{AgentReasonPart, RuleDescription};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -27,29 +28,6 @@ pub enum TechStack {
 }
 
 impl TechStack {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Rust => "Rust",
-            Self::NodeWeb => "Node.js / Web",
-            Self::Android => "Android",
-            Self::Ios => "iOS",
-            Self::Flutter => "Flutter",
-            Self::Kmp => "KMP",
-            Self::Java => "Java",
-            Self::Python => "Python",
-            Self::DotNet => ".NET",
-            Self::Cpp => "C/C++",
-            Self::Go => "Go",
-            Self::Ruby => "Ruby",
-            Self::Php => "PHP",
-            Self::Unity => "Unity",
-            Self::Infra => "基础设施",
-            Self::Agent => "Agent 项目",
-            Self::System => "系统缓存",
-            Self::Other => "其他",
-        }
-    }
-
     pub fn all() -> &'static [TechStack] {
         &[
             Self::Rust,
@@ -81,16 +59,6 @@ pub enum RiskLevel {
     Protected = 2,
 }
 
-impl RiskLevel {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Safe => "安全",
-            Self::Caution => "建议确认",
-            Self::Protected => "受保护",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupBucket {
     /// 各项目目录内的编译/构建临时文件，删后重新打开项目通常会再生成。
@@ -101,26 +69,6 @@ pub enum CleanupBucket {
     DevEnvironment,
     /// Cursor / Claude 等 AI 工具的会话、缓存与试验项目相关文件。
     AiGenerated,
-}
-
-impl CleanupBucket {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::ProjectBuildCache => "项目临时产物",
-            Self::SharedToolCache => "构建下载缓存",
-            Self::DevEnvironment => "环境与依赖",
-            Self::AiGenerated => "AI 工具数据",
-        }
-    }
-
-    pub fn hint(self) -> &'static str {
-        match self {
-            Self::ProjectBuildCache => "项目里的编译/测试临时文件，多数可安全清理",
-            Self::SharedToolCache => "各工具共用的下载缓存，删后首次使用会重新下载",
-            Self::DevEnvironment => "依赖包、虚拟环境、语言工具链，删后需重新安装",
-            Self::AiGenerated => "AI 助手会话、缓存与相关试验项目",
-        }
-    }
 }
 
 pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
@@ -167,7 +115,7 @@ pub struct ScanItem {
     pub stack: TechStack,
     pub risk: RiskLevel,
     pub category: CleanupCategory,
-    pub description: String,
+    pub description: RuleDescription,
     pub project_root: Option<PathBuf>,
     pub last_modified: Option<DateTime<Utc>>,
 }
@@ -186,7 +134,7 @@ pub struct AgentProject {
     pub stacks: Vec<TechStack>,
     pub last_modified: Option<DateTime<Utc>>,
     pub days_inactive: Option<i64>,
-    pub reason: String,
+    pub reason_parts: Vec<AgentReasonPart>,
     pub items: Vec<ScanItem>,
 }
 
@@ -241,21 +189,6 @@ pub struct ScanProgress {
     pub current_path: Option<PathBuf>,
     pub items_found: usize,
     pub bytes_found: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UserMode {
-    Simple,
-    Expert,
-}
-
-impl UserMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Simple => "简单模式",
-            Self::Expert => "专家模式",
-        }
-    }
 }
 
 pub fn format_bytes(bytes: u64) -> String {

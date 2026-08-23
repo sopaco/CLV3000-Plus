@@ -5,7 +5,8 @@ mod labels;
 pub use labels::*;
 
 use clv_core::{
-    format_bytes, resolve_language, tr, AppSettings, CleanupReport, Language,
+    format_agent_reason, format_bytes, resolve_language, tr, AgentReasonPart, AppSettings,
+    CleanupBucket, CleanupReport, Language, RuleDescription,
 };
 
 use crate::app::state::{AppPage, CleanupFilter};
@@ -504,19 +505,35 @@ impl I18n {
     }
 
     pub fn filter_project(&self) -> &'static str {
-        self.t("项目临时产物", "Project Build Cache", "プロジェクト一時ファイル")
+        labels::cleanup_bucket_label(self.lang, CleanupBucket::ProjectBuildCache)
     }
 
     pub fn filter_shared(&self) -> &'static str {
-        self.t("构建下载缓存", "Shared Tool Cache", "共有ツールキャッシュ")
+        labels::cleanup_bucket_label(self.lang, CleanupBucket::SharedToolCache)
     }
 
     pub fn filter_dev_env(&self) -> &'static str {
-        self.t("环境与依赖", "Dev Environment", "環境と依存")
+        labels::cleanup_bucket_label(self.lang, CleanupBucket::DevEnvironment)
     }
 
     pub fn filter_ai(&self) -> &'static str {
-        self.t("AI 工具数据", "AI Tool Data", "AI ツールデータ")
+        labels::cleanup_bucket_label(self.lang, CleanupBucket::AiGenerated)
+    }
+
+    pub fn cleanup_bucket_label(&self, bucket: CleanupBucket) -> &'static str {
+        labels::cleanup_bucket_label(self.lang, bucket)
+    }
+
+    pub fn rule_description_label(&self, description: RuleDescription) -> &'static str {
+        labels::rule_description_label(self.lang, description)
+    }
+
+    pub fn agent_reason_text(&self, parts: &[AgentReasonPart]) -> String {
+        format_agent_reason(self.lang, parts)
+    }
+
+    pub fn cleanup_bucket_hint(&self, bucket: CleanupBucket) -> &'static str {
+        labels::cleanup_bucket_hint(self.lang, bucket)
     }
 
     pub fn cleanup_filter_label(&self, filter: CleanupFilter) -> &'static str {
@@ -964,7 +981,32 @@ impl I18n {
     }
 
     pub fn cleanup_summary(&self, report: &CleanupReport) -> String {
-        report.summary_for(self.lang)
+        let failed_suffix = if report.failed.is_empty() {
+            String::new()
+        } else {
+            match self.lang {
+                Language::Zh => format!("，失败 {} 项", report.failed.len()),
+                Language::En => format!(", {} failed", report.failed.len()),
+                Language::Ja => format!("、{} 件失敗", report.failed.len()),
+            }
+        };
+        match self.lang {
+            Language::Zh => format!(
+                "已释放 {}，成功 {} 项{failed_suffix}",
+                format_bytes(report.freed_bytes),
+                report.success_count,
+            ),
+            Language::En => format!(
+                "Freed {}, {} item(s) cleaned{failed_suffix}",
+                format_bytes(report.freed_bytes),
+                report.success_count,
+            ),
+            Language::Ja => format!(
+                "{} を解放、{} 件を削除{failed_suffix}",
+                format_bytes(report.freed_bytes),
+                report.success_count,
+            ),
+        }
     }
 
     pub fn killing_process(&self, pid: u32) -> String {

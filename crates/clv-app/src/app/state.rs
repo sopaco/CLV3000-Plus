@@ -5,8 +5,9 @@ use crate::services::{
     scan::{poll_scan, spawn_scan, ScanPoll},
 };
 use clv_core::{
-    default_selected_item_ids, resolve_language, AppSettings, CleanupBucket, RiskLevel,
-    ScanReport, detect_agent_projects, item_cleanup_bucket, save_settings, Language,
+    default_selected_item_ids, resolve_language, rule_description_matches_query, AppSettings,
+    CleanupBucket, RiskLevel, ScanReport, detect_agent_projects, item_cleanup_bucket,
+    save_settings, Language,
 };
 use clv_platform::primary_disk_usage;
 use std::collections::HashSet;
@@ -209,7 +210,7 @@ impl AppStore {
                 } else {
                     item.name.to_lowercase().contains(&q)
                         || item.path.to_string_lossy().to_lowercase().contains(&q)
-                        || item.description.to_lowercase().contains(&q)
+                        || rule_description_matches_query(item.description, &q)
                 }
             })
             .cloned()

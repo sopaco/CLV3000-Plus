@@ -90,7 +90,7 @@ impl ProcessView {
             .filter(|proc| {
                 proc.name.to_lowercase().contains(&query)
                     || proc.pid.to_string().contains(&query)
-                    || proc.category.label().contains(&query)
+                    || i18n::process_category_matches_query(&proc.category, &query)
             })
             .take(SEARCH_MAX_PROCESSES)
             .cloned()

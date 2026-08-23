@@ -2,6 +2,7 @@ use crate::locale::{
     resolve_language, scan_phase_agent_sessions, scan_phase_discovering, scan_phase_preparing,
     scan_phase_scanning_path, scan_phase_scanning_projects,
 };
+use crate::messages::AgentReasonPart;
 use crate::models::{RiskLevel, ScanItem, ScanProgress, ScanReport, TechStack};
 use crate::settings::{
     agent_marker_files, agent_name_patterns, global_cache_rules, is_protected_system_path,
@@ -260,7 +261,7 @@ impl Scanner {
             stack: target.stack,
             risk: target.risk,
             category: target.category,
-            description: target.description.to_string(),
+            description: target.description,
             project_root: None,
             last_modified: last_modified(path),
         });
@@ -332,7 +333,7 @@ impl Scanner {
             stack: rule.stack,
             risk,
             category: rule.category,
-            description: rule.description.to_string(),
+            description: rule.description,
             project_root,
             last_modified,
         });
@@ -509,7 +510,7 @@ fn is_likely_active_project(root: &Path) -> bool {
     false
 }
 
-pub fn is_agent_project_path(path: &Path) -> (bool, String) {
+pub fn is_agent_project_path(path: &Path) -> (bool, Vec<AgentReasonPart>) {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_lowercase())
@@ -517,17 +518,23 @@ pub fn is_agent_project_path(path: &Path) -> (bool, String) {
 
     for pattern in agent_name_patterns() {
         if name.contains(pattern) {
-            return (true, format!("目录名包含「{pattern}」"));
+            return (
+                true,
+                vec![AgentReasonPart::NameContainsPattern(pattern.to_string())],
+            );
         }
     }
 
     for marker in agent_marker_files() {
         if path.join(marker).exists() {
-            return (true, format!("存在 Agent 标记 {marker}"));
+            return (
+                true,
+                vec![AgentReasonPart::HasAgentMarker(marker.to_string())],
+            );
         }
     }
 
-    (false, String::new())
+    (false, Vec::new())
 }
 
 pub fn detect_project_stacks(root: &Path) -> Vec<TechStack> {

@@ -8,16 +8,6 @@ pub enum StartupImpact {
     High,
 }
 
-impl StartupImpact {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Low => "低",
-            Self::Medium => "中",
-            Self::High => "高",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StartupKind {
     LoginItem,
@@ -27,20 +17,6 @@ pub enum StartupKind {
     RegistryRun,
     StartupFolder,
     Service,
-}
-
-impl StartupKind {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::LoginItem => "登录项",
-            Self::LaunchAgent => "LaunchAgent",
-            Self::LaunchDaemon => "后台服务",
-            Self::ScheduledTask => "计划任务",
-            Self::RegistryRun => "注册表启动",
-            Self::StartupFolder => "启动文件夹",
-            Self::Service => "系统服务",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

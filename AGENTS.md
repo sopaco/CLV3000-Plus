@@ -2,6 +2,92 @@
 
 This file guides AI coding agents working in this repository.
 
+## 清理规则与国际化（必读）
+
+本项目的扫描/清理规则使用**类型化 ID + 三语翻译表**，不要在领域层硬编码展示文案。
+
+### 架构要点
+
+| 概念 | 位置 | 说明 |
+|------|------|------|
+| `CleanupCategory` | `crates/clv-core/src/category.rs` | 规则分类枚举，驱动 `CleanupBucket` 分桶 |
+| `RuleDescription` | `crates/clv-core/src/messages/rule_description.rs` | 规则/会话描述 ID（`R001`…`R133`），**自动生成** |
+| 三语翻译表 | `scripts/rule-description-translations.json` | 中文 → `[English, 日本語]`，**人工维护** |
+| 生成脚本 | `scripts/generate-rule-descriptions.py` | 由翻译表生成 `RuleDescription` 枚举 |
+| 规则表 | `crates/clv-core/src/settings/project_rules.rs`、`global_rules.rs` | 项目级清理规则 |
+| Agent 会话路径 | `crates/clv-core/src/agent_sessions.rs` | Agent 工具会话/缓存目录 |
+| Agent 识别原因 | `crates/clv-core/src/messages/agent_reason.rs` | `AgentReasonPart` 结构化原因，UI 层按语言格式化 |
+| UI 文案 | `crates/clv-app/src/i18n/labels.rs` | `scan_category_label`、`rule_description_label` 等 |
+
+**依赖方向**：`clv-core` 只存 `RuleDescription` / `CleanupCategory` 等枚举；用户可见字符串在 `RuleDescription::text(lang)` 或 `clv-app/i18n` 中解析。`ScanItem.description` 是 `RuleDescription`，不是 `String`。
+
+### 新增或修改清理规则
+
+1. **在规则源文件中添加条目**（三处之一）：
+   - `settings/project_rules.rs` — 项目内构建产物/依赖
+   - `settings/global_rules.rs` — 全局工具缓存（注意 `#[cfg(target_os = "windows")]` 分平台）
+   - `agent_sessions.rs` — Agent 会话/缓存目录
+
+   规则写法示例（描述先用**中文占位**，下一步会替换为枚举）：
+
+   ```rust
+   CleanupRule::project(
+       "target",
+       TechStack::Rust,
+       RiskLevel::Safe,
+       CleanupCategory::CompileCache,
+       "Rust 编译产物与增量缓存，可重新 cargo build 生成",
+   )
+   ```
+
+2. **在翻译表中追加三语**（`scripts/rule-description-translations.json`）：
+
+   ```json
+   "Rust 编译产物与增量缓存，可重新 cargo build 生成": [
+     "Rust build artifacts and incremental cache; rerun cargo build to regenerate",
+     "Rust ビルド成果物と増分キャッシュ。cargo build で再生成できます"
+   ]
+   ```
+
+   - JSON **键顺序**决定 `R00N` 编号；新增条目请追加在文件末尾，避免打乱已有 ID。
+   - 英文不得混入中文（CJK）；日文需与中文语义一致。
+
+3. **运行生成脚本**（仓库根目录）：
+
+   ```bash
+   # 新规则仍用中文字符串时：生成枚举并 patch 源文件为 RuleDescription::Rxxx
+   python3 scripts/generate-rule-descriptions.py --patch
+
+   # 仅刷新 rule_description.rs（源文件已是 RuleDescription::Rxxx 时）
+   python3 scripts/generate-rule-descriptions.py
+   ```
+
+4. **验证**：
+
+   ```bash
+   cargo test -p clv-core
+   ```
+
+   `rule_description_translations_avoid_mixed_language` 会检查所有英文翻译不含 CJK。
+
+### 修改已有规则的描述文案
+
+1. 在 `scripts/rule-description-translations.json` 中修改对应中文键的 en/ja。
+2. 运行 `python3 scripts/generate-rule-descriptions.py`（无需 `--patch`）。
+3. 运行 `cargo test -p clv-core`。
+
+不要直接编辑 `rule_description.rs`（文件头标注 AUTO-GENERATED）。
+
+### Agent 项目识别原因
+
+新增识别逻辑时，在 `agent.rs` / `scanner.rs` 使用 `AgentReasonPart` 枚举（如 `NameContainsPattern`、`LongUnusedProject`），在 `agent_reason.rs` 补充三语文案。不要在 `AgentProject` 上存硬编码中文字符串。
+
+### 禁止事项
+
+- 不要在 `models.rs`、`CleanupBucket` 等领域类型上添加 `label()` / `hint()` 等展示方法。
+- 不要用中文 `category` 字符串做业务逻辑判断（使用 `CleanupCategory`）。
+- 不要在 `ScanItem` 上存放 UI 选中状态（选中 ID 在 `AppStore.selected_item_ids`）。
+- 不要手写或启发式生成 `rule_description.rs` 中的翻译。
 
 <!-- terrain:begin env-overview v4 -->
 ## AI 工程环境（Terrain）

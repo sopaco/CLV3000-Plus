@@ -1,4 +1,5 @@
 use crate::category::CleanupCategory;
+use crate::messages::RuleDescription;
 use crate::models::{RiskLevel, TechStack};
 
 /// Known cleanup targets relative to a project root or global cache.
@@ -8,7 +9,7 @@ pub struct CleanupRule {
     pub stack: TechStack,
     pub risk: RiskLevel,
     pub category: CleanupCategory,
-    pub description: &'static str,
+    pub description: RuleDescription,
     pub global: bool,
     /// Require a marker file under the detected project root (supports `*.ext` globs).
     pub requires_marker: Option<&'static str>,
@@ -24,7 +25,7 @@ impl CleanupRule {
         stack: TechStack,
         risk: RiskLevel,
         category: CleanupCategory,
-        description: &'static str,
+        description: RuleDescription,
     ) -> Self {
         Self {
             relative,
@@ -44,7 +45,7 @@ impl CleanupRule {
         stack: TechStack,
         risk: RiskLevel,
         category: CleanupCategory,
-        description: &'static str,
+        description: RuleDescription,
     ) -> Self {
         Self {
             relative,
