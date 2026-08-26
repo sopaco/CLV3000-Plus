@@ -1,7 +1,9 @@
 use crate::app::state::{AppPage, AppStore};
+use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::{colors, corner};
-use clv_core::format_bytes;
+use clv_core::{format_bytes, CleanupHistory};
+use gpui::Hsla;
 
 pub struct DashboardView {
     store: Entity<AppStore>,
@@ -205,33 +207,98 @@ impl Render for DashboardView {
                             .child(feature_line(i18n.feature_startup()))
                             .child(feature_line(i18n.feature_process())),
                     )
-                    .when_some(store.last_cleanup_freed, |this, freed| {
-                        this.child(
-                            ui::glass_card()
-                                .p_4()
-                                .border_color(colors::safe_green().opacity(0.3))
-                                .child(
-                                    h_flex()
-                                        .gap_3()
-                                        .items_center()
-                                        .child(
-                                            div()
-                                                .w(px(3.))
-                                                .h(px(16.))
-                                                .rounded(corner())
-                                                .bg(colors::safe_green()),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .text_color(colors::safe_green())
-                                                .child(i18n.last_cleanup_freed(&format_bytes(freed))),
-                                        ),
-                                ),
-                        )
-                    }),
+                    .child(history_card(&store.cleanup_history, &i18n)),
             ))
     }
+}
+
+fn history_card(history: &CleanupHistory, i18n: &I18n) -> Div {
+    let freed_7d = history.freed_in_days(7);
+    let freed_30d = history.freed_in_days(30);
+    let cleanups_7d = history.cleanup_count_in_days(7);
+    let cleanups_30d = history.cleanup_count_in_days(30);
+    let success_7d = history.success_count_in_days(7);
+    let failed_7d = history.failed_count_in_days(7);
+
+    let has_data = !history.records.is_empty();
+
+    let subtitle = if has_data {
+        i18n.history_summary(&format_bytes(freed_7d), cleanups_7d)
+    } else {
+        i18n.no_cleanup_history().to_string()
+    };
+
+    let mut card = ui::glass_card()
+        .p_5()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors::text_primary())
+                .child(i18n.cleanup_history_title()),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(colors::text_secondary())
+                .child(subtitle),
+        );
+
+    if has_data {
+        card = card.child(
+            h_flex()
+                .gap_4()
+                .child(history_stat_block(
+                    i18n.history_7d_freed(),
+                    &format_bytes(freed_7d),
+                    i18n.history_cleanups_count(cleanups_7d),
+                    colors::safe_green(),
+                ))
+                .child(history_stat_block(
+                    i18n.history_30d_freed(),
+                    &format_bytes(freed_30d),
+                    i18n.history_cleanups_count(cleanups_30d),
+                    colors::accent_cyan(),
+                )),
+        );
+
+        if success_7d > 0 || failed_7d > 0 {
+            card = card.child(
+                div()
+                    .text_sm()
+                    .text_color(colors::text_muted())
+                    .child(i18n.history_7d_detail(success_7d, failed_7d)),
+            );
+        }
+    }
+
+    card
+}
+
+fn history_stat_block(title: &str, value: &str, sub: String, color: Hsla) -> Div {
+    v_flex()
+        .gap_1()
+        .child(
+            div()
+                .text_xs()
+                .text_color(colors::text_muted())
+                .child(title.to_string()),
+        )
+        .child(
+            div()
+                .text_xl()
+                .font_weight(FontWeight::BOLD)
+                .text_color(color)
+                .child(value.to_string()),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(colors::text_secondary())
+                .child(sub),
+        )
 }
 
 fn feature_line(text: &str) -> Div {

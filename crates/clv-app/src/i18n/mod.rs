@@ -469,6 +469,60 @@ impl I18n {
         }
     }
 
+    // ── Cleanup history ────────────────────────────────────────────────
+
+    pub fn cleanup_history_title(&self) -> &'static str {
+        self.t("清理趋势", "Cleanup Trend", "削除トレンド")
+    }
+
+    pub fn no_cleanup_history(&self) -> String {
+        match self.lang {
+            Language::Zh => "尚无清理记录".to_string(),
+            Language::En => "No cleanup history yet".to_string(),
+            Language::Ja => "削除履歴なし".to_string(),
+        }
+    }
+
+    pub fn history_summary(&self, freed_7d: &str, cleanups: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("过去 7 天释放 {freed_7d}，共 {cleanups} 次清理"),
+            Language::En => format!("Freed {freed_7d} in the last 7 days, {cleanups} cleanup(s)"),
+            Language::Ja => format!("過去 7 日で {freed_7d} を解放、{cleanups} 回の削除"),
+        }
+    }
+
+    pub fn history_7d_freed(&self) -> &'static str {
+        self.t("近 7 天", "Last 7 Days", "過去 7 日")
+    }
+
+    pub fn history_30d_freed(&self) -> &'static str {
+        self.t("近 30 天", "Last 30 Days", "過去 30 日")
+    }
+
+    pub fn history_cleanups_count(&self, count: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("{count} 次清理"),
+            Language::En => format!("{count} cleanup(s)"),
+            Language::Ja => format!("{count} 回削除"),
+        }
+    }
+
+    pub fn history_7d_detail(&self, success: usize, failed: usize) -> String {
+        if failed == 0 {
+            match self.lang {
+                Language::Zh => format!("全部成功，共清理 {success} 项"),
+                Language::En => format!("All {success} item(s) cleaned successfully"),
+                Language::Ja => format!("すべて成功、{success} 件を削除"),
+            }
+        } else {
+            match self.lang {
+                Language::Zh => format!("成功 {success} 项，失败 {failed} 项"),
+                Language::En => format!("{success} succeeded, {failed} failed"),
+                Language::Ja => format!("{success} 件成功、{failed} 件失敗"),
+            }
+        }
+    }
+
     // ── Health messages ──────────────────────────────────────────────────
 
     pub fn health_scanning(&self) -> &'static str {
