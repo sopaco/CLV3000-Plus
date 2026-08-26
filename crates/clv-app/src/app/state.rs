@@ -80,6 +80,7 @@ pub struct AppStore {
     pub startup_count: usize,
     pub process_refresh_trigger: u64,
     pub cleanup_history: CleanupHistory,
+    pub pending_cleanup_notification: Option<String>,
 }
 
 impl AppStore {
@@ -117,6 +118,7 @@ impl AppStore {
             startup_count: 0,
             process_refresh_trigger: 0,
             cleanup_history: CleanupHistory::load(),
+            pending_cleanup_notification: None,
         }
     }
 
@@ -397,6 +399,8 @@ impl AppStore {
                             store.cleanup_current_path = None;
                             store.last_cleanup_freed = Some(result.freed_bytes);
                             store.status_message = Some(store.i18n().cleanup_summary(&result));
+                            store.pending_cleanup_notification =
+                                Some(store.i18n().cleanup_complete_notification(&result));
 
                             let record = CleanupHistoryRecord {
                                 timestamp: Utc::now(),

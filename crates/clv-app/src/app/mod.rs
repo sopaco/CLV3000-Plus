@@ -9,6 +9,7 @@ use crate::views::{
     process::ProcessView, settings::SettingsView, startup::StartupView,
 };
 use clv_core::{load_settings, save_settings};
+use gpui_component::{notification::Notification, WindowExt};
 use state::{AppPage, AppStore};
 
 pub struct ClvApp {
@@ -157,6 +158,18 @@ impl ClvApp {
 
 impl Render for ClvApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Push pending cleanup completion notification before any store borrow.
+        if let Some(msg) = self.store.read(cx).pending_cleanup_notification.clone() {
+            let title = self.store.read(cx).i18n().cleanup_complete_title();
+            self.store.update(cx, |store, _| {
+                store.pending_cleanup_notification = None;
+            });
+            window.push_notification(
+                Notification::success(msg).title(title),
+                cx,
+            );
+        }
+
         let page = self.store.read(cx).page;
         let i18n = self.store.read(cx).i18n();
 

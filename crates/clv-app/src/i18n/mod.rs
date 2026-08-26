@@ -1159,6 +1159,37 @@ impl I18n {
         self.t("清理已中断", "Cleanup interrupted", "削除が中断されました")
     }
 
+    pub fn cleanup_complete_title(&self) -> &'static str {
+        self.t("清理完成", "Cleanup Complete", "削除完了")
+    }
+
+    pub fn cleanup_complete_notification(&self, report: &CleanupReport) -> String {
+        let size = format_bytes(report.freed_bytes);
+        let failed_suffix = if report.failed.is_empty() {
+            String::new()
+        } else {
+            match self.lang {
+                Language::Zh => format!("，{} 项失败", report.failed.len()),
+                Language::En => format!(", {} failed", report.failed.len()),
+                Language::Ja => format!("、{} 件失敗", report.failed.len()),
+            }
+        };
+        match self.lang {
+            Language::Zh => format!(
+                "成功释放 {size}，共清理 {} 项{failed_suffix}",
+                report.success_count,
+            ),
+            Language::En => format!(
+                "Freed {size}, {} item(s) cleaned{failed_suffix}",
+                report.success_count,
+            ),
+            Language::Ja => format!(
+                "{size} を解放、{} 件を削除{failed_suffix}",
+                report.success_count,
+            ),
+        }
+    }
+
     pub fn cleanup_summary(&self, report: &CleanupReport) -> String {
         let failed_suffix = if report.failed.is_empty() {
             String::new()
