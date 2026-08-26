@@ -4,10 +4,11 @@ use crate::services::{
     cleanup::{poll_cleanup, spawn_cleanup, CleanupPoll},
     scan::{poll_scan, spawn_scan, ScanPoll},
 };
+use chrono::Utc;
 use clv_core::{
     default_selected_item_ids, resolve_language, rule_description_matches_query, AppSettings,
-    CleanupBucket, RiskLevel, ScanReport, detect_agent_projects, item_cleanup_bucket,
-    save_settings, Language,
+    CleanupBucket, CleanupHistory, CleanupHistoryRecord, RiskLevel, ScanReport,
+    detect_agent_projects, item_cleanup_bucket, save_settings, Language,
 };
 use clv_platform::primary_disk_usage;
 use std::collections::HashSet;
@@ -78,6 +79,7 @@ pub struct AppStore {
     pub disk_used: u64,
     pub startup_count: usize,
     pub process_refresh_trigger: u64,
+    pub cleanup_history: CleanupHistory,
 }
 
 impl AppStore {
@@ -114,6 +116,7 @@ impl AppStore {
             disk_used: 0,
             startup_count: 0,
             process_refresh_trigger: 0,
+            cleanup_history: CleanupHistory::load(),
         }
     }
 
@@ -394,6 +397,15 @@ impl AppStore {
                             store.cleanup_current_path = None;
                             store.last_cleanup_freed = Some(result.freed_bytes);
                             store.status_message = Some(store.i18n().cleanup_summary(&result));
+
+                            let record = CleanupHistoryRecord {
+                                timestamp: Utc::now(),
+                                freed_bytes: result.freed_bytes,
+                                success_count: result.success_count,
+                                failed_count: result.failed.len(),
+                            };
+                            store.cleanup_history.append(record);
+                            let _ = store.cleanup_history.save();
 
                             if let Some(current) = &mut store.last_report {
                                 let removed: HashSet<_> = removed_paths.into_iter().collect();

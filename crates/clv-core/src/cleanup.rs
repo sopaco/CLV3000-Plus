@@ -1,6 +1,7 @@
 use crate::models::{RiskLevel, ScanItem};
 use crate::settings::{trash_dir, AppSettings};
-use chrono::Utc;
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -22,6 +23,96 @@ pub struct CleanupReport {
     pub successful_paths: Vec<PathBuf>,
     pub failed: Vec<(PathBuf, String)>,
     pub trashed: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupHistoryRecord {
+    pub timestamp: DateTime<Utc>,
+    pub freed_bytes: u64,
+    pub success_count: usize,
+    pub failed_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupHistory {
+    pub records: Vec<CleanupHistoryRecord>,
+}
+
+impl CleanupHistory {
+    pub fn new() -> Self {
+        Self {
+            records: Vec::new(),
+        }
+    }
+
+    pub fn load() -> Self {
+        let Some(path) = cleanup_history_path() else {
+            return Self::new();
+        };
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(Self::new)
+    }
+
+    pub fn save(&self) -> anyhow::Result<()> {
+        let Some(path) = cleanup_history_path() else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(path, json)?;
+        Ok(())
+    }
+
+    pub fn append(&mut self, record: CleanupHistoryRecord) {
+        self.records.push(record);
+        self.prune_old();
+    }
+
+    fn prune_old(&mut self) {
+        let cutoff = Utc::now() - Duration::days(90);
+        self.records.retain(|r| r.timestamp >= cutoff);
+    }
+
+    pub fn freed_in_days(&self, days: i64) -> u64 {
+        let cutoff = Utc::now() - Duration::days(days);
+        self.records
+            .iter()
+            .filter(|r| r.timestamp >= cutoff)
+            .map(|r| r.freed_bytes)
+            .sum()
+    }
+
+    pub fn success_count_in_days(&self, days: i64) -> usize {
+        let cutoff = Utc::now() - Duration::days(days);
+        self.records
+            .iter()
+            .filter(|r| r.timestamp >= cutoff)
+            .map(|r| r.success_count)
+            .sum()
+    }
+
+    pub fn failed_count_in_days(&self, days: i64) -> usize {
+        let cutoff = Utc::now() - Duration::days(days);
+        self.records
+            .iter()
+            .filter(|r| r.timestamp >= cutoff)
+            .map(|r| r.failed_count)
+            .sum()
+    }
+
+    pub fn cleanup_count_in_days(&self, days: i64) -> usize {
+        let cutoff = Utc::now() - Duration::days(days);
+        self.records.iter().filter(|r| r.timestamp >= cutoff).count()
+    }
+}
+
+fn cleanup_history_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "clv3000", "plus")
+        .map(|d| d.config_dir().join("cleanup_history.json"))
 }
 
 pub struct CleanupExecutor {

@@ -11,7 +11,7 @@ pub mod settings;
 
 pub use agent::detect_agent_projects;
 pub use category::CleanupCategory;
-pub use cleanup::{CleanupExecutor, CleanupProgress, CleanupReport};
+pub use cleanup::{CleanupExecutor, CleanupHistory, CleanupHistoryRecord, CleanupProgress, CleanupReport};
 pub use messages::{
     agent_reason_matches_query, format_agent_reason, rule_description_matches_query,
     AgentReasonPart, RuleDescription,
