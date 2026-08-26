@@ -140,6 +140,8 @@ pub enum RuleDescription {
     R131,
     R132,
     R133,
+    R134,
+    R135,
 }
 
 impl RuleDescription {
@@ -277,6 +279,8 @@ impl RuleDescription {
         Self::R131,
         Self::R132,
         Self::R133,
+        Self::R134,
+        Self::R135,
     ];
 
     pub fn text(self, lang: Language) -> &'static str {
@@ -415,6 +419,8 @@ impl RuleDescription {
             R131 => tr(lang, "OpenCode 运行日志，可安全清理", "OpenCode runtime logs; safe to clean", "OpenCode 実行ログ。安全に削除できます"),
             R132 => tr(lang, "OpenCode 项目会话与消息数据，删除后无法恢复对话历史", "OpenCode project sessions and messages; conversation history cannot be recovered", "OpenCode プロジェクトセッションとメッセージ。削除後は会話履歴を復元できません"),
             R133 => tr(lang, "OpenCode 会话存储（JSON/SQLite），删除后无法恢复对话历史", "OpenCode session storage (JSON/SQLite); conversation history cannot be recovered", "OpenCode セッションストレージ（JSON/SQLite）。削除後は会話履歴を復元できません"),
+            R134 => tr(lang, "Homebrew 下载缓存（macOS），可通过 brew cache clean 清理", "Homebrew download cache (macOS); clean with brew cache clean", "Homebrew ダウンロードキャッシュ（macOS）。brew cache clean でクリーンできます"),
+            R135 => tr(lang, "Docker 本地数据与容器存储（macOS/Linux），删除后需重新拉取镜像", "Docker local data and container storage (macOS/Linux); re-pull images after deletion", "Docker ローカルデータとコンテナストレージ（macOS/Linux）。削除後はイメージの再プルが必要です"),
         }
     }
 }
