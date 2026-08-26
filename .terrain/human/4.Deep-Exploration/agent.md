@@ -1,29 +1,31 @@
-# Agent Detection Domain
+# Agent Domain
 
-**Module paths:** `crates/clv-core/src/agent.rs`, `crates/clv-core/src/agent_sessions.rs`  
-**Generated:** 2026-08-23
+**Module path:** `crates/clv-core/src/agent.rs`  
+**Generated:** 2026-08-26
 
 ---
 
 ## What This Module Does
 
-Generic disk cleaners know about `node_modules` and `target`. This module understands the ecosystem of **AI coding agents** — Claude Code, Cursor, Codex, Trae, OpenCode, TraeX, and related tools. It discovers known session/cache directories, finds experiment project roots via marker files, aggregates scan items per project, and produces `AgentProject` records with structured `AgentReasonPart` explanations. This is the product differentiator described in the README.
+The agent module answers a question the generic scanner cannot: "Which folders are abandoned AI coding agent trial projects?" It walks user scan roots looking for agent markers (`.cursor`, `.agents`, `AGENTS.md`, `CLAUDE.md`), groups related `ScanItem` entries into `AgentProject` records, and attaches human-readable reason codes—long unused, inactive 30+ days, agent markers present.
+
+This is what makes CLV3000 Plus more than a cache cleaner. Developers who spin up dozens of throwaway repos with Cursor or Claude Code leave fingerprints the module recognizes and surfaces on the dedicated Agent page.
 
 ---
 
 ## Core Capabilities
 
-1. **Session target catalog** — `discover_agent_session_targets()` (`agent_sessions.rs:17`) enumerates Codex sessions, Claude projects, Cursor caches, Trae CLI data, OpenCode dirs, etc., with env overrides (`TRAE_DIR`, `OPENCODE_DIR`, …).
+1. **Agent root discovery** — `discover_agent_roots` (`agent.rs:10-49`) walks each `scan_paths` entry up to depth 8, promoting parent directories when marker dirs or files are found.
 
-2. **Marker-based root discovery** — `discover_agent_roots` (`agent.rs:10`) walks scan paths for `.cursor`, `.claude`, `.agents`, `AGENTS.md`, `CLAUDE.md` (max depth 8).
+2. **Project grouping** — `detect_agent_projects` (`agent.rs:51-100+`) merges scan items by `project_root` and enriches with discovered roots that may have no matching items yet.
 
-3. **Project aggregation** — `detect_agent_projects` (`agent.rs:51`) merges `ScanItem`s by `project_root` with discovered roots.
+3. **Zombie project detection** — Projects where all items are inactive 30+ days are flagged even without explicit agent markers (`agent.rs:69-74`).
 
-4. **Heuristic classification** — `is_agent_project_path` (scanner) checks markers and `agent_name_patterns` from settings.
+4. **Reason part assembly** — Combines `AgentReasonPart` values (`messages/agent_reason.rs`) such as `LongUnusedProject` and `InactiveOver30Days` for localized UI explanations.
 
-5. **Zombie detection** — Projects where all items are 30+ days inactive get `AgentReasonPart::InactiveOver30Days` (`agent.rs:92–94`).
+5. **Stack detection** — Calls `detect_project_stacks` from scanner to populate `AgentProject::stacks` with detected tech stacks.
 
-6. **Structured reasons** — `AgentReasonPart` enum (`messages/agent_reason.rs`) — never raw Chinese strings in domain layer.
+6. **Marker integration** — Uses `agent_marker_files()` from `settings/markers.rs` and `is_agent_project_path` from `scanner.rs` for consistent marker logic.
 
 ---
 
@@ -31,14 +33,14 @@ Generic disk cleaners know about `node_modules` and `target`. This module unders
 
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `discover_agent_session_targets` | `agent_sessions.rs:17` | Known CLI/cache paths |
-| `AgentSessionTarget` | `agent_sessions.rs:8` | Path + risk + RuleDescription |
-| `discover_agent_roots` | `agent.rs:10` | Marker walk on scan paths |
-| `detect_agent_projects` | `agent.rs:51` | Build `Vec<AgentProject>` |
-| `AgentProject` | `models.rs` | path, size, reason_parts, stacks |
-| `AgentReasonPart` | `messages/agent_reason.rs` | Typed reason fragments |
-| `format_agent_reason` | `messages/agent_reason.rs` | Locale formatting |
-| `agent_marker_files` | `settings/markers.rs` | Marker file list |
+| `discover_agent_roots` | `agent.rs:10-49` | WalkDir scan for agent marker dirs/files |
+| `detect_agent_projects` | `agent.rs:51` | Build `Vec<AgentProject>` from items + paths |
+| `is_agent_project_path` | `scanner.rs` | Returns `(bool, Vec<AgentReasonPart>)` for a root |
+| `agent_marker_files` | `settings/markers.rs` | Static list of marker file/dir names |
+| `agent_name_patterns` | `settings/markers.rs` | Name heuristics for agent-related folders |
+| `AgentReasonPart` | `messages/agent_reason.rs` | Localized reason enum for UI |
+| `AgentProject` | `models.rs:130-139` | Grouped trial project with items and metadata |
+| `AgentSessionTarget` | `agent_sessions.rs` | Known global agent cache/session paths |
 
 ---
 
@@ -46,42 +48,86 @@ Generic disk cleaners know about `node_modules` and `target`. This module unders
 
 ```mermaid
 flowchart TD
-    A["scan_paths"] --> B["discover_agent_roots<br/>agent.rs:10"]
-    C["ScanItems"] --> D["detect_agent_projects<br/>agent.rs:51"]
-    B --> D
-    E["agent_sessions.rs"] --> F["Scanner session pass"]
-    D --> G["is_agent_project_path"]
-    G --> H["AgentProject list"]
-    H --> I["ScanReport.agent_projects<br/>scanner.rs:133"]
-    F --> J["ScanItem entries"]
+    A["ScanItem list<br/>from Scanner"] --> B["detect_agent_projects<br/>agent.rs:51"]
+    C["scan_paths<br/>AppSettings"] --> D["discover_agent_roots<br/>agent.rs:10"]
+    D --> E["HashMap by project_root"]
+    A --> E
+    E --> F["For each root"]
+    F --> G["is_agent_project_path<br/>scanner.rs"]
+    G --> H{"agent or zombie?"}
+    H -->|no| I["Skip root"]
+    H -->|yes| J["Build AgentProject<br/>models.rs:130"]
+    J --> K["reason_parts + stacks<br/>days_inactive"]
+    K --> L["Vec AgentProject"]
+    L --> M["ScanReport.agent_projects<br/>scanner.rs:133"]
+    M --> N["AgentView<br/>views/agent.rs"]
 ```
+
+**Key steps**
+
+1. **Post-scan hook** — Scanner calls `detect_agent_projects` after `drop_nested_items` when `include_agent_heuristics` is true (`scanner.rs:132-136`).
+2. **Root promotion** — Hidden dirs like `.cursor` cause their parent to become a project root (`agent.rs:33-36`).
+3. **Zombie filter** — Roots with only stale items (>30 days) qualify via `is_zombie` check (`agent.rs:69-74`).
+4. **Session pass** — Separate from this module, `discover_agent_session_targets` in `agent_sessions.rs` adds global agent cache paths during scan phase 2.
 
 ---
 
-## Cross-Module Interactions
+## Key Interfaces and Extension Points
+
+**Public API**
+
+```rust
+pub fn discover_agent_roots(scan_paths: &[PathBuf]) -> Vec<PathBuf>;
+pub fn detect_agent_projects(items: &[ScanItem], scan_paths: &[PathBuf]) -> Vec<AgentProject>;
+```
+
+Re-exported from `crates/clv-core/src/lib.rs` as `detect_agent_projects`.
+
+**Extend markers** — Add entries to `agent_marker_files()` or `agent_name_patterns()` in `settings/markers.rs`. Scanner and agent detection share these lists.
+
+**Extend reason codes** — Add variants to `AgentReasonPart` in `messages/agent_reason.rs` with corresponding i18n strings.
+
+---
+
+## Interactions With Other Modules
 
 | Module | Direction | Interface | Notes |
 |--------|-----------|-----------|-------|
-| scanner | bidirectional | session pass + `detect_agent_projects` | Called at end of scan |
-| models | produces | `AgentProject` | UI data |
-| views | consumed by | `AgentView` | Search, bulk select |
-| app-store | consumed by | `filtered agent projects` | From `last_report` |
-| i18n | display | `format_agent_reason` | Trilingual reasons |
-
-**In agent review workflow** — `select_project_items` (`state.rs:258`) selects all scan items under a project path for cleanup.
+| Scanner | called by | `detect_agent_projects` | Post-scan enrichment (`scanner.rs:133`) |
+| Agent sessions | sibling | `discover_agent_session_targets` | Global cache paths, separate scan phase |
+| Models | output | `AgentProject`, `ScanItem` | Grouped project records |
+| Settings | dependency | `agent_marker_files`, `scan_paths` | Marker catalog and walk roots |
+| Messages | dependency | `AgentReasonPart` | Localized reason strings |
+| AppStore | consumer | `last_report.agent_projects` | Agent page data source |
+| Views | consumer | `AgentView` | Virtualized project cards |
 
 ---
 
-## Extension Points
+## Role in Core Business Flows
 
-- Add session path: new `push_dir` block in `agent_sessions.rs` + `RuleDescription` in translation JSON.
-- Add marker: extend `agent_marker_files` in `markers.rs`.
-- Add reason part: new `AgentReasonPart` variant + translations in `agent_reason.rs`.
+**Health scan flow** — After scanner completes, `agent_projects` is populated before `AppStore` stores `last_report` (`state.rs:312`). Agent page shows cards even if user never navigates there during scan.
+
+**Agent review flow** — User opens Agent page → `AgentView` reads `store.last_report.agent_projects` → displays size, stacks, inactive days, and reason badges → `select_project_items` (`state.rs:277`) selects all items under a project root.
+
+**Onboarding** — When `include_agent_heuristics` is true (default), first scan already includes agent session targets and project detection.
+
+---
+
+## Performance Considerations
+
+- `discover_agent_roots` caps walk depth at 8 (`agent.rs:24`) to avoid traversing entire home directories.
+- Protected system paths skipped via `is_protected_system_path` (`agent.rs:19-20`, `agent.rs:29-30`).
+- Grouping uses `HashMap<PathBuf, Vec<ScanItem>>`—O(n) over scan items.
+- Marker dir set built once per call from static `agent_marker_files()` list.
 
 ---
 
 ## Implementation Highlights
 
-`AgentSessionTarget` carries full rule metadata (stack, risk, category, description) so session dirs integrate into the same `ScanItem` pipeline as project rules (`agent_sessions.rs:8–14`).
+**Dual qualification** — A project enters the list if it has agent markers OR qualifies as a zombie (all items stale 30+ days). This catches abandoned repos without `.cursor` folders.
 
-Codex home resolution supports multiple candidate paths including `CODEX_HOME` env (`agent_sessions.rs` — `codex_home_paths`).
+**Reason part stacking** — Zombie projects get `LongUnusedProject`; additionally inactive ones receive `InactiveOver30Days` (`agent.rs:89-94`).
+
+**Empty root inclusion** — `discover_agent_roots` can add roots with zero scan items, surfacing trial projects that have no large cache hits yet (`agent.rs:60-62`).
+
+**Integration test coverage** — Agent marker dir detection verified in `lib.rs:338-345` tests alongside scanner rule matching.

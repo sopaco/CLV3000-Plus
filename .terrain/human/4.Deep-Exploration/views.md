@@ -1,31 +1,35 @@
 # Views Domain
 
 **Module path:** `crates/clv-app/src/views/`  
-**Generated:** 2026-08-23
+**Generated:** 2026-08-26
 
 ---
 
 ## What This Module Does
 
-Views are the GPUI presentation layer — each file implements one navigable "page" of the application. They render snapshots from `AppStore`, translate typed domain enums into human language via `I18n`, and forward user gestures back to store mutations. `ClvApp` lazily constructs each view on first visit (`app/mod.rs:56–80`), so startup only pays for the onboarding or dashboard page initially.
+The views module is the face of CLV3000 Plus—every page the user sees is a GPUI component that reads from `Entity<AppStore>` and renders a functional area of the app. The dashboard shows health scores and scan buttons; the cleanup page lists reclaimable items with filters; the agent page displays virtualized trial-project cards. Views do not spawn worker threads or walk the filesystem—they delegate all heavy work back to `AppStore` methods.
+
+Lazy creation in `ClvApp` (`app/mod.rs:57-117`) means views are instantiated on first navigation, keeping startup fast for users who only need the dashboard.
 
 ---
 
 ## Core Capabilities
 
-1. **Dashboard** — `dashboard.rs` — Disk usage summary, scan entry point, high-level status from `AppStore` disk fields.
+1. **Dashboard** — `DashboardView` (`dashboard.rs`) shows disk usage, reclaimable space, scan CTA, cleanup history stats, and health score derived from `AppStore` fields.
 
-2. **Cleanup** — `cleanup.rs` — Filterable list of `ScanItem`s, risk badges, `rule_description_label`, cleanup confirmation.
+2. **Cleanup list** — `CleanupView` (`cleanup.rs`) renders filtered `ScanItem` rows with checkboxes, risk badges, search, and sidebar `CleanupFilter` controls.
 
-3. **Agent** — `agent.rs` — `AgentProject` cards with `format_agent_reason`, search, link to select project items for cleanup.
+3. **Agent projects** — `AgentView` (`agent.rs`) virtualizes `AgentProject` cards with stacks, inactive days, reason badges, and "select all project items" actions.
 
-4. **Startup** — `startup.rs` — Lists OS startup items via `clv-platform::list_startup_items`, toggle enable.
+4. **Startup management** — `StartupView` (`startup.rs`) lists boot items from `clv-platform` with enable/disable toggles.
 
-5. **Process** — `process.rs` — Process table from `ProcessEnumerator`, sort, search, kill via `AppStore.kill_process_pid`.
+5. **Process monitor** — `ProcessView` (`process.rs`) displays sortable process list with memory/CPU and kill buttons.
 
-6. **Settings** — `settings.rs` — Scan paths editor, expert/soft-delete toggles, theme, language; saves via `save_settings`.
+6. **Settings editor** — `SettingsView` (`settings.rs`) edits `AppSettings` fields—mode, paths, theme, language, soft-delete options.
 
-7. **Onboarding** — `onboarding.rs` — First-run flow; sets `onboarding_done`.
+7. **Onboarding wizard** — `OnboardingView` (`onboarding.rs`) first-run flow for scan paths and mode selection, calls `finish_onboarding`.
+
+8. **Shared module exports** — `views/mod.rs` re-exports all view structs for `app/mod.rs` imports.
 
 ---
 
@@ -33,16 +37,16 @@ Views are the GPUI presentation layer — each file implements one navigable "pa
 
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `DashboardView` | `views/dashboard.rs` | Home / disk overview |
-| `CleanupView` | `views/cleanup.rs` | Main cleanup UI |
-| `AgentView` | `views/agent.rs` | Agent experiment browser |
-| `StartupView` | `views/startup.rs` | Startup item manager |
-| `ProcessView` | `views/process.rs` | Process list and kill |
+| `DashboardView` | `views/dashboard.rs` | Health score, disk bar, scan/cleanup CTAs |
+| `CleanupView` | `views/cleanup.rs` | Item list, selection, filters, search |
+| `AgentView` | `views/agent.rs` | Virtualized agent project cards |
+| `StartupView` | `views/startup.rs` | Boot item list with toggles |
+| `ProcessView` | `views/process.rs` | Process table with sort and kill |
 | `SettingsView` | `views/settings.rs` | Preferences editor |
 | `OnboardingView` | `views/onboarding.rs` | First-run wizard |
-| `AppShell` | `app/shell.rs` | Sidebar + page transitions |
-| `rule_description_label` | `i18n/labels.rs` | Rule text for UI |
-| `theme.rs` | `crates/clv-app/src/theme.rs` | Theme colors |
+| `mod.rs` | `views/mod.rs` | Module re-exports |
+| `ClvApp` | `app/mod.rs:57-117` | Lazy view creation on navigation |
+| Sidebar | `app/mod.rs:221-277` | `AppPage` navigation buttons |
 
 ---
 
@@ -50,49 +54,102 @@ Views are the GPUI presentation layer — each file implements one navigable "pa
 
 ```mermaid
 flowchart TD
-    A["AppShell sidebar"] --> B["ClvApp page switch<br/>app/mod.rs"]
-    B --> C["Lazy view entity"]
-    C --> D["read AppStore"]
-    D --> E["GPUI render"]
-    F["User click"] --> G["store.update"]
-    G --> H["cx.notify"]
-    H --> E
+    A["ClvApp sidebar click<br/>mod.rs:221"] --> B["AppStore.page = AppPage<br/>state.rs:60"]
+    B --> C{"Page?"}
+    C -->|Dashboard| D["DashboardView<br/>dashboard.rs"]
+    C -->|Cleanup| E["CleanupView<br/>cleanup.rs"]
+    C -->|Agent| F["AgentView<br/>agent.rs"]
+    C -->|Startup| G["StartupView<br/>startup.rs"]
+    C -->|Process| H["ProcessView<br/>process.rs"]
+    C -->|Settings| I["SettingsView<br/>settings.rs"]
+    C -->|Onboarding| J["OnboardingView<br/>onboarding.rs"]
+    D --> K["Read AppStore<br/>disk, report, scanning"]
+    E --> L["filtered_items<br/>state.rs:189"]
+    F --> M["last_report.agent_projects"]
+    G --> N["list_startup_items<br/>platform"]
+    H --> O["list_processes<br/>platform"]
+    I --> P["mutate settings<br/>save_settings"]
+    E --> Q["start_scan / run_cleanup<br/>state.rs"]
+    D --> Q
 ```
 
----
+**Key steps**
 
-## Expert vs Simple Mode
-
-Controlled by `settings.expert_mode`:
-
-- **Simple** — Plain-language `RuleDescription::text(lang)`; hidden protected items in lists.
-- **Expert** — Full filesystem paths; protected items visible; more cleanup categories selectable.
-
-Views consult `AppStore.settings.expert_mode` and `filtered_items` rather than duplicating filter logic.
+1. **Navigation** — Sidebar sets `store.page`; `ClvApp::render` matches on `AppPage` to show active view.
+2. **Lazy init** — First visit creates `Entity<View>` stored in `ClvApp` fields (`mod.rs:57-117`).
+3. **State read** — Views call `store.read(cx)` or `store.update(cx, ...)` for actions.
+4. **Re-render** — `AppStore` calls `cx.notify()` after state changes; subscribed views repaint.
 
 ---
 
-## Cross-Module Interactions
+## Key Interfaces and Extension Points
+
+**View pattern (GPUI)**
+
+Each view is typically a struct implementing `Render` with `Entity<AppStore>` (or `ViewContext`) subscription:
+
+```rust
+// Conceptual pattern used across views/
+pub struct DashboardView {
+    store: Entity<AppStore>,
+}
+impl Render for DashboardView { /* read store, build elements */ }
+```
+
+**Add a new view**
+
+1. Create `views/new_page.rs` with GPUI `Render` impl.
+2. Export from `views/mod.rs`.
+3. Add `AppPage` variant and lazy-init in `ClvApp`.
+4. Add sidebar button in `app/mod.rs`.
+
+**Shared UI widgets** — Reusable components live in `crates/clv-app/src/ui/` (buttons, cards, progress bars)—views compose these rather than duplicating styles.
+
+---
+
+## Interactions With Other Modules
 
 | Module | Direction | Interface | Notes |
 |--------|-----------|-----------|-------|
-| app-store | depends | `Entity<AppStore>` | All views |
-| i18n | depends | `I18n`, labels | Trilingual UI |
-| platform | some views | startup, process APIs | StartupView, ProcessView |
-| clv-core types | display | `ScanItem`, `AgentProject` | Read-only render |
+| AppStore | dependency | `Entity<AppStore>` | Single source of UI truth |
+| i18n | dependency | `I18n` labels | All user-visible strings |
+| ui/ | dependency | Shared widgets | Consistent styling |
+| clv-platform | direct (Startup/Process) | `list_startup_items`, `list_processes` | OS data for system pages |
+| theme | dependency | `ThemePreference` | Visual styling per settings |
+| Services | indirect | Via AppStore | Views never call spawn_* directly |
 
 ---
 
-## UI Kit
+## Role in Core Business Flows
 
-Shared widgets under `crates/clv-app/src/ui/` — `controls.rs`, `list.rs`, `security.rs` (risk badges), `icons.rs`, `text.rs`. Assets embedded via `assets.rs` and `build.rs`.
+**Health scan flow** — `DashboardView` scan button → `AppStore::start_scan` → progress bar reads `scan_phase`, `scan_items_found`, `scan_bytes_found` during poll → completion updates dashboard reclaimable stats.
+
+**Cleanup flow** — `CleanupView` shows `filtered_items` with checkboxes → confirm button → `AppStore::run_cleanup` → progress from `cleanup_completed` / `cleanup_total` fields.
+
+**Agent review flow** — `AgentView` renders `agent_projects` cards → user clicks "Clean project" → `select_project_items` + navigate to Cleanup page.
+
+**Onboarding flow** — First launch renders `OnboardingView` instead of dashboard → `finish_onboarding` persists settings and switches to `AppPage::Dashboard`.
+
+---
+
+## Performance Considerations
+
+- **Lazy view creation** — Only instantiated views consume GPUI entity memory.
+- **Agent view virtualization** — Large project lists use virtualized scrolling (`agent.rs`) to avoid rendering hundreds of cards at once.
+- **Filtered item cloning** — `filtered_items` returns owned `Vec<ScanItem>`—views should not call it excessively per frame; typical GPUI pattern reads once per render.
+- **Process/Startup on-demand** — Platform APIs called when view is active or refreshed, not globally at launch.
+- **Page transition keys** — `AppPage::transition_key` (`state.rs:35-44`) enables animation without full app rebuild.
 
 ---
 
 ## Implementation Highlights
 
-Page transition keys on `AppPage::transition_key` (`state.rs:34`) enable shell animations without conflating page identity.
+**Bilingual rule descriptions** — Cleanup view shows `RuleDescription` via i18n helpers; search uses `rule_description_matches_query` for localized text matching (`state.rs:226`).
 
-`CleanupView` uses `expanded_item` on store for accordion detail rows (`state.rs:71`).
+**Expert mode UI differences** — Simple mode hides protected items and shows friendlier descriptions; expert mode exposes full paths and technical detail—controlled by `settings.expert_mode` read in views.
 
-Agent view search matches `agent_reason_matches_query` in addition to path/name (`lib.rs` exports).
+**Cleanup filter sidebar** — Five `CleanupFilter` buckets map to `item_cleanup_bucket` logic in models—views only set filter enum, store computes filtered list.
+
+**Notification toast** — Cleanup success notification rendered in `ClvApp` (`mod.rs:162-170`) when `pending_cleanup_notification` is set—decoupled from CleanupView lifecycle.
+
+**Theme integration** — All views respect `ThemePreference` from settings for Defender/Blossom/Neon/Aurora color schemes.
