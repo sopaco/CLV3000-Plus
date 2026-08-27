@@ -2,9 +2,9 @@
   "project": "clv3000-plus",
   "repo_path": ".",
   "output_file": "context.md",
-  "generated_at": "2026-08-26T12:27:59.882188+00:00",
+  "generated_at": "2026-08-27T11:53:59.613429+00:00",
   "section_count": 6,
-  "char_count": 12265,
-  "baseline_git_head": "8977baaffbb1a55d673787eee524d918e9c1eae6",
+  "char_count": 14338,
+  "baseline_git_head": "d205b530e795dfbd9cd857b9da015b4ca1d74b7a",
   "language": "en"
 }
