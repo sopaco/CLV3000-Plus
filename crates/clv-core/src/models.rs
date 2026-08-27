@@ -59,7 +59,7 @@ pub enum RiskLevel {
     Protected = 2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CleanupBucket {
     /// 各项目目录内的编译/构建临时文件，删后重新打开项目通常会再生成。
     ProjectBuildCache,
@@ -148,6 +148,7 @@ impl AgentProject {
 pub struct ScanReport {
     pub items: Vec<ScanItem>,
     pub agent_projects: Vec<AgentProject>,
+    pub large_files: Vec<crate::large_files::LargeFileEntry>,
     pub scanned_at: Option<DateTime<Utc>>,
     pub scan_duration_ms: u64,
     pub roots_scanned: Vec<PathBuf>,
@@ -180,6 +181,31 @@ impl ScanReport {
 
     pub fn stack_total(&self, stack: TechStack) -> u64 {
         self.by_stack(stack).iter().map(|i| i.size_bytes).sum()
+    }
+
+    pub fn safe_item_count(&self) -> usize {
+        self.items.iter().filter(|i| i.risk == RiskLevel::Safe).count()
+    }
+
+    /// Per-bucket reclaimable bytes and item counts (total, safe-only).
+    pub fn bucket_summaries(&self) -> Vec<(CleanupBucket, u64, usize, usize)> {
+        use std::collections::HashMap;
+        let mut map: HashMap<CleanupBucket, (u64, usize, usize)> = HashMap::new();
+        for item in &self.items {
+            let bucket = item_cleanup_bucket(item);
+            let entry = map.entry(bucket).or_insert((0, 0, 0));
+            entry.0 += item.size_bytes;
+            entry.1 += 1;
+            if item.risk == RiskLevel::Safe {
+                entry.2 += 1;
+            }
+        }
+        let mut rows: Vec<_> = map
+            .into_iter()
+            .map(|(bucket, (bytes, total, safe))| (bucket, bytes, total, safe))
+            .collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1));
+        rows
     }
 }
 

@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod cleanup;
 pub mod dashboard;
+pub mod large_files;
 pub mod onboarding;
 pub mod process;
 pub mod settings;

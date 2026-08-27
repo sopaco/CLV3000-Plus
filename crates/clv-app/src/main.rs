@@ -10,6 +10,7 @@ mod platform;
 mod prelude;
 mod services;
 pub mod theme;
+pub mod tray;
 pub mod ui;
 mod views;
 
@@ -19,6 +20,22 @@ use gpui::*;
 use gpui_component::*;
 use clv_core::load_settings;
 use theme::apply_theme;
+use tray::{new_pending_slot, TrayController, TrayPending};
+use std::sync::OnceLock;
+
+static TRAY_PENDING: OnceLock<TrayPending> = OnceLock::new();
+
+fn tray_pending() -> TrayPending {
+    TRAY_PENDING
+        .get_or_init(|| {
+            let pending = new_pending_slot();
+            if !TrayController::install("CLV3000 Plus", pending.clone()) {
+                tracing::warn!("system tray unavailable on this platform");
+            }
+            pending
+        })
+        .clone()
+}
 
 fn main() {
     init_tracing();
@@ -37,6 +54,7 @@ fn main() {
         apply_theme(theme, cx);
         platform::apply_app_icon();
         init_window_close_shortcuts(cx);
+        let _ = tray_pending();
         #[cfg(target_os = "macos")]
         init_macos_menus(cx);
         let options = window_options(cx);
@@ -57,7 +75,7 @@ fn window_options(cx: &App) -> WindowOptions {
 }
 
 fn build_root_view(window: &mut Window, cx: &mut App) -> Entity<Root> {
-    let app = cx.new(|cx| ClvApp::new(window, cx));
+    let app = cx.new(|cx| ClvApp::new(window, cx, tray_pending()));
     let shell = cx.new(|cx| AppShell::new(app, window, cx));
     cx.new(|cx| Root::new(shell, window, cx))
 }

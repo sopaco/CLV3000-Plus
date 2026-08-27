@@ -5,27 +5,31 @@ use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::colors;
 use crate::views::{
-    agent::AgentView, cleanup::CleanupView, dashboard::DashboardView, onboarding::OnboardingView,
-    process::ProcessView, settings::SettingsView, startup::StartupView,
+    agent::AgentView, cleanup::CleanupView, dashboard::DashboardView,
+    large_files::LargeFilesView, onboarding::OnboardingView, process::ProcessView,
+    settings::SettingsView, startup::StartupView,
 };
 use clv_core::{load_settings, save_settings};
 use gpui_component::{notification::Notification, WindowExt};
 use state::{AppPage, AppStore};
+use crate::tray::{take_pending, TrayAction, TrayPending};
 
 pub struct ClvApp {
     store: Entity<AppStore>,
     _store_subscription: gpui::Subscription,
+    tray_pending: TrayPending,
     dashboard: Option<Entity<DashboardView>>,
     cleanup: Option<Entity<CleanupView>>,
     agent: Option<Entity<AgentView>>,
     startup: Option<Entity<StartupView>>,
     process: Option<Entity<ProcessView>>,
+    large_files: Option<Entity<LargeFilesView>>,
     settings: Option<Entity<SettingsView>>,
     onboarding: Option<Entity<OnboardingView>>,
 }
 
 impl ClvApp {
-    pub fn new(window: &Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &Window, cx: &mut Context<Self>, tray_pending: TrayPending) -> Self {
         let settings = load_settings();
         let store = cx.new(|cx| AppStore::new(settings, cx));
         let store_subscription = cx.observe(&store, |_this, _store, cx| {
@@ -44,11 +48,13 @@ impl ClvApp {
         Self {
             store,
             _store_subscription: store_subscription,
+            tray_pending,
             dashboard: None,
             cleanup: None,
             agent: None,
             startup: None,
             process: None,
+            large_files: None,
             settings: None,
             onboarding: None,
         }
@@ -96,6 +102,15 @@ impl ClvApp {
         }
         let view = cx.new(|cx| ProcessView::new(self.store.clone(), cx));
         self.process = Some(view.clone());
+        view
+    }
+
+    fn large_files(&mut self, cx: &mut Context<Self>) -> Entity<LargeFilesView> {
+        if let Some(view) = &self.large_files {
+            return view.clone();
+        }
+        let view = cx.new(|cx| LargeFilesView::new(self.store.clone(), cx));
+        self.large_files = Some(view.clone());
         view
     }
 
@@ -150,6 +165,7 @@ impl ClvApp {
             AppPage::Agent => self.agent(cx).into_any_element(),
             AppPage::Startup => self.startup(cx).into_any_element(),
             AppPage::Process => self.process(cx).into_any_element(),
+            AppPage::LargeFiles => self.large_files(cx).into_any_element(),
             AppPage::Settings => self.settings_view(cx).into_any_element(),
             AppPage::Onboarding => self.onboarding(cx).into_any_element(),
         }
@@ -158,6 +174,21 @@ impl ClvApp {
 
 impl Render for ClvApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(action) = take_pending(&self.tray_pending) {
+            match action {
+                TrayAction::Open => {
+                    cx.activate(true);
+                }
+                TrayAction::Scan => {
+                    cx.activate(true);
+                    self.store.update(cx, |s, cx| s.start_scan(cx));
+                }
+                TrayAction::Quit => {
+                    cx.quit();
+                }
+            }
+        }
+
         // Push pending cleanup completion notification before any store borrow.
         if let Some(msg) = self.store.read(cx).pending_cleanup_notification.clone() {
             let title = self.store.read(cx).i18n().cleanup_complete_title();

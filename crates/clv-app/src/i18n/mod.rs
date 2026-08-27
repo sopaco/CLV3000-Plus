@@ -60,6 +60,7 @@ impl I18n {
             AppPage::Agent => self.t("Agent 项目", "Agent Projects", "Agent プロジェクト"),
             AppPage::Startup => self.t("启动项管理", "Startup Items", "起動項目"),
             AppPage::Process => self.t("进程管理", "Processes", "プロセス管理"),
+            AppPage::LargeFiles => self.t("大文件", "Large Files", "大容量ファイル"),
             AppPage::Settings => self.t("设置", "Settings", "設定"),
             AppPage::Onboarding => self.t("欢迎", "Welcome", "ようこそ"),
         }
@@ -1273,5 +1274,160 @@ impl I18n {
         path: Option<&str>,
     ) -> String {
         self.scan_progress_detail(phase, found, bytes, path)
+    }
+
+    // ── Dashboard P0/P1 enhancements ───────────────────────────────────
+
+    pub fn clean_safe_items(&self) -> &'static str {
+        self.t("一键清理安全项", "Clean Safe Items", "安全項目を一括削除")
+    }
+
+    pub fn view_cleanup_details(&self) -> &'static str {
+        self.t("查看清理详情", "View Cleanup Details", "クリーン詳細を見る")
+    }
+
+    pub fn reclaim_safe_summary(&self, bytes: &str, count: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("可释放 {bytes}（{count} 项安全）"),
+            Language::Ja => format!("{bytes} 解放可能（安全 {count} 件）"),
+            Language::En => format!("{bytes} reclaimable ({count} safe items)"),
+        }
+    }
+
+    pub fn category_summary_title(&self) -> &'static str {
+        self.t("分类可释放空间", "Reclaimable by Category", "カテゴリ別の解放可能容量")
+    }
+
+    pub fn category_summary_hint(&self) -> &'static str {
+        self.t(
+            "按类型汇总扫描结果，可跳转到对应清理列表",
+            "Scan results grouped by type — jump to filtered cleanup",
+            "スキャン結果を種類別に集計 — フィルタ付きクリーンへ",
+        )
+    }
+
+    pub fn category_bucket_meta(&self, total: usize, safe: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("{total} 项 · {safe} 项安全"),
+            Language::Ja => format!("{total} 件 · 安全 {safe} 件"),
+            Language::En => format!("{total} items · {safe} safe"),
+        }
+    }
+
+    pub fn clean_category(&self) -> &'static str {
+        self.t("去清理", "Clean", "削除へ")
+    }
+
+    pub fn disk_volumes_title(&self) -> &'static str {
+        self.t("磁盘分区", "Disk Volumes", "ディスクボリューム")
+    }
+
+    pub fn large_files_tile(&self) -> &'static str {
+        self.t("大文件", "Large Files", "大容量ファイル")
+    }
+
+    pub fn large_files_tile_hint(&self) -> &'static str {
+        self.t("查看超大文件", "Review huge files", "巨大ファイルを確認")
+    }
+
+    pub fn large_files_title(&self) -> &'static str {
+        self.t("大文件查找", "Large File Finder", "大容量ファイル検索")
+    }
+
+    pub fn large_files_subtitle(&self, threshold: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("显示扫描目录中大于 {threshold} 的单个文件"),
+            Language::Ja => format!("スキャン対象で {threshold} 超のファイルを表示"),
+            Language::En => format!("Individual files above {threshold} in scan paths"),
+        }
+    }
+
+    pub fn large_files_empty_title(&self) -> &'static str {
+        self.t("暂无大文件", "No Large Files", "大容量ファイルなし")
+    }
+
+    pub fn large_files_empty_hint(&self) -> &'static str {
+        self.t(
+            "完成健康扫描后，这里会列出超大文件",
+            "Run a health scan to list very large files here",
+            "ヘルススキャン後に巨大ファイルを表示します",
+        )
+    }
+
+    pub fn system_actions_title(&self) -> &'static str {
+        self.t("系统维护", "System Maintenance", "システムメンテナンス")
+    }
+
+    pub fn system_trash_desc(&self) -> &'static str {
+        self.t(
+            "清空系统废纸篓/回收站（与应用内软删除相互独立）",
+            "Empty the OS Trash/Recycle Bin (separate from in-app soft delete)",
+            "OS のゴミ箱/ごみ箱を空にする（アプリ内ソフト削除とは別）",
+        )
+    }
+
+    pub fn system_trash_size(&self, bytes: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("系统废纸篓约 {bytes}"),
+            Language::Ja => format!("システムゴミ箱 約 {bytes}"),
+            Language::En => format!("System trash ~{bytes}"),
+        }
+    }
+
+    pub fn system_trash_unknown(&self) -> &'static str {
+        self.t("系统废纸篓大小未知", "System trash size unknown", "システムゴミ箱のサイズ不明")
+    }
+
+    pub fn empty_system_trash(&self) -> &'static str {
+        self.t("清空系统废纸篓", "Empty System Trash", "システムゴミ箱を空にする")
+    }
+
+    pub fn emptying_trash(&self) -> &'static str {
+        self.t("正在清空系统废纸篓…", "Emptying system trash…", "システムゴミ箱を空にしています…")
+    }
+
+    pub fn trash_emptied(&self, bytes: u64) -> String {
+        let human = format_bytes(bytes);
+        match self.lang {
+            Language::Zh => format!("已清空系统废纸篓，约释放 {human}"),
+            Language::Ja => format!("システムゴミ箱を空にしました（約 {human} 解放）"),
+            Language::En => format!("System trash emptied (~{human} freed)"),
+        }
+    }
+
+    pub fn trash_empty_failed(&self, err: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("清空系统废纸篓失败：{err}"),
+            Language::Ja => format!("システムゴミ箱の削除に失敗：{err}"),
+            Language::En => format!("Failed to empty system trash: {err}"),
+        }
+    }
+
+    pub fn pick_folders_title(&self) -> &'static str {
+        self.t("选择要扫描的文件夹", "Choose Folders to Scan", "スキャンするフォルダを選択")
+    }
+
+    pub fn add_scan_folders(&self) -> &'static str {
+        self.t("添加文件夹…", "Add Folders…", "フォルダを追加…")
+    }
+
+    pub fn folders_added(&self) -> &'static str {
+        self.t("已添加扫描文件夹", "Scan folders added", "スキャンフォルダを追加しました")
+    }
+
+    pub fn onboard_custom_paths_hint(&self) -> &'static str {
+        self.t(
+            "可添加你存放项目的文件夹；留空则使用默认目录",
+            "Add folders where you keep projects, or use defaults",
+            "プロジェクトフォルダを追加するか、デフォルトを使用",
+        )
+    }
+
+    pub fn tray_tooltip(&self, disk_pct: f32) -> String {
+        match self.lang {
+            Language::Zh => format!("CLV3000 Plus · 磁盘 {disk_pct:.0}%"),
+            Language::Ja => format!("CLV3000 Plus · ディスク {disk_pct:.0}%"),
+            Language::En => format!("CLV3000 Plus · Disk {disk_pct:.0}%"),
+        }
     }
 }

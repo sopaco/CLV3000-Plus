@@ -2,7 +2,8 @@ use crate::app::state::{AppPage, AppStore};
 use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::{colors, corner};
-use clv_core::{format_bytes, CleanupHistory};
+use clv_core::{format_bytes, CleanupBucket, CleanupHistory};
+use clv_platform::DiskVolume;
 use gpui::Hsla;
 
 pub struct DashboardView {
@@ -29,6 +30,16 @@ impl Render for DashboardView {
             .as_ref()
             .map(|r| r.items.len())
             .unwrap_or(0);
+        let safe_count = store
+            .last_report
+            .as_ref()
+            .map(|r| r.safe_item_count())
+            .unwrap_or(0);
+        let safe_bytes = store
+            .last_report
+            .as_ref()
+            .map(|r| format_bytes(r.safe_reclaimable()))
+            .unwrap_or_else(|| "—".into());
         let agent_count = store
             .last_report
             .as_ref()
@@ -46,6 +57,16 @@ impl Render for DashboardView {
                 )
             })
             .unwrap_or_else(|| "—".into());
+        let bucket_summaries = store
+            .last_report
+            .as_ref()
+            .map(|r| r.bucket_summaries())
+            .unwrap_or_default();
+        let large_file_count = store
+            .last_report
+            .as_ref()
+            .map(|r| r.large_files.len())
+            .unwrap_or(0);
 
         let disk_pct = store.disk_used_percent();
         let disk_used = format_bytes(store.disk_used);
@@ -53,6 +74,15 @@ impl Render for DashboardView {
         let disk_free = format_bytes(store.disk_free());
 
         let scanning = store.scanning;
+        let cleaning = store.cleaning;
+        let has_report = store.last_report.is_some();
+        let show_clean_safe = has_report && safe_count > 0 && !scanning;
+        let reclaim_summary = if has_report && safe_count > 0 {
+            Some(i18n.reclaim_safe_summary(&safe_bytes, safe_count))
+        } else {
+            None
+        };
+
         let store_entity = self.store.clone();
         let (score, status, accent) = ui::compute_health(store);
         let scan_label = if scanning {
@@ -83,9 +113,41 @@ impl Render for DashboardView {
                                 store.update(cx, |s, cx| s.start_scan(cx));
                             }
                         },
+                        reclaim_summary,
+                        show_clean_safe,
+                        cleaning,
+                        i18n.clean_safe_items(),
+                        {
+                            let store = store_entity.clone();
+                            move |_, _, cx| {
+                                store.update(cx, |s, cx| {
+                                    s.run_cleanup_safe(cx);
+                                });
+                            }
+                        },
+                        {
+                            let store = store_entity.clone();
+                            move |_, _, cx| {
+                                store.update(cx, |s, cx| {
+                                    s.set_page(AppPage::Cleanup, cx);
+                                });
+                            }
+                        },
+                        i18n.view_cleanup_details(),
                         &i18n,
                         cx,
                     ))
+                    .when(!bucket_summaries.is_empty(), |col| {
+                        col.child(category_summary_card(
+                            &bucket_summaries,
+                            &i18n,
+                            store_entity.clone(),
+                            cx,
+                        ))
+                    })
+                    .when(store.disk_volumes.len() > 1, |col| {
+                        col.child(disk_volumes_card(&store.disk_volumes, &i18n))
+                    })
                     .child(
                         h_flex()
                             .gap_3()
@@ -129,6 +191,21 @@ impl Render for DashboardView {
                                 },
                             ))
                             .child(ui::quick_tile(
+                                "tile-large-files",
+                                i18n.large_files_tile(),
+                                large_file_count.to_string(),
+                                i18n.large_files_tile_hint(),
+                                colors::warn_orange(),
+                                {
+                                    let store = store_entity.clone();
+                                    move |_, _, cx| {
+                                        store.update(cx, |s, cx| {
+                                            s.set_page(AppPage::LargeFiles, cx);
+                                        });
+                                    }
+                                },
+                            ))
+                            .child(ui::quick_tile(
                                 "tile-startup",
                                 i18n.startup_items(),
                                 store.startup_count.to_string(),
@@ -144,6 +221,12 @@ impl Render for DashboardView {
                                 },
                             )),
                     )
+                    .child(system_actions_card(
+                        store.system_trash_bytes,
+                        store_entity.clone(),
+                        &i18n,
+                        cx,
+                    ))
                     .child(
                         ui::glass_card()
                             .p_5()
@@ -161,8 +244,15 @@ impl Render for DashboardView {
                             .child(
                                 ui::metric_bar(
                                     i18n.optimizable_space(),
-                                    if item_count > 0 {
-                                        ((item_count.min(50) as f32 / 50.0) * 100.0).min(100.)
+                                    if store.disk_total > 0 {
+                                        ((store
+                                            .last_report
+                                            .as_ref()
+                                            .map(|r| r.safe_reclaimable())
+                                            .unwrap_or(0) as f32
+                                            / store.disk_total as f32)
+                                            * 100.0)
+                                            .min(100.)
                                     } else {
                                         0.
                                     },
@@ -210,6 +300,197 @@ impl Render for DashboardView {
                     .child(history_card(&store.cleanup_history, &i18n)),
             ))
     }
+}
+
+fn category_summary_card(
+    summaries: &[(CleanupBucket, u64, usize, usize)],
+    i18n: &I18n,
+    store: Entity<AppStore>,
+    cx: &App,
+) -> Div {
+    let mut card = ui::glass_card()
+        .p_5()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors::text_primary())
+                .child(i18n.category_summary_title()),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(colors::text_secondary())
+                .child(i18n.category_summary_hint()),
+        );
+
+    for (index, (bucket, bytes, total, safe)) in summaries.iter().enumerate() {
+        let bucket = *bucket;
+        let bytes_label = format_bytes(*bytes);
+        let filter = bucket_to_filter(bucket);
+        let store_btn = store.clone();
+        let id = SharedString::from(format!("cat-clean-{index}"));
+        card = card.child(
+            h_flex()
+                .justify_between()
+                .items_center()
+                .gap_3()
+                .p_3()
+                .rounded(corner())
+                .bg(colors::glass_bg_soft())
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(colors::text_primary())
+                                .child(i18n.cleanup_bucket_label(bucket)),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(colors::text_muted())
+                                .child(i18n.category_bucket_meta(*total, *safe)),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_base()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors::safe_green())
+                                .child(bytes_label),
+                        )
+                        .when(*safe > 0, |row| {
+                            row.child(
+                                ui::ghost_pill(id, i18n.clean_category(), false, cx).on_click({
+                                    let store = store_btn.clone();
+                                    move |_, _, cx| {
+                                        store.update(cx, |s, cx| {
+                                            s.cleanup_filter = filter;
+                                            s.set_page(AppPage::Cleanup, cx);
+                                        });
+                                    }
+                                }),
+                            )
+                        }),
+                ),
+        );
+    }
+
+    card
+}
+
+fn bucket_to_filter(bucket: CleanupBucket) -> crate::app::state::CleanupFilter {
+    match bucket {
+        CleanupBucket::ProjectBuildCache => crate::app::state::CleanupFilter::ProjectBuildCache,
+        CleanupBucket::SharedToolCache => crate::app::state::CleanupFilter::SharedToolCache,
+        CleanupBucket::DevEnvironment => crate::app::state::CleanupFilter::DevEnvironment,
+        CleanupBucket::AiGenerated => crate::app::state::CleanupFilter::AiGenerated,
+    }
+}
+
+fn disk_volumes_card(volumes: &[DiskVolume], i18n: &I18n) -> Div {
+    let mut card = ui::glass_card()
+        .p_5()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors::text_primary())
+                .child(i18n.disk_volumes_title()),
+        );
+
+    for volume in volumes {
+        let label = volume.label.clone();
+        let used = format_bytes(volume.used_bytes);
+        let total = format_bytes(volume.total_bytes);
+        let free = format_bytes(volume.free_bytes());
+        card = card.child(
+            v_flex()
+                .gap_2()
+                .child(
+                    h_flex()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_color(colors::text_primary())
+                                .child(label),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(colors::text_secondary())
+                                .child(format!("{used} / {total}")),
+                        ),
+                )
+                .child(ui::metric_bar(
+                    &i18n.free_space(&free),
+                    volume.used_percent(),
+                    colors::accent_cyan(),
+                )),
+        );
+    }
+
+    card
+}
+
+fn system_actions_card(
+    trash_bytes: Option<u64>,
+    store: Entity<AppStore>,
+    i18n: &I18n,
+    cx: &App,
+) -> Div {
+    let trash_label = trash_bytes
+        .map(|b| i18n.system_trash_size(&format_bytes(b)))
+        .unwrap_or_else(|| i18n.system_trash_unknown().to_string());
+
+    ui::glass_card()
+        .p_5()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors::text_primary())
+                .child(i18n.system_actions_title()),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(colors::text_secondary())
+                .child(i18n.system_trash_desc()),
+        )
+        .child(
+            h_flex()
+                .justify_between()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .text_base()
+                        .text_color(colors::text_primary())
+                        .child(trash_label),
+                )
+                .child(
+                    ui::action_button("empty-trash", i18n.empty_system_trash(), None, false, cx)
+                        .on_click({
+                            let store = store.clone();
+                            move |_, _, cx| {
+                                store.update(cx, |s, cx| s.empty_system_trash_async(cx));
+                            }
+                        }),
+                ),
+        )
 }
 
 fn history_card(history: &CleanupHistory, i18n: &I18n) -> Div {

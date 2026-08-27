@@ -115,11 +115,32 @@ pub fn compute_health(store: &AppStore) -> (u8, String, Hsla) {
             colors::text_secondary(),
         );
     };
-    let disk_penalty = (store.disk_used_percent() * 0.25).min(30.) as u8;
-    let junk_penalty = ((report.items.len().min(60) as f32 / 60.0) * 30.0) as u8;
+
+    let disk_penalty = (store.disk_used_percent() * 0.30).min(30.) as u8;
+
+    let reclaim_ratio = if store.disk_total > 0 {
+        report.safe_reclaimable() as f32 / store.disk_total as f32
+    } else {
+        0.0
+    };
+    let junk_penalty = (reclaim_ratio * 40.0).min(40.) as u8;
+
+    let agent_bytes: u64 = report.agent_projects.iter().map(|p| p.total_bytes).sum();
+    let agent_ratio = if store.disk_total > 0 {
+        agent_bytes as f32 / store.disk_total as f32
+    } else {
+        0.0
+    };
+    let agent_penalty = (agent_ratio * 40.0).min(20.) as u8;
+
+    let startup_penalty =
+        ((store.startup_count.min(20) as f32 / 20.0) * 10.0).round() as u8;
+
     let score = 100u8
         .saturating_sub(disk_penalty)
-        .saturating_sub(junk_penalty);
+        .saturating_sub(junk_penalty)
+        .saturating_sub(agent_penalty)
+        .saturating_sub(startup_penalty);
     let (msg, color) = if score >= 90 {
         (i18n.health_excellent(), colors::safe_green())
     } else if score >= 75 {
@@ -224,10 +245,20 @@ pub fn hero_banner(
     scanning: bool,
     scan_label: impl Into<SharedString>,
     on_scan: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    reclaim_summary: Option<impl Into<SharedString>>,
+    show_clean_safe: bool,
+    cleaning: bool,
+    clean_label: impl Into<SharedString>,
+    on_clean_safe: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_view_details: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    details_label: impl Into<SharedString>,
     i18n: &I18n,
     cx: &App,
 ) -> impl IntoElement {
     let scan_label: SharedString = scan_label.into();
+    let clean_label: SharedString = clean_label.into();
+    let details_label: SharedString = details_label.into();
+    let reclaim_summary: Option<SharedString> = reclaim_summary.map(Into::into);
 
     div()
         .w_full()
@@ -279,6 +310,7 @@ pub fn hero_banner(
                                 h_flex()
                                     .gap_3()
                                     .items_center()
+                                    .flex_wrap()
                                     .child(
                                         crate::ui::hero_scan_button(
                                             "hero-scan",
@@ -288,13 +320,41 @@ pub fn hero_banner(
                                         )
                                         .on_click(on_scan),
                                     )
+                                    .when(show_clean_safe, |row| {
+                                        row.child(
+                                            crate::ui::action_button(
+                                                "hero-clean-safe",
+                                                clean_label,
+                                                Some(crate::ui::icons::ACTION_CLEAN),
+                                                true,
+                                                cx,
+                                            )
+                                            .loading(cleaning)
+                                            .on_click(on_clean_safe),
+                                        )
+                                    })
+                                    .when(reclaim_summary.is_some(), |row| {
+                                        let summary = reclaim_summary.clone().unwrap();
+                                        row.child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(colors::accent_blue().opacity(0.9))
+                                                .child(summary),
+                                        )
+                                    })
                                     .child(
                                         div()
                                             .text_sm()
                                             .text_color(colors::accent_blue().opacity(0.85))
                                             .child(i18n.hero_scan_hint()),
                                     ),
-                            ),
+                            )
+                            .when(show_clean_safe, |col| {
+                                col.child(
+                                    crate::ui::ghost_pill("hero-details", details_label, false, cx)
+                                        .on_click(on_view_details),
+                                )
+                            }),
                     ),
             ),
         )

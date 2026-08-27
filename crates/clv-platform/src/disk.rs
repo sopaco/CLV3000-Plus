@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use sysinfo::Disks;
 
 /// Returns `(total_bytes, used_bytes)` for system storage.
@@ -69,6 +69,93 @@ fn sum_local_fixed_disks<'a>(mounts: impl Iterator<Item = MountStats<'a>>) -> Op
     } else {
         Some((total, total.saturating_sub(available)))
     }
+}
+
+/// Per-volume disk stats for multi-drive UI (Windows drive letters, macOS mount points).
+#[derive(Debug, Clone)]
+pub struct DiskVolume {
+    pub label: String,
+    pub mount: PathBuf,
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+}
+
+impl DiskVolume {
+    pub fn used_percent(&self) -> f32 {
+        if self.total_bytes == 0 {
+            0.0
+        } else {
+            (self.used_bytes as f32 / self.total_bytes as f32) * 100.0
+        }
+    }
+
+    pub fn free_bytes(&self) -> u64 {
+        self.total_bytes.saturating_sub(self.used_bytes)
+    }
+}
+
+/// Lists local fixed volumes. On Windows this is one entry per drive letter; on macOS/Linux
+/// typically a single data volume.
+pub fn list_disk_volumes() -> Vec<DiskVolume> {
+    let disks = Disks::new_with_refreshed_list();
+    list_volumes_from_disks(disks.list())
+}
+
+#[cfg(target_os = "windows")]
+fn list_volumes_from_disks(disks: &[sysinfo::Disk]) -> Vec<DiskVolume> {
+    disks
+        .iter()
+        .filter(|disk| {
+            !disk.is_removable()
+                && is_windows_drive_letter(disk.mount_point())
+                && disk.total_space() > 0
+        })
+        .map(|disk| {
+            let mount = disk.mount_point().to_path_buf();
+            let label = mount
+                .to_string_lossy()
+                .trim_end_matches(['\\', '/'])
+                .to_string();
+            let total = disk.total_space();
+            let available = disk.available_space();
+            DiskVolume {
+                label,
+                mount,
+                total_bytes: total,
+                used_bytes: total.saturating_sub(available),
+            }
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn list_volumes_from_disks(disks: &[sysinfo::Disk]) -> Vec<DiskVolume> {
+    let target = primary_disk_target();
+    let Some((mount, total, available)) = disks
+        .iter()
+        .map(|disk| {
+            (
+                disk.mount_point(),
+                disk.total_space(),
+                disk.available_space(),
+            )
+        })
+        .filter(|(mount, _, _)| target.starts_with(mount))
+        .max_by_key(|(mount, _, _)| mount_prefix_len(mount))
+    else {
+        return Vec::new();
+    };
+
+    if total == 0 {
+        return Vec::new();
+    }
+
+    vec![DiskVolume {
+        label: mount.display().to_string(),
+        mount: mount.to_path_buf(),
+        total_bytes: total,
+        used_bytes: total.saturating_sub(available),
+    }]
 }
 
 #[cfg(target_os = "windows")]

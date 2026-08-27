@@ -10,7 +10,7 @@ use clv_core::{
     CleanupBucket, CleanupHistory, CleanupHistoryRecord, RiskLevel, ScanReport,
     detect_agent_projects, item_cleanup_bucket, save_settings, Language,
 };
-use clv_platform::primary_disk_usage;
+use clv_platform::{list_disk_volumes, primary_disk_usage, DiskVolume, empty_system_trash, pick_folders};
 use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
@@ -22,6 +22,7 @@ pub enum AppPage {
     Agent,
     Startup,
     Process,
+    LargeFiles,
     Settings,
     Onboarding,
 }
@@ -39,6 +40,7 @@ impl AppPage {
             Self::Agent => "page-agent",
             Self::Startup => "page-startup",
             Self::Process => "page-process",
+            Self::LargeFiles => "page-large-files",
             Self::Settings => "page-settings",
             Self::Onboarding => "page-onboarding",
         }
@@ -81,6 +83,8 @@ pub struct AppStore {
     pub process_refresh_trigger: u64,
     pub cleanup_history: CleanupHistory,
     pub pending_cleanup_notification: Option<String>,
+    pub disk_volumes: Vec<DiskVolume>,
+    pub system_trash_bytes: Option<u64>,
 }
 
 impl AppStore {
@@ -119,6 +123,8 @@ impl AppStore {
             process_refresh_trigger: 0,
             cleanup_history: CleanupHistory::load(),
             pending_cleanup_notification: None,
+            disk_volumes: Vec::new(),
+            system_trash_bytes: None,
         }
     }
 
@@ -156,9 +162,72 @@ impl AppStore {
             let usage = std::thread::spawn(disk_usage)
                 .join()
                 .unwrap_or(default_disk_usage());
+            let volumes = std::thread::spawn(list_disk_volumes).join().unwrap_or_default();
+            let trash_bytes = std::thread::spawn(clv_platform::system_trash_bytes)
+                .join()
+                .ok()
+                .flatten();
             weak.update(cx, |store, cx| {
                 store.disk_total = usage.0;
                 store.disk_used = usage.1;
+                store.disk_volumes = volumes;
+                store.system_trash_bytes = trash_bytes;
+                let tip = store.i18n().tray_tooltip(store.disk_used_percent());
+                crate::tray::TrayController::set_global_tooltip(&tip);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn pick_scan_folders(&mut self, cx: &mut Context<Self>) {
+        let title = self.i18n().pick_folders_title().to_string();
+        cx.spawn(async move |weak, cx| {
+            let picked = std::thread::spawn(move || pick_folders(&title))
+                .join()
+                .unwrap_or_default();
+            if picked.is_empty() {
+                return;
+            }
+            weak.update(cx, |store, cx| {
+                for path in picked {
+                    if !store.settings.scan_paths.iter().any(|p| p == &path) {
+                        store.settings.scan_paths.push(path);
+                    }
+                }
+                let _ = save_settings(&store.settings);
+                store.status_message = Some(store.i18n().folders_added().into());
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn run_cleanup_safe(&mut self, cx: &mut Context<Self>) -> bool {
+        if let Some(report) = &self.last_report {
+            self.selected_item_ids = default_selected_item_ids(&report.items);
+        }
+        self.run_cleanup(cx)
+    }
+
+    pub fn empty_system_trash_async(&mut self, cx: &mut Context<Self>) {
+        let i18n = self.i18n();
+        self.status_message = Some(i18n.emptying_trash().into());
+        cx.notify();
+
+        cx.spawn(async move |weak, cx| {
+            let result = std::thread::spawn(empty_system_trash).join();
+            weak.update(cx, |store, cx| {
+                let i18n = store.i18n();
+                store.status_message = Some(match result {
+                    Ok(Ok(bytes)) => i18n.trash_emptied(bytes),
+                    Ok(Err(e)) => i18n.trash_empty_failed(&e.to_string()),
+                    Err(_) => i18n.trash_empty_failed("internal error"),
+                });
+                store.system_trash_bytes = clv_platform::system_trash_bytes();
+                store.refresh_disk_usage_sync();
                 cx.notify();
             })
             .ok();

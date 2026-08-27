@@ -2,6 +2,7 @@ pub mod agent;
 pub mod agent_sessions;
 pub mod category;
 pub mod cleanup;
+pub mod large_files;
 pub mod locale;
 pub mod messages;
 pub mod models;
@@ -16,6 +17,7 @@ pub use messages::{
     agent_reason_matches_query, format_agent_reason, rule_description_matches_query,
     AgentReasonPart, RuleDescription,
 };
+pub use large_files::{scan_large_files, LargeFileEntry, LARGE_FILE_THRESHOLD_BYTES};
 pub use models::*;
 pub use scanner::Scanner;
 pub use locale::{

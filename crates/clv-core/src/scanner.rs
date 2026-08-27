@@ -124,6 +124,7 @@ impl Scanner {
         let mut report = ScanReport {
             items,
             agent_projects: Vec::new(),
+            large_files: Vec::new(),
             scanned_at: Some(Utc::now()),
             scan_duration_ms: started.elapsed().as_millis() as u64,
             roots_scanned,
@@ -134,6 +135,8 @@ impl Scanner {
                 crate::agent::detect_agent_projects(&report.items, &self.settings.scan_paths);
             self.tag_agent_items(&mut report);
         }
+
+        report.large_files = crate::large_files::scan_large_files(&self.settings.scan_paths);
 
         report
     }
