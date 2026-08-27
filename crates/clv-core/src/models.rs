@@ -152,6 +152,10 @@ pub struct ScanReport {
     pub scanned_at: Option<DateTime<Utc>>,
     pub scan_duration_ms: u64,
     pub roots_scanned: Vec<PathBuf>,
+    #[serde(default)]
+    pub cancelled: bool,
+    #[serde(default)]
+    pub sizes_truncated: bool,
 }
 
 impl ScanReport {

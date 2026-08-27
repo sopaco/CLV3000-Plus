@@ -163,11 +163,11 @@ impl Render for OnboardingView {
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             let title = this.store.read(cx).i18n().pick_folders_title().to_string();
                                             cx.spawn(async move |weak, cx| {
-                                                let picked = std::thread::spawn(move || {
-                                                    clv_platform::pick_folders(&title)
-                                                })
-                                                .join()
-                                                .unwrap_or_default();
+                                                let picked = cx
+                                                    .background_spawn(async move {
+                                                        clv_platform::pick_folders(&title)
+                                                    })
+                                                    .await;
                                                 if picked.is_empty() {
                                                     return;
                                                 }

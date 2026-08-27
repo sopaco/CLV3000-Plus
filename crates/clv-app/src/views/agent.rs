@@ -5,6 +5,7 @@ use crate::theme::colors;
 use clv_core::{agent_reason_matches_query, format_agent_reason, AgentProject, RiskLevel};
 use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
 use gpui_component::input::{Input, InputEvent, InputState};
+use std::sync::Arc;
 
 /// Virtualized row slot — card body + gap between rows.
 const AGENT_ROW_H: f32 = 104.;
@@ -189,7 +190,7 @@ impl AgentView {
                                             .child(
                                                 ui::action_button(
                                                     clean_id,
-                                                    i18n.clean_cache(),
+                                                    i18n.review_in_cleanup(),
                                                     Some(ui::ACTION_CLEAN),
                                                     true,
                                                     cx,
@@ -198,11 +199,47 @@ impl AgentView {
                                                 .on_click({
                                                     let store = store_clean.clone();
                                                     let project_path = path.clone();
-                                                    move |_, _, cx| {
-                                                        store.update(cx, |s, cx| {
-                                                            s.select_project_items(&project_path);
-                                                            s.set_page(AppPage::Cleanup, cx);
+                                                    move |_, window, cx| {
+                                                        let caution = store
+                                                            .read(cx)
+                                                            .project_has_caution_items(&project_path);
+                                                        let go = Arc::new({
+                                                            let store = store.clone();
+                                                            let project_path = project_path.clone();
+                                                            move |cx: &mut App| {
+                                                                store.update(cx, |s, cx| {
+                                                                    s.select_project_items(
+                                                                        &project_path,
+                                                                    );
+                                                                    s.set_page(
+                                                                        AppPage::Cleanup,
+                                                                        cx,
+                                                                    );
+                                                                });
+                                                            }
                                                         });
+                                                        if caution {
+                                                            let i18n = store.read(cx).i18n();
+                                                            window.open_dialog(cx, move |dialog, _, _| {
+                                                                dialog
+                                                                    .title(
+                                                                        i18n.confirm_caution_items_title(),
+                                                                    )
+                                                                    .child(
+                                                                        i18n.confirm_caution_items_body(),
+                                                                    )
+                                                                    .confirm()
+                                                                    .on_ok({
+                                                                        let go = go.clone();
+                                                                        move |_, _, cx| {
+                                                                            go(cx);
+                                                                            true
+                                                                        }
+                                                                    })
+                                                            });
+                                                        } else {
+                                                            go(cx);
+                                                        }
                                                     }
                                                 }),
                                             ),

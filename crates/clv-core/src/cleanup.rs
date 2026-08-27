@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -23,6 +24,15 @@ pub struct CleanupReport {
     pub successful_paths: Vec<PathBuf>,
     pub failed: Vec<(PathBuf, String)>,
     pub trashed: Vec<PathBuf>,
+    pub trashed_entries: Vec<TrashedEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrashedEntry {
+    pub original: PathBuf,
+    pub trash_path: PathBuf,
+    pub size_bytes: u64,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +41,8 @@ pub struct CleanupHistoryRecord {
     pub freed_bytes: u64,
     pub success_count: usize,
     pub failed_count: usize,
+    #[serde(default)]
+    pub trashed: Vec<TrashedEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +120,24 @@ impl CleanupHistory {
         let cutoff = Utc::now() - Duration::days(days);
         self.records.iter().filter(|r| r.timestamp >= cutoff).count()
     }
+
+    pub fn restorable_entries(&self) -> Vec<TrashedEntry> {
+        let mut entries: Vec<TrashedEntry> = self
+            .records
+            .iter()
+            .rev()
+            .flat_map(|r| r.trashed.iter().cloned())
+            .filter(|e| e.trash_path.exists())
+            .collect();
+        entries.dedup_by(|a, b| a.trash_path == b.trash_path);
+        entries
+    }
+
+    pub fn remove_trashed(&mut self, trash_path: &Path) {
+        for record in &mut self.records {
+            record.trashed.retain(|e| e.trash_path != trash_path);
+        }
+    }
 }
 
 fn cleanup_history_path() -> Option<PathBuf> {
@@ -124,7 +154,19 @@ impl CleanupExecutor {
         Self { settings }
     }
 
-    pub fn execute<F>(&self, items: &[ScanItem], mut on_progress: F) -> CleanupReport
+    pub fn execute<F>(&self, items: &[ScanItem], on_progress: F) -> CleanupReport
+    where
+        F: FnMut(CleanupProgress),
+    {
+        self.execute_cancellable(items, &AtomicBool::new(false), on_progress)
+    }
+
+    pub fn execute_cancellable<F>(
+        &self,
+        items: &[ScanItem],
+        cancel: &AtomicBool,
+        mut on_progress: F,
+    ) -> CleanupReport
     where
         F: FnMut(CleanupProgress),
     {
@@ -134,6 +176,7 @@ impl CleanupExecutor {
             successful_paths: Vec::new(),
             failed: Vec::new(),
             trashed: Vec::new(),
+            trashed_entries: Vec::new(),
         };
 
         let runnable: Vec<&ScanItem> = items
@@ -145,6 +188,9 @@ impl CleanupExecutor {
         let total = runnable.len();
 
         for (index, item) in runnable.iter().enumerate() {
+            if cancel.load(Ordering::Relaxed) {
+                break;
+            }
             on_progress(CleanupProgress {
                 completed: index,
                 total,
@@ -160,7 +206,13 @@ impl CleanupExecutor {
                     report.success_count += 1;
                     report.successful_paths.push(item.path.clone());
                     if let Some(p) = trash_path {
-                        report.trashed.push(p);
+                        report.trashed.push(p.clone());
+                        report.trashed_entries.push(TrashedEntry {
+                            original: item.path.clone(),
+                            trash_path: p,
+                            size_bytes: size,
+                            name: item.name.clone(),
+                        });
                     }
                 }
                 Err(e) => {
@@ -307,6 +359,20 @@ pub fn purge_old_trash(days: u32) -> anyhow::Result<u64> {
         }
     }
     Ok(freed)
+}
+
+pub fn restore_trashed(entry: &TrashedEntry) -> anyhow::Result<()> {
+    if !entry.trash_path.exists() {
+        anyhow::bail!("trash item is gone");
+    }
+    if entry.original.exists() {
+        anyhow::bail!("original path already exists");
+    }
+    if let Some(parent) = entry.original.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    move_entry(&entry.trash_path, &entry.original)?;
+    Ok(())
 }
 
 fn dir_size_quick(path: &Path) -> u64 {

@@ -446,6 +446,7 @@ fn language_pill(
         store.update(cx, |s, cx| {
             s.settings.language = preference;
             let _ = save_settings(&s.settings);
+            crate::tray::TrayController::set_global_menu(s.language());
             cx.notify();
         });
     })

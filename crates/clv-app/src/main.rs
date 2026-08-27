@@ -16,25 +16,56 @@ mod views;
 
 use actions::CloseWindow;
 use app::{shell::AppShell, ClvApp};
+use clv_core::load_settings;
 use gpui::*;
 use gpui_component::*;
-use clv_core::load_settings;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use theme::apply_theme;
-use tray::{new_pending_slot, TrayController, TrayPending};
-use std::sync::OnceLock;
+use tray::{
+    new_pending_slot, take_pending, tray_language_from_settings, TrayAction, TrayController,
+    TrayPending,
+};
 
 static TRAY_PENDING: OnceLock<TrayPending> = OnceLock::new();
+static MAIN_WINDOW: Mutex<Option<WindowHandle<Root>>> = Mutex::new(None);
 
 fn tray_pending() -> TrayPending {
     TRAY_PENDING
         .get_or_init(|| {
             let pending = new_pending_slot();
-            if !TrayController::install("CLV3000 Plus", pending.clone()) {
+            let lang = tray_language_from_settings(load_settings().language);
+            if !TrayController::install("CLV3000 Plus", pending.clone(), lang) {
                 tracing::warn!("system tray unavailable on this platform");
             }
             pending
         })
         .clone()
+}
+
+fn remember_window(handle: WindowHandle<Root>) {
+    if let Ok(mut slot) = MAIN_WINDOW.lock() {
+        *slot = Some(handle);
+    }
+}
+
+fn ensure_main_window(cx: &mut App) {
+    cx.activate(true);
+    let handle = MAIN_WINDOW.lock().ok().and_then(|g| g.clone());
+    if let Some(handle) = handle {
+        if handle
+            .update(cx, |_, window, _| {
+                window.activate_window();
+            })
+            .is_ok()
+        {
+            return;
+        }
+    }
+    match open_main_window(cx) {
+        Ok(handle) => remember_window(handle),
+        Err(e) => tracing::error!("open window: {e}"),
+    }
 }
 
 fn main() {
@@ -55,11 +86,31 @@ fn main() {
         platform::apply_app_icon();
         init_window_close_shortcuts(cx);
         let _ = tray_pending();
+        let pending = tray_pending();
+        cx.spawn(async move |cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+                let action = take_pending(&pending);
+                if action.is_none() {
+                    continue;
+                }
+                let _ = cx.update(|cx| match action {
+                    Some(TrayAction::Open) => ensure_main_window(cx),
+                    Some(TrayAction::Scan) => ensure_main_window(cx),
+                    Some(TrayAction::Quit) => cx.quit(),
+                    None => {}
+                });
+            }
+        })
+        .detach();
         #[cfg(target_os = "macos")]
         init_macos_menus(cx);
         let options = window_options(cx);
         cx.spawn(async move |cx| {
-            cx.open_window(options, build_root_view)?;
+            let handle = cx.open_window(options, build_root_view)?;
+            remember_window(handle);
             Ok::<_, anyhow::Error>(())
         })
         .detach();
@@ -81,7 +132,9 @@ fn build_root_view(window: &mut Window, cx: &mut App) -> Entity<Root> {
 }
 
 fn open_main_window(app: &mut App) -> anyhow::Result<WindowHandle<Root>> {
-    app.open_window(window_options(app), build_root_view)
+    let handle = app.open_window(window_options(app), build_root_view)?;
+    remember_window(handle.clone());
+    Ok(handle)
 }
 
 fn close_active_window(_: &CloseWindow, cx: &mut App) {

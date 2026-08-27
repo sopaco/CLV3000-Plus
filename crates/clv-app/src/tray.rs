@@ -1,7 +1,10 @@
 //! System tray / menu bar integration.
 
+use crate::i18n::I18n;
+use clv_core::{resolve_language, Language, LanguagePreference};
 use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
@@ -14,19 +17,25 @@ pub enum TrayAction {
 
 pub type TrayPending = Arc<Mutex<Option<TrayAction>>>;
 
+static SCAN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
 thread_local! {
-    static TRAY: RefCell<Option<&'static TrayController>> = const { RefCell::new(None) };
+    static TRAY: RefCell<Option<&'static Mutex<TrayIcon>>> = const { RefCell::new(None) };
 }
 
-pub struct TrayController {
-    _tray: TrayIcon,
+pub fn take_scan_request() -> bool {
+    SCAN_REQUESTED.swap(false, Ordering::Relaxed)
 }
+
+pub fn request_scan() {
+    SCAN_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+pub struct TrayController;
 
 impl TrayController {
-    pub fn install(initial_tooltip: &str, pending: TrayPending) -> bool {
-        let (menu_tx, _menu_rx) = std::sync::mpsc::channel::<TrayAction>();
-
-        let Some(menu) = build_menu() else {
+    pub fn install(initial_tooltip: &str, pending: TrayPending, lang: Language) -> bool {
+        let Some(menu) = build_menu(lang) else {
             return false;
         };
         let Some(icon) = tray_icon() else {
@@ -45,6 +54,9 @@ impl TrayController {
         let pending_menu = pending.clone();
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
             if let Some(action) = menu_action_for_id(event.id().as_ref()) {
+                if matches!(action, TrayAction::Scan) {
+                    request_scan();
+                }
                 if let Ok(mut slot) = pending_menu.lock() {
                     *slot = Some(action);
                 }
@@ -60,9 +72,7 @@ impl TrayController {
             }
         }));
 
-        let _ = menu_tx;
-        let controller = Self { _tray: tray };
-        let leaked: &'static TrayController = Box::leak(Box::new(controller));
+        let leaked: &'static Mutex<TrayIcon> = Box::leak(Box::new(Mutex::new(tray)));
         TRAY.with(|slot| {
             *slot.borrow_mut() = Some(leaked);
         });
@@ -72,24 +82,43 @@ impl TrayController {
     pub fn set_global_tooltip(text: &str) {
         TRAY.with(|slot| {
             if let Some(tray) = *slot.borrow() {
-                tray.set_tooltip(text);
+                if let Ok(icon) = tray.lock() {
+                    let _ = icon.set_tooltip(Some(text));
+                }
             }
         });
     }
 
-    pub fn set_tooltip(&self, text: &str) {
-        let _ = self._tray.set_tooltip(Some(text));
+    pub fn set_global_menu(lang: Language) {
+        TRAY.with(|slot| {
+            if let Some(tray) = *slot.borrow() {
+                if let (Ok(icon), Some(menu)) = (tray.lock(), build_menu(lang)) {
+                    icon.set_menu(Some(Box::new(menu)));
+                }
+            }
+        });
     }
 }
 
-fn build_menu() -> Option<Menu> {
+fn build_menu(lang: Language) -> Option<Menu> {
+    let i18n = I18n { lang };
     let menu = Menu::new();
-    menu.append(&MenuItem::with_id("clv-tray-open", "Open CLV3000 Plus", true, None))
-        .ok()?;
-    menu.append(&MenuItem::with_id("clv-tray-scan", "Scan Now", true, None))
-        .ok()?;
+    menu.append(&MenuItem::with_id(
+        "clv-tray-open",
+        i18n.tray_open(),
+        true,
+        None,
+    ))
+    .ok()?;
+    menu.append(&MenuItem::with_id(
+        "clv-tray-scan",
+        i18n.tray_scan(),
+        true,
+        None,
+    ))
+    .ok()?;
     menu.append(&PredefinedMenuItem::separator()).ok()?;
-    menu.append(&MenuItem::with_id("clv-tray-quit", "Quit", true, None))
+    menu.append(&MenuItem::with_id("clv-tray-quit", i18n.tray_quit(), true, None))
         .ok()?;
     Some(menu)
 }
@@ -126,4 +155,8 @@ pub fn new_pending_slot() -> TrayPending {
 
 pub fn take_pending(pending: &TrayPending) -> Option<TrayAction> {
     pending.lock().ok()?.take()
+}
+
+pub fn tray_language_from_settings(pref: LanguagePreference) -> Language {
+    resolve_language(pref)
 }

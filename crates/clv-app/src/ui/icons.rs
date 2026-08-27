@@ -16,6 +16,7 @@ pub fn nav_cleanup_icon() -> Icon {
 pub const NAV_AGENT: IconName = IconName::FolderOpen;
 pub const NAV_STARTUP: IconName = IconName::Building2;
 pub const NAV_PROCESS: IconName = IconName::SquareTerminal;
+pub const NAV_LARGE_FILES: IconName = IconName::File;
 pub const NAV_SETTINGS: IconName = IconName::Settings;
 
 /// Brand / status

@@ -1,54 +1,15 @@
 use crate::messages::AgentReasonPart;
 use crate::models::{AgentProject, ScanItem, TechStack};
-use crate::scanner::{detect_project_stacks, is_agent_project_path};
-use crate::settings::{agent_marker_files, is_protected_system_path};
+use crate::scanner::{agent_path_signals, detect_project_stacks};
 use chrono::Utc;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
-pub fn discover_agent_roots(scan_paths: &[PathBuf]) -> Vec<PathBuf> {
-    let mut roots = HashSet::new();
-    let marker_dirs: HashSet<&str> = agent_marker_files()
-        .iter()
-        .filter(|m| m.starts_with('.'))
-        .copied()
-        .collect();
+const MARKER_INACTIVE_DAYS: i64 = 14;
 
-    for root in scan_paths {
-        if !root.exists() || is_protected_system_path(root) {
-            continue;
-        }
-        for entry in WalkDir::new(root)
-            .follow_links(false)
-            .max_depth(8)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            let path = entry.path();
-            if is_protected_system_path(path) {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy();
-            if marker_dirs.contains(name.as_ref()) {
-                if let Some(parent) = path.parent() {
-                    roots.insert(parent.to_path_buf());
-                }
-            }
-            if name == "AGENTS.md" || name == "CLAUDE.md" {
-                if let Some(parent) = path.parent() {
-                    roots.insert(parent.to_path_buf());
-                }
-            }
-        }
-    }
-
-    let mut list: Vec<PathBuf> = roots.into_iter().collect();
-    list.sort();
-    list
-}
-
-pub fn detect_agent_projects(items: &[ScanItem], scan_paths: &[PathBuf]) -> Vec<AgentProject> {
+/// Group cleanup items and known agent roots. Marker-only projects surface
+/// when inactive; name-pattern hits always surface. Does not walk the disk.
+pub fn detect_agent_projects(items: &[ScanItem], known_agent_roots: &[PathBuf]) -> Vec<AgentProject> {
     let mut by_root: HashMap<PathBuf, Vec<ScanItem>> = HashMap::new();
 
     for item in items {
@@ -57,14 +18,14 @@ pub fn detect_agent_projects(items: &[ScanItem], scan_paths: &[PathBuf]) -> Vec<
         }
     }
 
-    for root in discover_agent_roots(scan_paths) {
-        by_root.entry(root).or_default();
+    for root in known_agent_roots {
+        by_root.entry(root.clone()).or_default();
     }
 
     let mut projects = Vec::new();
 
     for (root, root_items) in by_root {
-        let (is_agent, mut reason_parts) = is_agent_project_path(&root);
+        let (name_hit, marker_hit, mut reason_parts) = agent_path_signals(&root);
         let stacks = detect_project_stacks(&root);
         let is_zombie = !root_items.is_empty()
             && root_items.iter().all(|i| {
@@ -72,10 +33,6 @@ pub fn detect_agent_projects(items: &[ScanItem], scan_paths: &[PathBuf]) -> Vec<
                     .map(|m| (Utc::now() - m).num_days() > 30)
                     .unwrap_or(true)
             });
-
-        if !is_agent && !is_zombie {
-            continue;
-        }
 
         let total_bytes: u64 = root_items.iter().map(|i| i.size_bytes).sum();
         let last_modified = root_items
@@ -85,12 +42,29 @@ pub fn detect_agent_projects(items: &[ScanItem], scan_paths: &[PathBuf]) -> Vec<
             .or_else(|| last_modified_dir(&root));
 
         let days_inactive = last_modified.map(|m| (Utc::now() - m).num_days());
+        let long_inactive = days_inactive.unwrap_or(i64::MAX) >= MARKER_INACTIVE_DAYS;
 
-        if !is_agent {
+        // Name-pattern experiment folders always count. Marker files
+        // (AGENTS.md, .cursor, …) only count after inactivity so real
+        // repos that adopted agent tooling are not listed as leftovers.
+        if !name_hit && !(marker_hit && (long_inactive || is_zombie)) {
+            continue;
+        }
+
+        if !name_hit && !marker_hit {
             reason_parts = vec![AgentReasonPart::LongUnusedProject];
         }
-        if is_zombie {
-            reason_parts.push(AgentReasonPart::InactiveOver30Days);
+        if is_zombie || long_inactive {
+            if !reason_parts
+                .iter()
+                .any(|p| matches!(p, AgentReasonPart::InactiveOver30Days | AgentReasonPart::LongUnusedProject))
+            {
+                reason_parts.push(if is_zombie {
+                    AgentReasonPart::InactiveOver30Days
+                } else {
+                    AgentReasonPart::LongUnusedProject
+                });
+            }
         }
 
         let name = root

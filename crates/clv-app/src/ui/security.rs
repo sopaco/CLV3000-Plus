@@ -105,10 +105,11 @@ pub fn soft_card() -> Div {
 
 pub fn compute_health(store: &AppStore) -> (u8, String, Hsla) {
     let i18n = store.i18n();
-    if store.scanning {
-        return (0, i18n.health_scanning().to_string(), colors::accent_cyan());
-    }
+    let scanning = store.scanning;
     let Some(report) = &store.last_report else {
+        if scanning {
+            return (0, i18n.health_scanning().to_string(), colors::accent_cyan());
+        }
         return (
             0,
             i18n.health_no_scan().to_string(),
@@ -141,7 +142,9 @@ pub fn compute_health(store: &AppStore) -> (u8, String, Hsla) {
         .saturating_sub(junk_penalty)
         .saturating_sub(agent_penalty)
         .saturating_sub(startup_penalty);
-    let (msg, color) = if score >= 90 {
+    let (msg, color) = if scanning {
+        (i18n.health_scanning(), colors::accent_cyan())
+    } else if score >= 90 {
         (i18n.health_excellent(), colors::safe_green())
     } else if score >= 75 {
         (i18n.health_good(), colors::accent_cyan())
@@ -688,6 +691,8 @@ pub fn scan_progress_bar(
     items_found: usize,
     bytes_found: u64,
     current_path: Option<&str>,
+    on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
 ) -> Div {
     let pct = (items_found.min(80) as f32 / 80.0 * 100.0).min(99.0);
     let detail = i18n.scan_bar_detail(phase, items_found, bytes_found, current_path);
@@ -717,10 +722,8 @@ pub fn scan_progress_bar(
                                 ),
                         )
                         .child(
-                            div()
-                                .text_sm()
-                                .text_color(colors::text_muted())
-                                .child(i18n.scan_switch_pages_hint()),
+                            crate::ui::ghost_pill("scan-cancel", i18n.cancel(), false, cx)
+                                .on_click(on_cancel),
                         ),
                 )
                 .child(
@@ -746,6 +749,8 @@ pub fn cleanup_progress_bar(
     total: usize,
     freed_bytes: u64,
     current_path: Option<&str>,
+    on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
 ) -> Div {
     let pct = if total == 0 {
         0.0
@@ -779,10 +784,8 @@ pub fn cleanup_progress_bar(
                                 ),
                         )
                         .child(
-                            div()
-                                .text_sm()
-                                .text_color(colors::text_muted())
-                                .child(i18n.cleanup_switch_pages_hint()),
+                            crate::ui::ghost_pill("cleanup-cancel", i18n.cancel(), false, cx)
+                                .on_click(on_cancel),
                         ),
                 )
                 .child(

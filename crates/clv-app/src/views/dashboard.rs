@@ -119,9 +119,42 @@ impl Render for DashboardView {
                         i18n.clean_safe_items(),
                         {
                             let store = store_entity.clone();
-                            move |_, _, cx| {
-                                store.update(cx, |s, cx| {
-                                    s.run_cleanup_safe(cx);
+                            move |_, window, cx| {
+                                let (count, bytes, i18n) = {
+                                    let s = store.read(cx);
+                                    let ids = s
+                                        .last_report
+                                        .as_ref()
+                                        .map(|r| clv_core::default_selected_item_ids(&r.items))
+                                        .unwrap_or_default();
+                                    let bytes = s
+                                        .last_report
+                                        .as_ref()
+                                        .map(|r| {
+                                            r.items
+                                                .iter()
+                                                .filter(|i| ids.contains(&i.id))
+                                                .map(|i| i.size_bytes)
+                                                .sum::<u64>()
+                                        })
+                                        .unwrap_or(0);
+                                    (ids.len(), bytes, s.i18n())
+                                };
+                                let store_ok = store.clone();
+                                window.open_dialog(cx, move |dialog, _, _| {
+                                    dialog
+                                        .title(i18n.confirm_cleanup_title())
+                                        .child(i18n.confirm_cleanup_body(count, bytes))
+                                        .confirm()
+                                        .on_ok({
+                                            let store = store_ok.clone();
+                                            move |_, _, cx| {
+                                                store.update(cx, |s, cx| {
+                                                    s.run_cleanup_safe(cx);
+                                                });
+                                                true
+                                            }
+                                        })
                                 });
                             }
                         },
@@ -297,7 +330,7 @@ impl Render for DashboardView {
                             .child(feature_line(i18n.feature_startup()))
                             .child(feature_line(i18n.feature_process())),
                     )
-                    .child(history_card(&store.cleanup_history, &i18n)),
+                    .child(history_card(&store.cleanup_history, store_entity.clone(), &i18n, cx)),
             ))
     }
 }
@@ -485,15 +518,36 @@ fn system_actions_card(
                     ui::action_button("empty-trash", i18n.empty_system_trash(), None, false, cx)
                         .on_click({
                             let store = store.clone();
-                            move |_, _, cx| {
-                                store.update(cx, |s, cx| s.empty_system_trash_async(cx));
+                            move |_, window, cx| {
+                                let i18n = store.read(cx).i18n();
+                                let store_ok = store.clone();
+                                window.open_dialog(cx, move |dialog, _, _| {
+                                    dialog
+                                        .title(i18n.confirm_empty_trash_title())
+                                        .child(i18n.confirm_empty_trash_body())
+                                        .confirm()
+                                        .on_ok({
+                                            let store = store_ok.clone();
+                                            move |_, _, cx| {
+                                                store.update(cx, |s, cx| {
+                                                    s.empty_system_trash_async(cx);
+                                                });
+                                                true
+                                            }
+                                        })
+                                });
                             }
                         }),
                 ),
         )
 }
 
-fn history_card(history: &CleanupHistory, i18n: &I18n) -> Div {
+fn history_card(
+    history: &CleanupHistory,
+    store: Entity<AppStore>,
+    i18n: &I18n,
+    cx: &App,
+) -> Div {
     let freed_7d = history.freed_in_days(7);
     let freed_30d = history.freed_in_days(30);
     let cleanups_7d = history.cleanup_count_in_days(7);
@@ -551,6 +605,47 @@ fn history_card(history: &CleanupHistory, i18n: &I18n) -> Div {
                     .text_sm()
                     .text_color(colors::text_muted())
                     .child(i18n.history_7d_detail(success_7d, failed_7d)),
+            );
+        }
+    }
+
+    let restorable = history.restorable_entries();
+    if !restorable.is_empty() {
+        card = card.child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(colors::text_primary())
+                .child(i18n.recently_trashed_title()),
+        );
+        for (index, entry) in restorable.into_iter().take(8).enumerate() {
+            let name = entry.name.clone();
+            let store_btn = store.clone();
+            let id = SharedString::from(format!("restore-{index}"));
+            card = card.child(
+                h_flex()
+                    .justify_between()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_sm()
+                            .text_color(colors::text_secondary())
+                            .truncate()
+                            .child(name.clone()),
+                    )
+                    .child(
+                        ui::ghost_pill(id, i18n.restore(), false, cx).on_click({
+                            let store = store_btn;
+                            move |_, _, cx| {
+                                store.update(cx, |s, cx| {
+                                    s.restore_trashed_entry(entry.clone(), cx);
+                                });
+                            }
+                        }),
+                    ),
             );
         }
     }

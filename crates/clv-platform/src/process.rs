@@ -104,23 +104,23 @@ pub fn kill_process(pid: u32) -> anyhow::Result<()> {
 fn kill_process_unix(pid: u32) -> anyhow::Result<()> {
     let pid_s = pid.to_string();
 
-    if let Ok(out) = std::process::Command::new("/bin/kill")
-        .args(["-9", &pid_s])
-        .output()
-    {
-        if out.status.success() {
+    if signal_process(&pid_s, "-TERM")? {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        if !process_exists(&pid_s) {
             return Ok(());
         }
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        if stderr.contains("No such process") {
-            return Ok(());
-        }
+    }
+
+    if signal_process(&pid_s, "-9")? {
+        return Ok(());
     }
 
     unsafe {
         let pid_i32 = pid as i32;
         let pgid = libc::getpgid(pid_i32);
         if pgid > 0 {
+            let _ = libc::kill(-pgid, libc::SIGTERM);
+            std::thread::sleep(std::time::Duration::from_millis(200));
             let _ = libc::kill(-pgid, libc::SIGKILL);
         }
         if libc::kill(pid_i32, libc::SIGKILL) == 0 {
@@ -132,6 +132,34 @@ fn kill_process_unix(pid: u32) -> anyhow::Result<()> {
         }
         anyhow::bail!("无法结束进程 {pid}：{err}");
     }
+}
+
+#[cfg(unix)]
+fn signal_process(pid_s: &str, signal: &str) -> anyhow::Result<bool> {
+    match std::process::Command::new("/bin/kill")
+        .args([signal, pid_s])
+        .output()
+    {
+        Ok(out) if out.status.success() => Ok(true),
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if stderr.contains("No such process") {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+        Err(_) => Ok(false),
+    }
+}
+
+#[cfg(unix)]
+fn process_exists(pid_s: &str) -> bool {
+    std::process::Command::new("/bin/kill")
+        .args(["-0", pid_s])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "windows")]

@@ -12,7 +12,10 @@ pub mod settings;
 
 pub use agent::detect_agent_projects;
 pub use category::CleanupCategory;
-pub use cleanup::{CleanupExecutor, CleanupHistory, CleanupHistoryRecord, CleanupProgress, CleanupReport};
+pub use cleanup::{
+    restore_trashed, purge_old_trash, CleanupExecutor, CleanupHistory, CleanupHistoryRecord,
+    CleanupProgress, CleanupReport, TrashedEntry,
+};
 pub use messages::{
     agent_reason_matches_query, format_agent_reason, rule_description_matches_query,
     AgentReasonPart, RuleDescription,
@@ -25,7 +28,10 @@ pub use locale::{
     scan_phase_preparing, scan_phase_scanning_path, scan_phase_scanning_projects, tr, Language,
     LanguagePreference, ThemePreference,
 };
-pub use settings::{format_scan_paths, load_settings, parse_scan_paths, save_settings, AppSettings};
+pub use settings::{
+    format_scan_paths, load_last_scan, load_settings, parse_scan_paths, save_last_scan,
+    save_settings, AppSettings,
+};
 
 #[cfg(test)]
 mod tests {
@@ -344,5 +350,38 @@ mod tests {
         let (is_agent, parts) = crate::scanner::is_agent_project_path(&project);
         assert!(is_agent);
         assert!(!parts.is_empty());
+    }
+
+    #[test]
+    fn detect_agent_projects_skips_active_marker_only_repos() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("real-app");
+        std::fs::create_dir_all(project.join(".cursor")).unwrap();
+        std::fs::write(project.join("AGENTS.md"), "# agents").unwrap();
+        let projects = detect_agent_projects(&[], &[project.clone()]);
+        assert!(
+            projects.is_empty(),
+            "active repos with AGENTS.md/.cursor must not be listed: {projects:?}"
+        );
+    }
+
+    #[test]
+    fn detect_agent_projects_keeps_name_pattern_hits() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("claude-experiment");
+        std::fs::create_dir_all(&project).unwrap();
+        let projects = detect_agent_projects(&[], &[project.clone()]);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].path, project);
+    }
+
+    #[test]
+    fn scan_cancellable_stops_when_flag_set() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let cancel = AtomicBool::new(true);
+        let mut settings = AppSettings::default();
+        settings.scan_paths = vec![PathBuf::from("/tmp")];
+        let report = Scanner::new(settings).scan_cancellable(|_| {}, &cancel);
+        assert!(report.cancelled || cancel.load(Ordering::Relaxed));
     }
 }

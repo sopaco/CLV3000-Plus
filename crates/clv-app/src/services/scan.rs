@@ -1,5 +1,5 @@
 use clv_core::{ScanProgress, ScanReport, Scanner, AppSettings};
-use std::sync::mpsc;
+use std::sync::{atomic::AtomicBool, mpsc, Arc};
 
 pub enum ScanEvent {
     Progress(ScanProgress),
@@ -17,14 +17,17 @@ pub enum ScanPoll {
     Idle,
 }
 
-pub fn spawn_scan(settings: AppSettings) -> ScanSpawn {
+pub fn spawn_scan(settings: AppSettings, cancel: Arc<AtomicBool>) -> ScanSpawn {
     let (tx, rx) = mpsc::sync_channel::<ScanEvent>(64);
 
     std::thread::spawn(move || {
         let scanner = Scanner::new(settings);
-        let report = scanner.scan(|progress| {
-            let _ = tx.try_send(ScanEvent::Progress(progress));
-        });
+        let report = scanner.scan_cancellable(
+            |progress| {
+                let _ = tx.try_send(ScanEvent::Progress(progress));
+            },
+            &cancel,
+        );
         let _ = tx.send(ScanEvent::Done(report));
     });
 

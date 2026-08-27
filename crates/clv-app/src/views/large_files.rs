@@ -2,7 +2,10 @@ use crate::app::state::AppStore;
 use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::{colors, corner};
-use clv_core::{format_bytes, LargeFileEntry, LARGE_FILE_THRESHOLD_BYTES};
+use clv_core::{
+    format_bytes, CleanupCategory, LargeFileEntry, RiskLevel, RuleDescription, ScanItem, TechStack,
+    LARGE_FILE_THRESHOLD_BYTES,
+};
 
 pub struct LargeFilesView {
     store: Entity<AppStore>,
@@ -24,6 +27,7 @@ impl Render for LargeFilesView {
             .map(|r| r.large_files.clone())
             .unwrap_or_default();
         let threshold = format_bytes(LARGE_FILE_THRESHOLD_BYTES);
+        let store_entity = self.store.clone();
 
         div()
             .size_full()
@@ -52,15 +56,18 @@ impl Render for LargeFilesView {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .children(files.iter().map(|file| file_row(file, &i18n)))
+                            .children(files.iter().map(|file| {
+                                file_row(file, &i18n, store_entity.clone(), cx)
+                            }))
                             .into_any_element()
                     }),
             ))
     }
 }
 
-fn file_row(file: &LargeFileEntry, i18n: &I18n) -> Div {
+fn file_row(file: &LargeFileEntry, i18n: &I18n, store: Entity<AppStore>, _cx: &App) -> Div {
     let path = file.path.clone();
+    let entry = file.clone();
     h_flex()
         .w_full()
         .p_3()
@@ -103,4 +110,52 @@ fn file_row(file: &LargeFileEntry, i18n: &I18n) -> Div {
             &path,
             i18n,
         ))
+        .child(
+            ui::std_button(
+                Button::new(SharedString::from(format!("del-{}", file.path.display())))
+                    .danger()
+                    .label(i18n.delete_file()),
+            )
+            .on_click({
+                let store = store.clone();
+                let i18n_title = i18n.confirm_delete_file_title();
+                let body = i18n.confirm_delete_file_body(&entry.name, &entry.size_human());
+                move |_, window, cx| {
+                    let store_ok = store.clone();
+                    let item = large_file_as_item(&entry);
+                    let body = body.clone();
+                    window.open_dialog(cx, move |dialog, _, _| {
+                        dialog
+                            .title(i18n_title)
+                            .child(body.clone())
+                            .confirm()
+                            .on_ok({
+                                let store = store_ok.clone();
+                                let item = item.clone();
+                                move |_, _, cx| {
+                                    store.update(cx, |s, cx| {
+                                        s.cleanup_paths(vec![item.clone()], cx);
+                                    });
+                                    true
+                                }
+                            })
+                    });
+                }
+            }),
+        )
+}
+
+fn large_file_as_item(file: &LargeFileEntry) -> ScanItem {
+    ScanItem {
+        id: format!("large-file-{}", file.path.display()),
+        path: file.path.clone(),
+        name: file.name.clone(),
+        size_bytes: file.size_bytes,
+        stack: TechStack::Other,
+        risk: RiskLevel::Caution,
+        category: CleanupCategory::TempFiles,
+        description: RuleDescription::R016,
+        project_root: file.path.parent().map(std::path::Path::to_path_buf),
+        last_modified: file.last_modified,
+    }
 }

@@ -6,13 +6,16 @@ use crate::services::{
 };
 use chrono::Utc;
 use clv_core::{
-    default_selected_item_ids, resolve_language, rule_description_matches_query, AppSettings,
-    CleanupBucket, CleanupHistory, CleanupHistoryRecord, RiskLevel, ScanReport,
-    detect_agent_projects, item_cleanup_bucket, save_settings, Language,
+    default_selected_item_ids, detect_agent_projects, item_cleanup_bucket, load_last_scan,
+    purge_old_trash, resolve_language, restore_trashed, rule_description_matches_query,
+    save_last_scan, save_settings, AppSettings, CleanupBucket, CleanupHistory, CleanupHistoryRecord,
+    Language, RiskLevel, ScanItem, ScanReport, TrashedEntry,
 };
-use clv_platform::{list_disk_volumes, primary_disk_usage, DiskVolume, empty_system_trash, pick_folders};
+use clv_platform::{empty_system_trash, list_disk_volumes, pick_folders, primary_disk_usage, DiskVolume};
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +88,10 @@ pub struct AppStore {
     pub pending_cleanup_notification: Option<String>,
     pub disk_volumes: Vec<DiskVolume>,
     pub system_trash_bytes: Option<u64>,
+    scan_cancel: Option<Arc<AtomicBool>>,
+    cleanup_cancel: Option<Arc<AtomicBool>>,
+    scan_restart_pending: bool,
+    progress_hud: Option<Entity<super::hud::ProgressHud>>,
 }
 
 impl AppStore {
@@ -96,12 +103,25 @@ impl AppStore {
         resolve_language(self.settings.language)
     }
 
-    pub fn new(settings: AppSettings, _cx: &mut Context<Self>) -> Self {
+    pub fn new(settings: AppSettings, cx: &mut Context<Self>) -> Self {
+        let last_report = load_last_scan();
+        let selected_item_ids = last_report
+            .as_ref()
+            .map(|r| default_selected_item_ids(&r.items))
+            .unwrap_or_default();
+        let trash_days = settings.soft_delete_days;
+        cx.spawn(async move |_, cx| {
+            let _ = cx
+                .background_spawn(async move { purge_old_trash(trash_days) })
+                .await;
+        })
+        .detach();
+
         Self {
             settings,
             page: AppPage::Dashboard,
-            last_report: None,
-            selected_item_ids: HashSet::new(),
+            last_report,
+            selected_item_ids,
             scanning: false,
             cleaning: false,
             scan_phase: String::new(),
@@ -125,6 +145,20 @@ impl AppStore {
             pending_cleanup_notification: None,
             disk_volumes: Vec::new(),
             system_trash_bytes: None,
+            scan_cancel: None,
+            cleanup_cancel: None,
+            scan_restart_pending: false,
+            progress_hud: None,
+        }
+    }
+
+    pub fn attach_progress_hud(&mut self, hud: Entity<super::hud::ProgressHud>) {
+        self.progress_hud = Some(hud);
+    }
+
+    fn notify_progress_only(&self, cx: &mut Context<Self>) {
+        if let Some(hud) = &self.progress_hud {
+            hud.update(cx, |_, cx| cx.notify());
         }
     }
 
@@ -138,11 +172,9 @@ impl AppStore {
         cx.notify();
 
         cx.spawn(async move |weak, cx| {
-            let result = std::thread::spawn(move || clv_platform::kill_process(pid)).join();
-            let result = match result {
-                Ok(r) => r,
-                Err(_) => Err(anyhow::anyhow!(i18n.kill_process_internal_error())),
-            };
+            let result = cx
+                .background_spawn(async move { clv_platform::kill_process(pid) })
+                .await;
             weak.update(cx, |store, cx| {
                 let i18n = store.i18n();
                 store.process_refresh_trigger = store.process_refresh_trigger.wrapping_add(1);
@@ -159,14 +191,15 @@ impl AppStore {
 
     pub fn refresh_disk_usage_async(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |weak, cx| {
-            let usage = std::thread::spawn(disk_usage)
-                .join()
-                .unwrap_or(default_disk_usage());
-            let volumes = std::thread::spawn(list_disk_volumes).join().unwrap_or_default();
-            let trash_bytes = std::thread::spawn(clv_platform::system_trash_bytes)
-                .join()
-                .ok()
-                .flatten();
+            let (usage, volumes, trash_bytes) = cx
+                .background_spawn(async {
+                    (
+                        disk_usage(),
+                        list_disk_volumes(),
+                        clv_platform::system_trash_bytes(),
+                    )
+                })
+                .await;
             weak.update(cx, |store, cx| {
                 store.disk_total = usage.0;
                 store.disk_used = usage.1;
@@ -184,9 +217,9 @@ impl AppStore {
     pub fn pick_scan_folders(&mut self, cx: &mut Context<Self>) {
         let title = self.i18n().pick_folders_title().to_string();
         cx.spawn(async move |weak, cx| {
-            let picked = std::thread::spawn(move || pick_folders(&title))
-                .join()
-                .unwrap_or_default();
+            let picked = cx
+                .background_spawn(async move { pick_folders(&title) })
+                .await;
             if picked.is_empty() {
                 return;
             }
@@ -206,10 +239,19 @@ impl AppStore {
     }
 
     pub fn run_cleanup_safe(&mut self, cx: &mut Context<Self>) -> bool {
-        if let Some(report) = &self.last_report {
-            self.selected_item_ids = default_selected_item_ids(&report.items);
-        }
-        self.run_cleanup(cx)
+        let items = match &self.last_report {
+            Some(report) => {
+                let ids = default_selected_item_ids(&report.items);
+                report
+                    .items
+                    .iter()
+                    .filter(|i| ids.contains(&i.id))
+                    .cloned()
+                    .collect()
+            }
+            None => Vec::new(),
+        };
+        self.start_cleanup(items, cx)
     }
 
     pub fn empty_system_trash_async(&mut self, cx: &mut Context<Self>) {
@@ -218,16 +260,18 @@ impl AppStore {
         cx.notify();
 
         cx.spawn(async move |weak, cx| {
-            let result = std::thread::spawn(empty_system_trash).join();
+            let result = cx.background_spawn(async { empty_system_trash() }).await;
+            let trash_bytes = cx
+                .background_spawn(async { clv_platform::system_trash_bytes() })
+                .await;
             weak.update(cx, |store, cx| {
                 let i18n = store.i18n();
                 store.status_message = Some(match result {
-                    Ok(Ok(bytes)) => i18n.trash_emptied(bytes),
-                    Ok(Err(e)) => i18n.trash_empty_failed(&e.to_string()),
-                    Err(_) => i18n.trash_empty_failed("internal error"),
+                    Ok(bytes) => i18n.trash_emptied(bytes),
+                    Err(e) => i18n.trash_empty_failed(&e.to_string()),
                 });
-                store.system_trash_bytes = clv_platform::system_trash_bytes();
-                store.refresh_disk_usage_sync();
+                store.system_trash_bytes = trash_bytes;
+                store.refresh_disk_usage_async(cx);
                 cx.notify();
             })
             .ok();
@@ -255,7 +299,32 @@ impl AppStore {
         }
     }
 
-    pub fn filtered_items(&self) -> Vec<clv_core::ScanItem> {
+    /// All / Safe / Project / Shared / DevEnv / Ai counts (ignores search).
+    pub fn cleanup_filter_counts(&self) -> [usize; 6] {
+        let Some(report) = &self.last_report else {
+            return [0; 6];
+        };
+        let expert = self.settings.expert_mode;
+        let mut counts = [0usize; 6];
+        for item in &report.items {
+            if !expert && item.risk == RiskLevel::Protected {
+                continue;
+            }
+            counts[0] += 1;
+            if item.risk == RiskLevel::Safe {
+                counts[1] += 1;
+            }
+            match item_cleanup_bucket(item) {
+                CleanupBucket::ProjectBuildCache => counts[2] += 1,
+                CleanupBucket::SharedToolCache => counts[3] += 1,
+                CleanupBucket::DevEnvironment => counts[4] += 1,
+                CleanupBucket::AiGenerated => counts[5] += 1,
+            }
+        }
+        counts
+    }
+
+    pub fn filtered_indices(&self) -> Vec<usize> {
         let Some(report) = &self.last_report else {
             return Vec::new();
         };
@@ -265,11 +334,12 @@ impl AppStore {
         report
             .items
             .iter()
-            .filter(|item| {
+            .enumerate()
+            .filter(|(_, item)| {
                 if !expert && item.risk == RiskLevel::Protected {
                     return false;
                 }
-                match self.cleanup_filter {
+                let bucket_ok = match self.cleanup_filter {
                     CleanupFilter::All => true,
                     CleanupFilter::SafeOnly => item.risk == RiskLevel::Safe,
                     CleanupFilter::ProjectBuildCache => {
@@ -284,9 +354,10 @@ impl AppStore {
                     CleanupFilter::AiGenerated => {
                         item_cleanup_bucket(item) == CleanupBucket::AiGenerated
                     }
+                };
+                if !bucket_ok {
+                    return false;
                 }
-            })
-            .filter(|item| {
                 if q.is_empty() {
                     true
                 } else {
@@ -295,7 +366,7 @@ impl AppStore {
                         || rule_description_matches_query(item.description, &q)
                 }
             })
-            .cloned()
+            .map(|(i, _)| i)
             .collect()
     }
 
@@ -312,8 +383,27 @@ impl AppStore {
             .collect()
     }
 
+    pub fn selected_count(&self) -> usize {
+        let Some(report) = &self.last_report else {
+            return 0;
+        };
+        report
+            .items
+            .iter()
+            .filter(|i| self.is_item_selected(&i.id))
+            .count()
+    }
+
     pub fn selected_bytes(&self) -> u64 {
-        self.selected_items().iter().map(|i| i.size_bytes).sum()
+        let Some(report) = &self.last_report else {
+            return 0;
+        };
+        report
+            .items
+            .iter()
+            .filter(|i| self.is_item_selected(&i.id))
+            .map(|i| i.size_bytes)
+            .sum()
     }
 
     pub fn set_item_selected(&mut self, id: &str, selected: bool) {
@@ -333,7 +423,15 @@ impl AppStore {
     }
 
     pub fn select_all_filtered(&mut self, selected: bool) {
-        let ids: Vec<String> = self.filtered_items().iter().map(|i| i.id.clone()).collect();
+        let ids: Vec<String> = {
+            let Some(report) = &self.last_report else {
+                return;
+            };
+            self.filtered_indices()
+                .into_iter()
+                .filter_map(|i| report.items.get(i).map(|item| item.id.clone()))
+                .collect()
+        };
         if selected {
             self.selected_item_ids.extend(ids);
         } else {
@@ -353,36 +451,81 @@ impl AppStore {
         }
     }
 
+    pub fn project_has_caution_items(&self, project_path: &Path) -> bool {
+        self.last_report.as_ref().is_some_and(|report| {
+            report.items.iter().any(|item| {
+                item.project_root.as_deref() == Some(project_path)
+                    && item.risk == RiskLevel::Caution
+            })
+        })
+    }
+
+    pub fn cancel_scan(&mut self, cx: &mut Context<Self>) {
+        if let Some(flag) = &self.scan_cancel {
+            flag.store(true, Ordering::Relaxed);
+        }
+        self.status_message = Some(self.i18n().scan_cancelling().into());
+        cx.notify();
+    }
+
+    pub fn cancel_cleanup(&mut self, cx: &mut Context<Self>) {
+        if let Some(flag) = &self.cleanup_cancel {
+            flag.store(true, Ordering::Relaxed);
+        }
+        self.status_message = Some(self.i18n().cleanup_cancelling().into());
+        cx.notify();
+    }
+
     pub fn start_scan(&mut self, cx: &mut Context<Self>) {
         if self.scanning {
+            self.scan_restart_pending = true;
+            self.cancel_scan(cx);
             return;
         }
         self.scanning = true;
+        self.scan_restart_pending = false;
         self.scan_phase = self.i18n().scan_preparing().into();
         self.scan_items_found = 0;
         self.scan_bytes_found = 0;
         self.scan_current_path = None;
         self.status_message = Some(self.i18n().scan_start_message());
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.scan_cancel = Some(cancel.clone());
         cx.notify();
+        self.notify_progress_only(cx);
 
         let settings = self.settings.clone();
-        let job = spawn_scan(settings);
+        let job = spawn_scan(settings, cancel);
 
         cx.spawn(async move |weak, cx| {
             let mut finished = false;
             while !finished {
                 match poll_scan(&job.rx) {
                     ScanPoll::Done(report) => {
+                        let mut restart = false;
                         weak.update(cx, |store, cx| {
                             store.scanning = false;
+                            store.scan_cancel = None;
                             store.scan_phase.clear();
                             store.scan_current_path = None;
                             store.selected_item_ids = default_selected_item_ids(&report.items);
+                            let cancelled = report.cancelled;
                             store.last_report = Some(report);
-                            store.status_message = Some(store.i18n().scan_complete().into());
-                            store.refresh_disk_usage_sync();
-                            store.startup_count = clv_platform::list_startup_items().len();
+                            if let Some(current) = &store.last_report {
+                                let _ = save_last_scan(current);
+                            }
+                            store.status_message = Some(if cancelled {
+                                store.i18n().scan_cancelled().into()
+                            } else {
+                                store.i18n().scan_complete().into()
+                            });
+                            restart = store.scan_restart_pending;
+                            store.scan_restart_pending = false;
+                            store.refresh_disk_usage_async(cx);
                             cx.notify();
+                            if restart {
+                                store.start_scan(cx);
+                            }
                         })
                         .ok();
                         finished = true;
@@ -394,13 +537,14 @@ impl AppStore {
                             store.scan_bytes_found = progress.bytes_found;
                             store.scan_current_path =
                                 progress.current_path.map(|p| truncate_path_display(&p, 96));
-                            cx.notify();
+                            store.notify_progress_only(cx);
                         })
                         .ok();
                     }
                     ScanPoll::Disconnected => {
                         weak.update(cx, |store, cx| {
                             store.scanning = false;
+                            store.scan_cancel = None;
                             store.scan_phase.clear();
                             store.status_message = Some(store.i18n().scan_interrupted().into());
                             cx.notify();
@@ -424,6 +568,10 @@ impl AppStore {
 
     pub fn run_cleanup(&mut self, cx: &mut Context<Self>) -> bool {
         let selected = self.selected_items();
+        self.start_cleanup(selected, cx)
+    }
+
+    fn start_cleanup(&mut self, selected: Vec<ScanItem>, cx: &mut Context<Self>) -> bool {
         if selected.is_empty() {
             self.status_message = Some(self.i18n().select_items_first().into());
             cx.notify();
@@ -439,10 +587,13 @@ impl AppStore {
         self.cleanup_freed_bytes = 0;
         self.cleanup_current_path = None;
         self.status_message = Some(self.i18n().cleanup_in_progress().into());
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.cleanup_cancel = Some(cancel.clone());
         cx.notify();
+        self.notify_progress_only(cx);
 
         let settings = self.settings.clone();
-        let job = spawn_cleanup(settings, selected);
+        let job = spawn_cleanup(settings, selected, cancel);
 
         cx.spawn(async move |weak, cx| {
             let mut finished = false;
@@ -455,13 +606,14 @@ impl AppStore {
                             store.cleanup_freed_bytes = progress.freed_bytes;
                             store.cleanup_current_path =
                                 Some(truncate_path_display(&progress.current_path, 96));
-                            cx.notify();
+                            store.notify_progress_only(cx);
                         })
                         .ok();
                     }
                     CleanupPoll::Done(result, removed_paths) => {
                         weak.update(cx, |store, cx| {
                             store.cleaning = false;
+                            store.cleanup_cancel = None;
                             store.cleanup_completed = 0;
                             store.cleanup_total = 0;
                             store.cleanup_freed_bytes = 0;
@@ -476,6 +628,7 @@ impl AppStore {
                                 freed_bytes: result.freed_bytes,
                                 success_count: result.success_count,
                                 failed_count: result.failed.len(),
+                                trashed: result.trashed_entries.clone(),
                             };
                             store.cleanup_history.append(record);
                             let _ = store.cleanup_history.save();
@@ -483,28 +636,21 @@ impl AppStore {
                             if let Some(current) = &mut store.last_report {
                                 let removed: HashSet<_> = removed_paths.into_iter().collect();
                                 current.items.retain(|i| !removed.contains(&i.path));
-                                current.agent_projects = detect_agent_projects(
-                                    &current.items,
-                                    &store.settings.scan_paths,
-                                );
+                                current.large_files.retain(|f| !removed.contains(&f.path));
+                                let roots: Vec<PathBuf> = current
+                                    .agent_projects
+                                    .iter()
+                                    .map(|p| p.path.clone())
+                                    .collect();
+                                current.agent_projects =
+                                    detect_agent_projects(&current.items, &roots);
                                 store
                                     .selected_item_ids
                                     .retain(|id| current.items.iter().any(|i| &i.id == id));
+                                let _ = save_last_scan(current);
                             }
 
-                            cx.notify();
-                        })
-                        .ok();
-
-                        let disk = std::thread::spawn(|| primary_disk_usage())
-                            .join()
-                            .ok()
-                            .flatten();
-                        weak.update(cx, |store, cx| {
-                            if let Some((total, used)) = disk {
-                                store.disk_total = total;
-                                store.disk_used = used;
-                            }
+                            store.refresh_disk_usage_async(cx);
                             cx.notify();
                         })
                         .ok();
@@ -514,6 +660,7 @@ impl AppStore {
                     CleanupPoll::Disconnected => {
                         weak.update(cx, |store, cx| {
                             store.cleaning = false;
+                            store.cleanup_cancel = None;
                             store.cleanup_completed = 0;
                             store.cleanup_total = 0;
                             store.cleanup_freed_bytes = 0;
@@ -537,6 +684,47 @@ impl AppStore {
         true
     }
 
+    pub fn restore_trashed_entry(&mut self, entry: TrashedEntry, cx: &mut Context<Self>) {
+        cx.spawn(async move |weak, cx| {
+            let restore_result = cx
+                .background_spawn({
+                    let entry = entry.clone();
+                    async move { restore_trashed(&entry) }
+                })
+                .await;
+            weak.update(cx, |store, cx| {
+                match restore_result {
+                    Ok(()) => {
+                        store.cleanup_history.remove_trashed(&entry.trash_path);
+                        let _ = store.cleanup_history.save();
+                        store.status_message = Some(store.i18n().restore_ok(&entry.name));
+                    }
+                    Err(e) => {
+                        store.status_message =
+                            Some(store.i18n().restore_failed(&e.to_string()));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn cleanup_paths(&mut self, items: Vec<ScanItem>, cx: &mut Context<Self>) -> bool {
+        for item in &items {
+            self.selected_item_ids.insert(item.id.clone());
+        }
+        if let Some(report) = &mut self.last_report {
+            for item in items {
+                if !report.items.iter().any(|i| i.path == item.path) {
+                    report.items.push(item);
+                }
+            }
+        }
+        self.run_cleanup(cx)
+    }
+
     pub fn finish_onboarding(
         &mut self,
         expert: bool,
@@ -557,16 +745,8 @@ fn truncate_path_display(path: &Path, max_chars: usize) -> String {
     ui::truncate_middle(&path.display().to_string(), max_chars)
 }
 
-impl AppStore {
-    fn refresh_disk_usage_sync(&mut self) {
-        let (total, used) = disk_usage();
-        self.disk_total = total;
-        self.disk_used = used;
-    }
-}
-
 fn default_disk_usage() -> (u64, u64) {
-    (512_u64 * 1024 * 1024 * 1024, 400_u64 * 1024 * 1024 * 1024)
+    (0, 0)
 }
 
 fn disk_usage() -> (u64, u64) {
