@@ -27,31 +27,6 @@ pub enum TechStack {
     Other,
 }
 
-impl TechStack {
-    pub fn all() -> &'static [TechStack] {
-        &[
-            Self::Rust,
-            Self::NodeWeb,
-            Self::Android,
-            Self::Ios,
-            Self::Flutter,
-            Self::Kmp,
-            Self::Java,
-            Self::Python,
-            Self::DotNet,
-            Self::Cpp,
-            Self::Go,
-            Self::Ruby,
-            Self::Php,
-            Self::Unity,
-            Self::Infra,
-            Self::Agent,
-            Self::System,
-            Self::Other,
-        ]
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum RiskLevel {
     Safe = 0,
@@ -179,37 +154,8 @@ impl ScanReport {
             .sum()
     }
 
-    pub fn by_stack(&self, stack: TechStack) -> Vec<&ScanItem> {
-        self.items.iter().filter(|i| i.stack == stack).collect()
-    }
-
-    pub fn stack_total(&self, stack: TechStack) -> u64 {
-        self.by_stack(stack).iter().map(|i| i.size_bytes).sum()
-    }
-
     pub fn safe_item_count(&self) -> usize {
         self.items.iter().filter(|i| i.risk == RiskLevel::Safe).count()
-    }
-
-    /// Per-bucket reclaimable bytes and item counts (total, safe-only).
-    pub fn bucket_summaries(&self) -> Vec<(CleanupBucket, u64, usize, usize)> {
-        use std::collections::HashMap;
-        let mut map: HashMap<CleanupBucket, (u64, usize, usize)> = HashMap::new();
-        for item in &self.items {
-            let bucket = item_cleanup_bucket(item);
-            let entry = map.entry(bucket).or_insert((0, 0, 0));
-            entry.0 += item.size_bytes;
-            entry.1 += 1;
-            if item.risk == RiskLevel::Safe {
-                entry.2 += 1;
-            }
-        }
-        let mut rows: Vec<_> = map
-            .into_iter()
-            .map(|(bucket, (bytes, total, safe))| (bucket, bytes, total, safe))
-            .collect();
-        rows.sort_by(|a, b| b.1.cmp(&a.1));
-        rows
     }
 }
 

@@ -12,7 +12,6 @@ use uuid::Uuid;
 pub struct CleanupProgress {
     pub completed: usize,
     pub total: usize,
-    pub current_name: String,
     pub current_path: PathBuf,
     pub freed_bytes: u64,
 }
@@ -194,7 +193,6 @@ impl CleanupExecutor {
             on_progress(CleanupProgress {
                 completed: index,
                 total,
-                current_name: item.name.clone(),
                 current_path: item.path.clone(),
                 freed_bytes: report.freed_bytes,
             });
@@ -223,7 +221,6 @@ impl CleanupExecutor {
             on_progress(CleanupProgress {
                 completed: index + 1,
                 total,
-                current_name: item.name.clone(),
                 current_path: item.path.clone(),
                 freed_bytes: report.freed_bytes,
             });

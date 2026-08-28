@@ -4,9 +4,9 @@ use crate::prelude::*;
 use crate::theme::{colors, corner_md};
 use clv_core::{ScanItem};
 use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::input::{Input, InputState};
 use gpui_component::Icon;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Virtualized row slot — card body + gap between rows.
 const CLEANUP_ROW_H: f32 = 108.;
@@ -35,25 +35,21 @@ impl CleanupView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        if let Some(input) = &self.search_input {
-            return input.clone();
-        }
         let placeholder = self.store.read(cx).i18n().cleanup_search_placeholder();
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
         let store = self.store.clone();
-        let subscription = cx.subscribe(&input, move |view, input, event, cx| {
-            if matches!(event, InputEvent::Change) {
-                let value = input.read(cx).value().to_string();
+        ui::ensure_search_input(
+            &mut self.search_input,
+            &mut self._search_subscription,
+            placeholder,
+            window,
+            cx,
+            move |view, value, cx| {
                 store.update(cx, |s, _| {
                     s.search_query = value;
                 });
                 view.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
-                cx.notify();
-            }
-        });
-        self._search_subscription = Some(subscription);
-        self.search_input = Some(input.clone());
-        input
+            },
+        )
     }
 
     fn render_row(
@@ -608,7 +604,7 @@ fn clickable_folder_path(
     path: &Path,
     label: impl Into<SharedString>,
 ) -> impl IntoElement {
-    let open_path = folder_open_target(path);
+    let open_path = ui::folder_open_target(path);
     let label: SharedString = label.into();
     let id: SharedString = id.into();
 
@@ -633,16 +629,6 @@ fn clickable_folder_path(
                 .text_color(colors::accent_blue()),
         )
         .child(ui::middle_truncated_path(label))
-}
-
-fn folder_open_target(path: &Path) -> PathBuf {
-    if path.is_dir() {
-        path.to_path_buf()
-    } else {
-        path.parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| path.to_path_buf())
-    }
 }
 
 fn filter_btn(

@@ -1,4 +1,4 @@
-use crate::locale::{Language, tr};
+use crate::locale::{localized_text_matches_query, Language, tr};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -9,7 +9,7 @@ pub enum AgentReasonPart {
     InactiveOver30Days,
 }
 
-pub fn agent_reason_part_text(lang: Language, part: &AgentReasonPart) -> String {
+pub(crate) fn agent_reason_part_text(lang: Language, part: &AgentReasonPart) -> String {
     match part {
         AgentReasonPart::NameContainsPattern(pattern) => match lang {
             Language::Zh => format!("目录名包含「{pattern}」"),
@@ -53,14 +53,8 @@ pub fn format_agent_reason(lang: Language, parts: &[AgentReasonPart]) -> String 
         .join(sep)
 }
 
-const ALL_LANGUAGES: [Language; 3] = [Language::Zh, Language::En, Language::Ja];
-
 pub fn agent_reason_matches_query(parts: &[AgentReasonPart], query: &str) -> bool {
-    ALL_LANGUAGES.iter().any(|&lang| {
-        format_agent_reason(lang, parts)
-            .to_lowercase()
-            .contains(query)
-    })
+    localized_text_matches_query(query, |lang| format_agent_reason(lang, parts))
 }
 
 #[cfg(test)]

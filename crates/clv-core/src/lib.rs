@@ -20,12 +20,11 @@ pub use messages::{
     agent_reason_matches_query, format_agent_reason, rule_description_matches_query,
     AgentReasonPart, RuleDescription,
 };
-pub use large_files::{scan_large_files, LargeFileEntry, LARGE_FILE_THRESHOLD_BYTES};
+pub use large_files::{LargeFileEntry, LARGE_FILE_THRESHOLD_BYTES};
 pub use models::*;
 pub use scanner::Scanner;
 pub use locale::{
-    detect_system_language, resolve_language, scan_phase_agent_sessions, scan_phase_discovering,
-    scan_phase_preparing, scan_phase_scanning_path, scan_phase_scanning_projects, tr, Language,
+    localized_text_matches_query, resolve_language, scan_phase_preparing, tr, Language,
     LanguagePreference, ThemePreference,
 };
 pub use settings::{

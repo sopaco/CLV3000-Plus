@@ -8,10 +8,11 @@ use chrono::Utc;
 use clv_core::{
     default_selected_item_ids, detect_agent_projects, item_cleanup_bucket, load_last_scan,
     purge_old_trash, resolve_language, restore_trashed, rule_description_matches_query,
-    save_last_scan, save_settings, AppSettings, CleanupBucket, CleanupHistory, CleanupHistoryRecord,
+    save_last_scan, save_settings, scan_phase_preparing, AppSettings, CleanupBucket, CleanupHistory,
+    CleanupHistoryRecord,
     Language, RiskLevel, ScanItem, ScanReport, TrashedEntry,
 };
-use clv_platform::{empty_system_trash, list_disk_volumes, pick_folders, primary_disk_usage, DiskVolume};
+use clv_platform::{pick_folders, primary_disk_usage};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -78,16 +79,12 @@ pub struct AppStore {
     pub status_message: Option<String>,
     pub cleanup_filter: CleanupFilter,
     pub search_query: String,
-    pub expanded_item: Option<String>,
-    pub last_cleanup_freed: Option<u64>,
     pub disk_total: u64,
     pub disk_used: u64,
     pub startup_count: usize,
     pub process_refresh_trigger: u64,
     pub cleanup_history: CleanupHistory,
     pub pending_cleanup_notification: Option<String>,
-    pub disk_volumes: Vec<DiskVolume>,
-    pub system_trash_bytes: Option<u64>,
     scan_cancel: Option<Arc<AtomicBool>>,
     cleanup_cancel: Option<Arc<AtomicBool>>,
     scan_restart_pending: bool,
@@ -117,7 +114,7 @@ impl AppStore {
         })
         .detach();
 
-        Self {
+        let mut store = Self {
             settings,
             page: AppPage::Dashboard,
             last_report,
@@ -135,21 +132,19 @@ impl AppStore {
             status_message: None,
             cleanup_filter: CleanupFilter::All,
             search_query: String::new(),
-            expanded_item: None,
-            last_cleanup_freed: None,
             disk_total: 0,
             disk_used: 0,
             startup_count: 0,
             process_refresh_trigger: 0,
             cleanup_history: CleanupHistory::load(),
             pending_cleanup_notification: None,
-            disk_volumes: Vec::new(),
-            system_trash_bytes: None,
             scan_cancel: None,
             cleanup_cancel: None,
             scan_restart_pending: false,
             progress_hud: None,
-        }
+        };
+        store.refresh_disk_usage_async(cx);
+        store
     }
 
     pub fn attach_progress_hud(&mut self, hud: Entity<super::hud::ProgressHud>) {
@@ -191,20 +186,10 @@ impl AppStore {
 
     pub fn refresh_disk_usage_async(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |weak, cx| {
-            let (usage, volumes, trash_bytes) = cx
-                .background_spawn(async {
-                    (
-                        disk_usage(),
-                        list_disk_volumes(),
-                        clv_platform::system_trash_bytes(),
-                    )
-                })
-                .await;
+            let usage = cx.background_spawn(async { disk_usage() }).await;
             weak.update(cx, |store, cx| {
                 store.disk_total = usage.0;
                 store.disk_used = usage.1;
-                store.disk_volumes = volumes;
-                store.system_trash_bytes = trash_bytes;
                 let tip = store.i18n().tray_tooltip(store.disk_used_percent());
                 crate::tray::TrayController::set_global_tooltip(&tip);
                 cx.notify();
@@ -231,47 +216,6 @@ impl AppStore {
                 }
                 let _ = save_settings(&store.settings);
                 store.status_message = Some(store.i18n().folders_added().into());
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    pub fn run_cleanup_safe(&mut self, cx: &mut Context<Self>) -> bool {
-        let items = match &self.last_report {
-            Some(report) => {
-                let ids = default_selected_item_ids(&report.items);
-                report
-                    .items
-                    .iter()
-                    .filter(|i| ids.contains(&i.id))
-                    .cloned()
-                    .collect()
-            }
-            None => Vec::new(),
-        };
-        self.start_cleanup(items, cx)
-    }
-
-    pub fn empty_system_trash_async(&mut self, cx: &mut Context<Self>) {
-        let i18n = self.i18n();
-        self.status_message = Some(i18n.emptying_trash().into());
-        cx.notify();
-
-        cx.spawn(async move |weak, cx| {
-            let result = cx.background_spawn(async { empty_system_trash() }).await;
-            let trash_bytes = cx
-                .background_spawn(async { clv_platform::system_trash_bytes() })
-                .await;
-            weak.update(cx, |store, cx| {
-                let i18n = store.i18n();
-                store.status_message = Some(match result {
-                    Ok(bytes) => i18n.trash_emptied(bytes),
-                    Err(e) => i18n.trash_empty_failed(&e.to_string()),
-                });
-                store.system_trash_bytes = trash_bytes;
-                store.refresh_disk_usage_async(cx);
                 cx.notify();
             })
             .ok();
@@ -484,7 +428,7 @@ impl AppStore {
         }
         self.scanning = true;
         self.scan_restart_pending = false;
-        self.scan_phase = self.i18n().scan_preparing().into();
+        self.scan_phase = scan_phase_preparing(self.language());
         self.scan_items_found = 0;
         self.scan_bytes_found = 0;
         self.scan_current_path = None;
@@ -618,7 +562,6 @@ impl AppStore {
                             store.cleanup_total = 0;
                             store.cleanup_freed_bytes = 0;
                             store.cleanup_current_path = None;
-                            store.last_cleanup_freed = Some(result.freed_bytes);
                             store.status_message = Some(store.i18n().cleanup_summary(&result));
                             store.pending_cleanup_notification =
                                 Some(store.i18n().cleanup_complete_notification(&result));
@@ -711,18 +654,9 @@ impl AppStore {
         .detach();
     }
 
+    /// Delete only these items. Does not merge with Cleanup page selection.
     pub fn cleanup_paths(&mut self, items: Vec<ScanItem>, cx: &mut Context<Self>) -> bool {
-        for item in &items {
-            self.selected_item_ids.insert(item.id.clone());
-        }
-        if let Some(report) = &mut self.last_report {
-            for item in items {
-                if !report.items.iter().any(|i| i.path == item.path) {
-                    report.items.push(item);
-                }
-            }
-        }
-        self.run_cleanup(cx)
+        self.start_cleanup(items, cx)
     }
 
     pub fn finish_onboarding(

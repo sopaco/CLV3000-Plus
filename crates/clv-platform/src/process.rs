@@ -46,12 +46,6 @@ impl ProcessEnumerator {
     }
 }
 
-pub fn list_processes(sort: ProcessSort) -> Vec<ProcessInfo> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    collect_processes(&sys, sort)
-}
-
 fn is_listable_process(status: ProcessStatus) -> bool {
     !matches!(status, ProcessStatus::Zombie | ProcessStatus::Dead)
 }

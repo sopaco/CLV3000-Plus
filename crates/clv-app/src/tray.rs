@@ -1,7 +1,7 @@
 //! System tray / menu bar integration.
 
 use crate::i18n::I18n;
-use clv_core::{resolve_language, Language, LanguagePreference};
+use clv_core::Language;
 use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -133,20 +133,16 @@ fn menu_action_for_id(id: &str) -> Option<TrayAction> {
 }
 
 fn tray_icon() -> Option<Icon> {
-    let size = 32u32;
-    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            let t = (x as f32 / size as f32).clamp(0., 1.);
-            let r = (20.0 + t * 40.0) as u8;
-            let g = (140.0 + t * 60.0) as u8;
-            let b = (220.0 - t * 30.0) as u8;
-            let edge = x < 2 || y < 2 || x >= size - 2 || y >= size - 2;
-            let alpha = if edge { 0 } else { 255 };
-            rgba.extend_from_slice(&[r, g, b, alpha]);
-        }
-    }
-    Icon::from_rgba(rgba, size, size).ok()
+    const PNG: &[u8] = include_bytes!("../assets/icons/tray.png");
+    let img = image::load_from_memory(PNG).ok()?.into_rgba8();
+    // Status-item backends expect a small bitmap; the source asset is 512².
+    let img = if img.width() > 64 || img.height() > 64 {
+        image::imageops::resize(&img, 64, 64, image::imageops::FilterType::Lanczos3)
+    } else {
+        img
+    };
+    let (width, height) = img.dimensions();
+    Icon::from_rgba(img.into_raw(), width, height).ok()
 }
 
 pub fn new_pending_slot() -> TrayPending {
@@ -155,8 +151,4 @@ pub fn new_pending_slot() -> TrayPending {
 
 pub fn take_pending(pending: &TrayPending) -> Option<TrayAction> {
     pending.lock().ok()?.take()
-}
-
-pub fn tray_language_from_settings(pref: LanguagePreference) -> Language {
-    resolve_language(pref)
 }

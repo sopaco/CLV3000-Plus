@@ -19,20 +19,12 @@ pub const NAV_PROCESS: IconName = IconName::SquareTerminal;
 pub const NAV_LARGE_FILES: IconName = IconName::File;
 pub const NAV_SETTINGS: IconName = IconName::Settings;
 
-/// Brand / status
-pub const BRAND_SHIELD: IconName = IconName::CircleCheck;
-pub const STATUS_OK: IconName = IconName::CircleCheck;
-pub const STATUS_INFO: IconName = IconName::Info;
-pub const STATUS_LOADING: IconName = IconName::LoaderCircle;
-
 /// Actions
 pub const ACTION_SCAN: IconName = IconName::Search;
 pub const ACTION_CLEAN: IconName = IconName::Delete;
 pub const ACTION_OPEN_FOLDER: IconName = IconName::FolderOpen;
-pub const ACTION_REFRESH: IconName = IconName::Loader;
 
 /// Empty states (single large icon only)
 pub const EMPTY_SCAN: IconName = IconName::Search;
 pub const EMPTY_AGENT: IconName = IconName::FolderOpen;
 pub const EMPTY_STARTUP: IconName = IconName::Building2;
-pub const EMPTY_GENERIC: IconName = IconName::Inbox;

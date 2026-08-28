@@ -454,7 +454,6 @@ fn dir_size(path: &Path, cancel: &AtomicBool) -> (u64, bool) {
 }
 
 const DIR_SIZE_MAX_ENTRIES: usize = 100_000;
-const SKIP_DIR_NAMES: &[&str] = &[".git", ".svn", ".hg", ".terrain"];
 
 fn dir_size_dir(root: &Path, cancel: &AtomicBool) -> (u64, bool) {
     let mut total = 0u64;
@@ -501,9 +500,7 @@ fn dir_size_dir(root: &Path, cancel: &AtomicBool) -> (u64, bool) {
 }
 
 fn should_skip_dir(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| SKIP_DIR_NAMES.contains(&name))
+    crate::paths::is_scan_skip_dir(path)
 }
 
 /// True when `path` is a strict descendant of a directory already matched as a cleanup item.

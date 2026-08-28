@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs::Metadata;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 /// Minimum file size to appear in the large-files view.
 pub const LARGE_FILE_THRESHOLD_BYTES: u64 = 100 * 1024 * 1024;
@@ -12,8 +11,6 @@ pub const LARGE_FILE_THRESHOLD_BYTES: u64 = 100 * 1024 * 1024;
 pub const MAX_LARGE_FILES: usize = 80;
 
 pub const LARGE_FILE_MAX_DEPTH: usize = 6;
-const SKIP_DIR_NAMES: &[&str] = &[".git", ".svn", ".hg", ".terrain", "node_modules", "target"];
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LargeFileEntry {
     pub path: PathBuf,
@@ -29,7 +26,8 @@ impl LargeFileEntry {
 }
 
 /// Walks scan roots and collects individual files above [`LARGE_FILE_THRESHOLD_BYTES`].
-pub fn scan_large_files(roots: &[PathBuf]) -> Vec<LargeFileEntry> {
+#[cfg(test)]
+fn scan_large_files(roots: &[PathBuf]) -> Vec<LargeFileEntry> {
     let mut entries = Vec::new();
 
     for root in roots {
@@ -85,8 +83,9 @@ pub fn consider_large_file(
     out.len() >= MAX_LARGE_FILES
 }
 
+#[cfg(test)]
 fn collect_large_files_in_root(root: &Path, out: &mut Vec<LargeFileEntry>) {
-    for entry in WalkDir::new(root)
+    for entry in walkdir::WalkDir::new(root)
         .follow_links(false)
         .max_depth(LARGE_FILE_MAX_DEPTH)
         .into_iter()
@@ -113,9 +112,7 @@ fn collect_large_files_in_root(root: &Path, out: &mut Vec<LargeFileEntry>) {
 }
 
 pub fn should_skip_dir(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| SKIP_DIR_NAMES.contains(&name))
+    crate::paths::is_large_file_skip_dir(path)
 }
 
 #[cfg(test)]

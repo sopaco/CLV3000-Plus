@@ -10,17 +10,15 @@ use crate::views::{
     large_files::LargeFilesView, onboarding::OnboardingView, process::ProcessView,
     settings::SettingsView, startup::StartupView,
 };
-use clv_core::{load_settings, save_settings};
+use clv_core::load_settings;
 use gpui_component::{notification::Notification, WindowExt};
 use hud::ProgressHud;
 use state::{AppPage, AppStore};
-use crate::tray::{take_scan_request, TrayPending};
+use crate::tray::take_scan_request;
 
 pub struct ClvApp {
     store: Entity<AppStore>,
     progress_hud: Entity<ProgressHud>,
-    #[allow(dead_code)]
-    tray_pending: TrayPending,
     dashboard: Option<Entity<DashboardView>>,
     cleanup: Option<Entity<CleanupView>>,
     agent: Option<Entity<AgentView>>,
@@ -32,12 +30,11 @@ pub struct ClvApp {
 }
 
 impl ClvApp {
-    pub fn new(window: &Window, cx: &mut Context<Self>, tray_pending: TrayPending) -> Self {
+    pub fn new(window: &Window, cx: &mut Context<Self>) -> Self {
         let settings = load_settings();
         let store = cx.new(|cx| AppStore::new(settings, cx));
         let progress_hud = cx.new(|_| ProgressHud::new(store.clone()));
         store.update(cx, |s, _| s.attach_progress_hud(progress_hud.clone()));
-        store.update(cx, |s, cx| s.refresh_disk_usage_async(cx));
 
         if !store.read(cx).settings.onboarding_done {
             store.update(cx, |s, cx| {
@@ -65,7 +62,6 @@ impl ClvApp {
         Self {
             store,
             progress_hud,
-            tray_pending,
             dashboard: None,
             cleanup: None,
             agent: None,
@@ -369,9 +365,3 @@ impl ClvApp {
     }
 }
 
-#[allow(dead_code)]
-pub fn save_settings_from_store(store: &AppStore) {
-    if let Err(e) = save_settings(&store.settings) {
-        tracing::error!("save settings: {e}");
-    }
-}

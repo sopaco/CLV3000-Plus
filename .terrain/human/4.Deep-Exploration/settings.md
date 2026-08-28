@@ -1,33 +1,29 @@
-# Settings Domain
+# Settings and Rules Domain
 
-**Module path:** `crates/clv-core/src/settings/`  
-**Generated:** 2026-08-26
+**Module path:** `crates/clv-core/src/settings/`, `crates/clv-core/src/paths.rs`  
+**Generated:** 2026-08-28
 
 ---
 
 ## What This Module Does
 
-The settings module is the app's rulebook and configuration center. It defines what `AppSettings` the user can tune, where those preferences are saved on disk, and—most importantly—the extensive `CleanupRule` catalog that tells the scanner what to look for across Rust, Node, Python, Android, mobile, and AI agent toolchains.
+Settings and rules are the app's rulebook—it defines *what* to scan, *where* to scan, and *how dangerous* each finding is. User preferences (`AppSettings`) persist as JSON, while cleanup rules are compile-time tables mapping directory patterns to typed descriptions, risk levels, and technology stacks.
 
-Think of it as the product's DNA: adding a new cleanup target is usually a data change in `project_rules.rs` or `global_rules.rs`, not a scanner algorithm rewrite. The rule builder API in `rule.rs` keeps hundreds of entries consistent and composable.
+Changing what the app cleans usually means editing rule tables here, not scanner logic.
 
 ---
 
 ## Core Capabilities
 
-1. **User preferences** — `AppSettings` (`settings/mod.rs:18-30`) holds scan roots, expert/soft-delete flags, language, theme, and onboarding state with serde JSON persistence.
+1. **Settings persistence** — `load_settings` / `save_settings` to XDG config path (`settings/mod.rs:53-87`).
 
-2. **Rule catalog** — `CleanupRule` (`rule.rs:7-20`) defines relative paths, stack, risk, category, description, and optional marker/prefix/parent constraints.
+2. **Project cleanup rules** — `project_rules()` returns hundreds of patterns for 13+ stacks (`project_rules.rs`).
 
-3. **Global cache rules** — `global_cache_rules()` in `global_rules.rs` targets home-level paths like `.cargo/registry`, npm cache, Gradle caches.
+3. **Global cache rules** — Home-relative paths for Cargo, npm, Docker, Homebrew, browser caches (`global_rules.rs`).
 
-4. **Project rules** — `project_rules()` in `project_rules.rs` targets per-project dirs like `target/`, `node_modules/`, `build/`, `DerivedData/`.
+4. **Marker definitions** — Project markers (`package.json`, `Cargo.toml`) and agent markers (`.cursor`, `AGENTS.md`) in `markers.rs`.
 
-5. **Marker definitions** — `markers.rs` lists project marker files (`Cargo.toml`, `package.json`) and agent markers (`.cursor`, `AGENTS.md`).
-
-6. **Path resolution** — `resolve_global_path`, `expand_scan_path`, and `default_scan_paths` in `paths.rs` translate user-friendly paths to OS-specific locations.
-
-7. **Trash directory** — `trash_dir()` (`settings/mod.rs:90-93`) resolves soft-delete quarantine under `data_local_dir()/trash`.
+5. **Path safety** — `is_protected_system_path`, `default_scan_paths`, env expansion in `paths.rs`.
 
 ---
 
@@ -35,110 +31,41 @@ Think of it as the product's DNA: adding a new cleanup target is usually a data 
 
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `AppSettings` | `settings/mod.rs:18-30` | User configuration struct |
-| `load_settings` / `save_settings` | `settings/mod.rs:53-88` | JSON persistence to config dir |
-| `settings_path` | `settings/mod.rs:48-51` | Resolves `settings.json` location |
-| `CleanupRule` | `settings/rule.rs:7-82` | Rule definition with builder methods |
-| `global_cache_rules` | `settings/global_rules.rs` | Home/env cache rule list |
-| `project_rules` | `settings/project_rules.rs` | Per-project build/cache rules |
-| `agent_marker_files` | `settings/markers.rs` | Agent detection marker list |
-| `project_marker_files` | `settings/markers.rs` | Project root detection markers |
-| `trash_dir` | `settings/mod.rs:90-93` | Soft-delete destination path |
-| `is_protected_system_path` | `settings/mod.rs:96-98` | Delegates to `paths.rs` guards |
+| `AppSettings` | `crates/clv-core/src/settings/mod.rs:18` | User preference struct |
+| `CleanupRule` | `crates/clv-core/src/settings/rule.rs` | Rule matcher definition |
+| `project_rules` | `crates/clv-core/src/settings/project_rules.rs` | Project artifact patterns |
+| `global_cache_rules` | `crates/clv-core/src/settings/global_rules.rs` | Global cache locations |
+| `resolve_global_path` | `crates/clv-core/src/paths.rs:52` | Home/env path resolution |
+| `is_protected_system_path` | `crates/clv-core/src/paths.rs:165` | Deletion blocklist |
+| `default_scan_paths` | `crates/clv-core/src/paths.rs:8` | Default project roots |
+| `load_last_scan` / `save_last_scan` | `crates/clv-core/src/settings/mod.rs:100` | Scan snapshot persistence |
 
 ---
 
-## Internal Data Flow
+## CleanupRule Structure
 
-```mermaid
-flowchart TD
-    A["settings.json<br/>config_dir"] --> B["load_settings<br/>mod.rs:53"]
-    B --> C["AppSettings"]
-    C --> D["Scanner::new<br/>scanner.rs:50"]
-    C --> E["CleanupExecutor::new<br/>cleanup.rs:123"]
-    F["global_rules.rs"] --> G["global_cache_rules"]
-    H["project_rules.rs"] --> I["project_rules"]
-    G --> J["Scanner scan phase 1<br/>scanner.rs:76"]
-    I --> K["Scanner scan_tree<br/>scanner.rs:119"]
-    L["markers.rs"] --> K
-    L --> M["agent.rs discover"]
-    C --> N["save_settings<br/>mod.rs:78"]
-    N --> A
-```
-
-**Key steps**
-
-1. **App launch** — `main.rs` calls `load_settings()` before GPUI init.
-2. **Scan** — Scanner reads `scan_paths`, `include_agent_heuristics`, and pulls rule lists from settings submodules.
-3. **Settings UI** — `SettingsView` mutates `AppStore.settings` and calls `save_settings` on change.
-4. **Onboarding** — `finish_onboarding` updates paths and `onboarding_done`, then persists (`state.rs:471`).
+Each rule specifies:
+- `relative` path or name pattern
+- `stack: TechStack` and `risk: RiskLevel`
+- `category: CleanupCategory` for bucket mapping
+- `description: RuleDescription` typed enum ID
+- Optional: `requires_marker`, `relative_prefix`, `requires_parent`, `global` flag
 
 ---
 
-## Key Interfaces and Extension Points
-
-**CleanupRule builder API**
-
-```rust
-CleanupRule::project("target", TechStack::Rust, RiskLevel::Safe, category, desc)
-    .marker("Cargo.toml")
-
-CleanupRule::global(".cargo/registry", TechStack::Rust, RiskLevel::Caution, category, desc)
-    .prefix("cmake-build-")
-    .parent("vendor")
-```
-
-Defined in `rule.rs:23-82`. Chain `.marker()`, `.prefix()`, `.parent()` for conditional matching.
-
-**Add a new stack target**
-
-1. Add rule entry in `project_rules.rs` or `global_rules.rs`.
-2. If new `TechStack` variant needed, extend enum in `models.rs:9-28`.
-3. Add `RuleDescription` variant in `messages/rule_description.rs` for i18n.
-
-No scanner code change required for standard path-based rules.
-
----
-
-## Interactions With Other Modules
+## Cross-Module Interactions
 
 | Module | Direction | Interface | Notes |
 |--------|-----------|-----------|-------|
-| Scanner | consumed by | `global_cache_rules`, `project_rules`, `AppSettings` | Rule source for all scan phases |
-| Cleanup | consumed by | `AppSettings`, `trash_dir` | Soft-delete behavior |
-| Agent | consumed by | `agent_marker_files`, `scan_paths` | Marker and walk root config |
-| Paths | dependency | `default_scan_paths`, `resolve_global_path` | Cross-platform path helpers |
-| Locale | dependency | `LanguagePreference`, `ThemePreference` | UI prefs in settings struct |
-| AppStore | owner | `settings: AppSettings` | Central mutable config in UI |
-| Views | consumer | `SettingsView`, `OnboardingView` | User-facing config editors |
-
----
-
-## Role in Core Business Flows
-
-**Health scan flow** — `AppSettings` cloned into worker thread at `start_scan` (`state.rs:299`); scanner applies `global_cache_rules()` then `project_rules()` per tree walk.
-
-**Risk-gated defaults** — Rule `risk` field flows into `ScanItem.risk`; `default_selected_item_ids` (`models.rs:101-107`) selects only `RiskLevel::Safe`.
-
-**Expert mode unlock** — `expert_mode: false` by default (`mod.rs:36`); toggling in settings exposes protected rules/items in UI and cleanup executor.
-
----
-
-## Performance Considerations
-
-- Rule lists are static `const` arrays—no runtime rule compilation.
-- `load_settings` is called at startup and on explicit save—not per scan item.
-- `parse_scan_paths` / `format_scan_paths` (`mod.rs:63-76`) used only in settings UI text fields.
-- Protected path checks delegated to `paths.rs` for centralized guard logic.
+| Scanner | Consumed by | `project_rules()`, `global_cache_rules()` | Read-only at scan time |
+| Cleanup | Consumed by | `trash_dir()`, `AppSettings` flags | Soft delete behavior |
+| AppStore | Loads/saves | `load_settings`, `save_settings` | Settings page edits |
+| Messages | References | `RuleDescription` per rule | i18n lookup |
 
 ---
 
 ## Implementation Highlights
 
-**Rule prefix/suffix matching** — `relative_prefix` supports `cmake-build-*` and `*.egg-info` patterns; tested in `lib.rs:127-158`.
-
-**Marker-gated rules** — `.gradle` build dirs only match when `build.gradle` or `settings.gradle` exists under project root—prevents false positives in random folders.
-
-**Global vs project scope** — `CleanupRule::global` vs `::project` determines whether `resolve_global_path` or project-relative resolution applies in scanner.
-
-**Sensible defaults** — `soft_delete: true`, `include_agent_heuristics: true`, `expert_mode: false` (`mod.rs:34-39`) optimize for safe first-run experience.
+- `parse_scan_paths` / `format_scan_paths` for Settings textarea editing (`settings/mod.rs:63-76`).
+- `soft_delete_days` controls both trash purge and user expectation messaging.
+- Rule tests in `lib.rs:134-183` validate prefix and marker matching logic.

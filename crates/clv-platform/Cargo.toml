@@ -6,11 +6,9 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-chrono.workspace = true
 directories.workspace = true
 serde.workspace = true
 sysinfo.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
 rfd.workspace = true
 
@@ -25,5 +23,4 @@ winreg = "0.55"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_System_Threading",
-    "Win32_UI_Shell",
 ] }

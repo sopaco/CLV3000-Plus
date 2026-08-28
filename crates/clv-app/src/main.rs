@@ -16,15 +16,14 @@ mod views;
 
 use actions::CloseWindow;
 use app::{shell::AppShell, ClvApp};
-use clv_core::load_settings;
+use clv_core::{load_settings, resolve_language};
 use gpui::*;
 use gpui_component::*;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use theme::apply_theme;
 use tray::{
-    new_pending_slot, take_pending, tray_language_from_settings, TrayAction, TrayController,
-    TrayPending,
+    new_pending_slot, take_pending, TrayAction, TrayController, TrayPending,
 };
 
 static TRAY_PENDING: OnceLock<TrayPending> = OnceLock::new();
@@ -34,7 +33,7 @@ fn tray_pending() -> TrayPending {
     TRAY_PENDING
         .get_or_init(|| {
             let pending = new_pending_slot();
-            let lang = tray_language_from_settings(load_settings().language);
+            let lang = resolve_language(load_settings().language);
             if !TrayController::install("CLV3000 Plus", pending.clone(), lang) {
                 tracing::warn!("system tray unavailable on this platform");
             }
@@ -126,7 +125,7 @@ fn window_options(cx: &App) -> WindowOptions {
 }
 
 fn build_root_view(window: &mut Window, cx: &mut App) -> Entity<Root> {
-    let app = cx.new(|cx| ClvApp::new(window, cx, tray_pending()));
+    let app = cx.new(|cx| ClvApp::new(window, cx));
     let shell = cx.new(|cx| AppShell::new(app, window, cx));
     cx.new(|cx| Root::new(shell, window, cx))
 }

@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use gpui::{AssetSource, Result, SharedString};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
@@ -28,14 +27,5 @@ impl AssetSource for Assets {
             }
         }
         Ok(list)
-    }
-}
-
-#[allow(dead_code)]
-pub fn ensure_asset(path: &str) -> Result<()> {
-    if ClvAssets::get(path).is_some() || gpui_component_assets::Assets.load(path)?.is_some() {
-        Ok(())
-    } else {
-        Err(anyhow!("missing asset: {path}"))
     }
 }

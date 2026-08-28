@@ -4,7 +4,7 @@ use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::{agent_reason_matches_query, format_agent_reason, AgentProject, RiskLevel};
 use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::input::{Input, InputState};
 use std::sync::Arc;
 
 /// Virtualized row slot — card body + gap between rows.
@@ -65,24 +65,18 @@ impl AgentView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        if let Some(input) = &self.search_input {
-            return input.clone();
-        }
-
         let placeholder = self.store.read(cx).i18n().agent_search_placeholder();
-        let input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(placeholder)
-        });
-        let subscription = cx.subscribe(&input, |view, input, event, cx| {
-            if matches!(event, InputEvent::Change) {
-                view.search_query = input.read(cx).value().to_string();
+        ui::ensure_search_input(
+            &mut self.search_input,
+            &mut self._search_subscription,
+            placeholder,
+            window,
+            cx,
+            |view, value, _cx| {
+                view.search_query = value;
                 view.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
-                cx.notify();
-            }
-        });
-        self._search_subscription = Some(subscription);
-        self.search_input = Some(input.clone());
-        input
+            },
+        )
     }
 
     fn render_row(
