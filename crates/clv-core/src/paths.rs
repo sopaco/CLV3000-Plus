@@ -82,6 +82,25 @@ fn strip_env_prefix<'a>(relative: &'a str, prefix: &str) -> Option<&'a str> {
         .map(|rest| rest.trim_start_matches(['/', '\\']))
 }
 
+fn dir_name_in(path: &Path, names: &[&str]) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| names.contains(&name))
+}
+
+/// VCS / index directories skipped while walking project trees during scan.
+pub fn is_scan_skip_dir(path: &Path) -> bool {
+    dir_name_in(path, &[".git", ".svn", ".hg", ".terrain"])
+}
+
+/// Broader skip list for large-file discovery (also ignore dependency/build trees).
+pub fn is_large_file_skip_dir(path: &Path) -> bool {
+    dir_name_in(
+        path,
+        &[".git", ".svn", ".hg", ".terrain", "node_modules", "target"],
+    )
+}
+
 pub fn env_temp_dir() -> Option<PathBuf> {
     env::var("TEMP")
         .or_else(|_| env::var("TMP"))

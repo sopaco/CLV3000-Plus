@@ -1,27 +1,29 @@
 # Cleanup Domain
 
 **Module path:** `crates/clv-core/src/cleanup.rs`  
-**Generated:** 2026-08-23
+**Generated:** 2026-08-28
 
 ---
 
 ## What This Module Does
 
-After the user reviews scan results and checks boxes, the cleanup module performs the actual filesystem operations. `CleanupExecutor` is deliberately small: it loops selected `ScanItem`s, respects risk and expert-mode gates, and either renames paths into an app-managed trash folder (default) or deletes them permanently. Think of it as the "disposal dock" at the end of the factory line — separate from discovery so deletion policy can evolve without touching scan logic.
+Cleanup is the safety-conscious compactor at the end of the pipeline. Scanning tells you what *could* go; cleanup actually moves it—but by default into an app-managed holding area rather than permanent oblivion. Every moved file gets a `TrashedEntry` record so the Dashboard can offer restore, and every run appends to a 90-day history so you can see trends over time.
+
+The module's design reflects a core product promise: **destructive operations must be reversible by default**.
 
 ---
 
 ## Core Capabilities
 
-1. **Batch execution** — `execute(&[ScanItem])` (`cleanup.rs:25`) processes items sequentially and aggregates `CleanupReport`.
+1. **Batch execution with progress** — `CleanupExecutor::execute_cancellable` (`cleanup.rs:163`) iterates items, emitting `CleanupProgress` before and after each deletion.
 
-2. **Risk gating** — Skips `RiskLevel::Protected` when `!settings.expert_mode` (`cleanup.rs:34–36`).
+2. **Soft delete to app trash** — Timestamped + UUID-stamped destinations under `trash_dir()` (`cleanup.rs:237-247`).
 
-3. **Soft delete** — `remove_path` renames to `trash_dir()` with `{stamp}-{name}-{uuid}` (`cleanup.rs:60–74`).
+3. **Cross-device move fallback** — `move_entry` copies then deletes when `rename` fails across volumes (`cleanup.rs:256-268`)—critical on Windows.
 
-4. **Hard delete** — When `soft_delete` is false, uses `fs::remove_dir_all` / `fs::remove_file` (`cleanup.rs:76–81`).
+4. **Restore API** — `restore_trashed` moves files back from trash path to original location.
 
-5. **Trash purge** — `purge_old_trash(days)` (`cleanup.rs:86`) deletes aged trash entries by modification time.
+5. **History management** — `CleanupHistory` with 90-day prune (`cleanup.rs:86-89`) and restorable entry listing (`cleanup.rs:123-133`).
 
 ---
 
@@ -29,11 +31,14 @@ After the user reviews scan results and checks boxes, the cleanup module perform
 
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `CleanupExecutor` | `crates/clv-core/src/cleanup.rs:16` | Deletion orchestrator |
-| `CleanupReport` | `crates/clv-core/src/cleanup.rs:9` | freed_bytes, success_count, failed, trashed |
-| `remove_path` | `crates/clv-core/src/cleanup.rs:55` | Per-path soft/hard delete |
-| `trash_dir` | `crates/clv-core/src/paths.rs` | Quarantine directory path |
-| `spawn_cleanup` | `crates/clv-app/src/services/cleanup.rs` | Background thread wrapper |
+| `CleanupExecutor` | `crates/clv-core/src/cleanup.rs:147` | Deletion orchestrator |
+| `execute_cancellable` | `crates/clv-core/src/cleanup.rs:163` | Batch delete with cancel |
+| `remove_path` | `crates/clv-core/src/cleanup.rs:232` | Soft vs hard delete decision |
+| `move_entry` | `crates/clv-core/src/cleanup.rs:256` | Robust move/rename with fallback |
+| `TrashedEntry` | `crates/clv-core/src/cleanup.rs:30` | Restore metadata struct |
+| `CleanupHistory` | `crates/clv-core/src/cleanup.rs:52` | JSON persistence + aggregation |
+| `purge_old_trash` | `crates/clv-core/src/cleanup.rs` | Age-based trash file deletion |
+| `restore_trashed` | `crates/clv-core/src/cleanup.rs` | User-initiated file recovery |
 
 ---
 
@@ -41,15 +46,17 @@ After the user reviews scan results and checks boxes, the cleanup module perform
 
 ```mermaid
 flowchart TD
-    A["selected ScanItems"] --> B["CleanupExecutor::execute<br/>cleanup.rs:25"]
-    B --> C{"Protected and not expert?<br/>cleanup.rs:34"}
+    A["Selected ScanItems"] --> B["CleanupExecutor::execute_cancellable"]
+    B --> C{"Protected risk?<br/>not expert_mode"}
     C -->|skip| B
-    C -->|proceed| D["remove_path<br/>cleanup.rs:55"]
-    D --> E{"soft_delete?<br/>cleanup.rs:60"}
-    E -->|yes| F["fs::rename to trash_dir"]
-    E -->|no| G["fs::remove_dir_all / remove_file"]
-    F --> H["CleanupReport"]
-    G --> H
+    C -->|proceed| D["remove_path"]
+    D --> E{"soft_delete?"}
+    E -->|yes| F["move_entry to trash/"]
+    E -->|no| G["force_remove"]
+    F --> H["TrashedEntry recorded"]
+    G --> I["CleanupReport"]
+    H --> I
+    I --> J["CleanupHistory.append"]
 ```
 
 ---
@@ -58,23 +65,26 @@ flowchart TD
 
 | Module | Direction | Interface | Notes |
 |--------|-----------|-----------|-------|
-| models | depends | `ScanItem`, `RiskLevel` | Input items |
-| settings | depends | `AppSettings`, `trash_dir` | Mode flags |
-| app-store | consumed by | `start_cleanup` | Spawns worker |
-| views | triggers | CleanupView confirm | User action |
+| Models | Input | `ScanItem`, `RiskLevel` | Items to delete |
+| Settings | Depends | `AppSettings.soft_delete`, `expert_mode`, `trash_dir()` | Behavior flags |
+| AppStore | Invoked by | `spawn_cleanup` in `services/cleanup.rs` | Background execution |
+| Views/Dashboard | Displays | `CleanupHistory`, restore actions | User-facing history |
 
-**After cleanup** — `AppStore` clears selection, stores `last_cleanup_freed`, calls `refresh_disk_usage_async` (`state.rs:141`).
+**In cleanup workflow**: CleanupView selection → AppStore.run_cleanup → CleanupExecutor → history append → disk refresh → notification.
 
 ---
 
-## Safety Notes
+## Performance and Safety
 
-- Scanner should not list protected system paths; executor does not re-validate `is_protected_system_path` on every delete — defense in depth relies on scan + UI gates.
-- Missing paths return `Ok(None)` without error (`cleanup.rs:56–58`).
-- Failed deletes preserve path in `report.failed` for user visibility.
+- Sequential per-item deletion avoids filesystem lock contention on some platforms.
+- Protected items require Expert mode to delete (`cleanup.rs:181-186`).
+- Readonly file attributes cleared before remove via `force_remove` helpers.
+- Failures collected in `CleanupReport.failed` without stopping batch.
 
 ---
 
 ## Implementation Highlights
 
-Soft-delete naming includes UUID to avoid collisions when deleting multiple `cache` folders from different projects in one batch (`cleanup.rs:68`).
+- Cross-device `move_entry` tested in `lib.rs` test suite for cleanup module.
+- `CleanupHistory::restorable_entries` deduplicates by trash path, filters missing files.
+- Startup `purge_old_trash` prevents unbounded trash growth (`state.rs:109-114`).

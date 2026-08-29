@@ -27,12 +27,9 @@ TRANSLATIONS = Path(__file__).with_name("rule-description-translations.json")
 PATTERN = re.compile(r'(CleanupCategory::\w+,\s*\n\s*)"([^"]+)",', re.MULTILINE)
 
 TAIL = """
-const ALL_LANGUAGES: [Language; 3] = [Language::Zh, Language::En, Language::Ja];
 
 pub fn rule_description_matches_query(description: RuleDescription, query: &str) -> bool {
-    ALL_LANGUAGES.iter().any(|&lang| {
-        description.text(lang).to_lowercase().contains(query)
-    })
+    crate::locale::localized_text_matches_query(query, |lang| description.text(lang))
 }
 """
 

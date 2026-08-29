@@ -3,7 +3,7 @@ use clv_core::{
     AppSettings, ScanItem,
 };
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{atomic::AtomicBool, mpsc, Arc};
 
 pub enum CleanupEvent {
     Progress(CleanupProgress),
@@ -21,12 +21,16 @@ pub enum CleanupPoll {
     Idle,
 }
 
-pub fn spawn_cleanup(settings: AppSettings, items: Vec<ScanItem>) -> CleanupSpawn {
+pub fn spawn_cleanup(
+    settings: AppSettings,
+    items: Vec<ScanItem>,
+    cancel: Arc<AtomicBool>,
+) -> CleanupSpawn {
     let (tx, rx) = mpsc::sync_channel::<CleanupEvent>(64);
 
     std::thread::spawn(move || {
         let executor = CleanupExecutor::new(settings);
-        let result = executor.execute(&items, |progress| {
+        let result = executor.execute_cancellable(&items, &cancel, |progress| {
             let _ = tx.try_send(CleanupEvent::Progress(progress));
         });
         let cleaned_paths = result.successful_paths.clone();

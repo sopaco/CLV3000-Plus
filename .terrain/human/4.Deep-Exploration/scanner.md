@@ -1,46 +1,44 @@
 # Scanner Domain
 
 **Module path:** `crates/clv-core/src/scanner.rs`  
-**Generated:** 2026-08-23
+**Generated:** 2026-08-28
 
 ---
 
 ## What This Module Does
 
-The scanner is CLV3000 Plus's inventory system. Before anything can be cleaned, the application must walk the filesystem, measure directories, classify them by tech stack and risk, and attach human-readable rule IDs. `Scanner` orchestrates three passes — global tool caches, agent session directories, and per-root project trees — then prunes nested duplicates and enriches results with agent project metadata. Without this module, the UI would have no `ScanReport` to display.
+The Scanner is the app's inventory robot. Before you can decide what to delete, something has to walk your filesystem, recognize that `target/` is a Rust build cache while `.git/` is not, and attach a human-readable explanation to each finding. That is the Scanner's job—it transforms a messy directory tree into a structured `ScanReport` that every other part of the app consumes.
+
+Without accurate scanning, cleanup would be dangerous guesswork. The Scanner therefore prioritizes **precision over speed**: nested matches are pruned so you do not delete both `node_modules` and a child `.cache` inside it separately; protected system paths are skipped entirely; and progress is throttled so the UI stays smooth during large walks.
 
 ---
 
 ## Core Capabilities
 
-1. **Global cache discovery** — Iterates `global_cache_rules()` and resolves paths via `resolve_global_path` (`scanner.rs:76–89`). Covers Cargo registry, npm cache, Xcode DerivedData, Trae/OpenCode caches, and platform-specific `%LOCALAPPDATA%` paths.
+1. **Three-phase scan pipeline** — Global home caches (`scanner.rs:88-108`), agent session directories (`scanner.rs:111-127`), then user-configured project roots (`scanner.rs:130-150`).
 
-2. **Agent session targets** — When `include_agent_heuristics` is true, calls `discover_agent_session_targets()` (`scanner.rs:91–99`) and adds session/cache dirs from `agent_sessions.rs`.
+2. **Rule-based matching** — Each directory name checked against `project_rules()` and `global_cache_rules()` defined in `crates/clv-core/src/settings/`. Rules support exact names, prefixes (`cmake-build-*`), glob markers, and parent requirements.
 
-3. **Project tree matching** — `scan_tree` (`scanner.rs:156`) walks each `scan_paths` root with WalkDir (max depth 8), matching `project_rules()` by directory name, prefix, parent constraint, and project markers (`package.json`, `Cargo.toml`, etc.).
+3. **Cancellable execution** — `scan_cancellable` checks an `AtomicBool` at phase and directory boundaries (`scanner.rs:62-76`).
 
-4. **Nested pruning** — `drop_nested_items` (`scanner.rs:122`) removes child hits when a parent directory already matched — e.g. `node_modules/.cache` inside listed `node_modules`.
+4. **Throttled progress** — `ProgressThrottle` emits at most one progress event per 300ms unless forced (`scanner.rs:23-44`).
 
-5. **Agent tagging** — `tag_agent_items` (`scanner.rs:141`) sets `TechStack::Agent` on items whose `project_root` is a detected agent experiment.
-
-6. **Progress throttling** — `ProgressThrottle` (`scanner.rs:22–42`) limits UI updates to 300ms intervals except on forced phase boundaries.
+5. **Inline large-file collection** — Files above threshold collected during tree walk, finalized via `large_files.rs`.
 
 ---
 
 ## Key Components
 
-The scanner is mostly implemented in one file but depends on settings tables and agent modules for rule data.
-
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `Scanner` | `crates/clv-core/src/scanner.rs:45` | Scan orchestrator |
-| `ProgressThrottle` | `crates/clv-core/src/scanner.rs:22` | Rate-limits progress callbacks |
-| `MIN_SCAN_ITEM_BYTES` | `crates/clv-core/src/scanner.rs:20` | 1MB minimum item size |
-| `scan_tree` | `crates/clv-core/src/scanner.rs:156` | Per-root WalkDir + rule loop |
-| `try_add_rule_path` | `crates/clv-core/src/scanner.rs` | Size check, dedup, ScanItem push |
-| `is_agent_project_path` | `crates/clv-core/src/scanner.rs` | Agent marker heuristics |
-| `project_rules` | `crates/clv-core/src/settings/project_rules.rs` | In-project rule table |
-| `global_cache_rules` | `crates/clv-core/src/settings/global_rules.rs` | Global cache rule table |
+| `Scanner` | `crates/clv-core/src/scanner.rs:46` | Scan orchestrator struct |
+| `ProgressThrottle<F>` | `crates/clv-core/src/scanner.rs:23` | Rate-limits progress callbacks |
+| `scan_cancellable` | `crates/clv-core/src/scanner.rs:62` | Main scan entry with cancel support |
+| `scan_tree` | `crates/clv-core/src/scanner.rs` | Recursive project directory walk |
+| `should_skip_dir` | `crates/clv-core/src/scanner.rs` | VCS and skip-list filtering |
+| `project_rules` | `crates/clv-core/src/settings/project_rules.rs` | Per-stack cleanup patterns |
+| `global_cache_rules` | `crates/clv-core/src/settings/global_rules.rs` | Home-level cache locations |
+| `is_protected_system_path` | `crates/clv-core/src/paths.rs:165` | Hard block for system roots |
 
 ---
 
@@ -48,35 +46,34 @@ The scanner is mostly implemented in one file but depends on settings tables and
 
 ```mermaid
 flowchart TD
-    A["AppSettings"] --> B["Scanner::scan<br/>scanner.rs:54"]
-    B --> C["global_cache_rules<br/>scanner.rs:76"]
-    B --> D["discover_agent_session_targets<br/>scanner.rs:91"]
-    B --> E["scan_tree per root<br/>scanner.rs:119"]
-    C --> F["try_add_rule_path"]
-    D --> G["try_add_agent_session<br/>scanner.rs:227"]
-    E --> F
-    F --> H["drop_nested_items<br/>scanner.rs:122"]
-    H --> I["detect_agent_projects<br/>scanner.rs:133"]
-    I --> J["tag_agent_items<br/>scanner.rs:141"]
-    J --> K["ScanReport"]
+    A["AppSettings"] --> B["Scanner::new<br/>scanner.rs:51"]
+    B --> C["Global cache pass<br/>global_cache_rules"]
+    C --> D["Agent session pass<br/>discover_agent_session_targets"]
+    D --> E["Project root pass<br/>scan_paths"]
+    E --> F["scan_tree + rule match"]
+    F --> G["Prune nested hits"]
+    F --> H["Collect LargeFileEntry"]
+    G --> I["ScanReport.items"]
+    H --> I
+    I --> J["detect_agent_projects"]
+    J --> K["ScanReport complete"]
 ```
 
-**Step notes:**
-1. `scan_phase_preparing` — Localized progress string from `locale.rs` (`scanner.rs:65–73`).
-2. `prune_roots` RefCell — Skips re-scanning inside already-matched directories (`scanner.rs:168–178`).
-3. `seen_paths` HashSet — Prevents duplicate `ScanItem` entries for the same path.
+**Key steps:**
+1. `Scanner::new(settings)` binds user preferences — `scanner.rs:51`
+2. Each rule path resolved via `resolve_global_path` or project walk — `paths.rs:52`
+3. Items below `MIN_SCAN_ITEM_BYTES` (1 MB) filtered to reduce noise — `scanner.rs:21`
+4. Final report includes `cancelled`, `sizes_truncated` flags when applicable — `models.rs:131-133`
 
 ---
 
-## Interfaces and Extension Points
+## Key Interfaces and Extension Points
 
-New cleanup targets are added by extending `CleanupRule` tables in settings — not by editing scanner control flow. Pattern from `AGENTS.md`:
+Add new cleanup targets by extending rule tables rather than modifying scanner logic:
 
-- Add rule in `project_rules.rs` / `global_rules.rs`
-- Add `RuleDescription` translation in JSON
-- Run `generate-rule-descriptions.py --patch`
-
-Scanner matching functions: `rule_matches_dir_name`, `rule_matches_marker`, `rule_matches_parent`.
+- **Project rules**: new `CleanupRule` entries in `project_rules.rs` with stack, risk, category, and `RuleDescription` ID.
+- **Global caches**: entries in `global_cache_rules.rs` with home-relative paths.
+- **Skip directories**: extend `is_scan_skip_dir` in `paths.rs:92`.
 
 ---
 
@@ -84,27 +81,27 @@ Scanner matching functions: `rule_matches_dir_name`, `rule_matches_marker`, `rul
 
 | Module | Direction | Interface | Notes |
 |--------|-----------|-----------|-------|
-| settings | depends | `CleanupRule`, `AppSettings` | Rule source |
-| agent | depends | `detect_agent_projects` | Post-scan enrichment |
-| agent_sessions | depends | `AgentSessionTarget` | Session pass |
-| models | produces | `ScanItem`, `ScanReport` | Output types |
-| app-store | consumed by | `spawn_scan` → `Scanner::new` | Worker thread |
+| Settings | Depends | `AppSettings`, `CleanupRule`, rules tables | Scanner reads-only |
+| Agent | Calls | `discover_agent_session_targets`, `detect_agent_projects` | Session + project grouping |
+| Models | Produces | `ScanItem`, `ScanReport` | Output types |
+| Messages | Uses | `RuleDescription`, `AgentReasonPart` | Typed descriptions |
+| AppStore | Invoked by | `Scanner::scan_cancellable` via `services/scan.rs` | Background thread |
 
-**In scan workflow** — `services/scan.rs:24` constructs `Scanner::new(settings)` and passes progress to mpsc channel.
+**In scan workflow**: AppStore spawns scan thread → Scanner produces report → saved via `save_last_scan` → views read `last_report`.
 
 ---
 
 ## Performance Considerations
 
-- Blocking walk on worker thread — UI stays responsive via `poll_scan`.
-- Depth limit 8 — bounds runaway trees under deep `node_modules`.
-- `should_skip_dir` — skips `.git`, VCS internals, and known noise dirs.
-- Size threshold 1MB — reduces list clutter for tiny caches.
+- Walkdir traversal is synchronous on worker thread—no parallel directory walks (simplicity over max throughput).
+- `ProgressThrottle` prevents GPUI channel saturation on fast SSDs.
+- `seen_paths` HashSet deduplicates global vs project hits.
+- Size calculation may set `sizes_truncated` when directory sizing hits limits during walk.
 
 ---
 
 ## Implementation Highlights
 
-- **Unit tests in `lib.rs`** — `scanner_prunes_nested_cleanup_inside_matched_parent` validates nested pruning behavior (`lib.rs:57–93`).
-- **Protected path guard** — `is_protected_system_path` at scan entry (`scanner.rs:104`, `scanner.rs:182`).
-- **Locale-aware phases** — `scan_phase_scanning_path`, `scan_phase_agent_sessions` for trilingual progress UI.
+- **Nested pruning test** (`lib.rs:64-100`): matching both `node_modules` and inner `.cache` would double-count; scanner keeps only the parent match.
+- **Sibling build dirs preserved** (`lib.rs:103-131`): `build/` and `app/build/` both reported as separate items.
+- **Agent marker detection** integrated into project walk via `is_agent_project_path` (`lib.rs:345`).

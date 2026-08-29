@@ -5,11 +5,10 @@ mod labels;
 pub use labels::*;
 
 use clv_core::{
-    AgentReasonPart, AppSettings, CleanupBucket, CleanupReport, Language, RuleDescription,
-    format_agent_reason, format_bytes, resolve_language, tr,
+    format_bytes, resolve_language, tr, AppSettings, CleanupBucket, CleanupReport, Language,
 };
 
-use crate::app::state::{AppPage, CleanupFilter};
+use crate::app::state::AppPage;
 
 #[derive(Debug, Clone, Copy)]
 pub struct I18n {
@@ -60,6 +59,7 @@ impl I18n {
             AppPage::Agent => self.t("Agent 项目", "Agent Projects", "Agent プロジェクト"),
             AppPage::Startup => self.t("启动项管理", "Startup Items", "起動項目"),
             AppPage::Process => self.t("进程管理", "Processes", "プロセス管理"),
+            AppPage::LargeFiles => self.t("大文件", "Large Files", "大容量ファイル"),
             AppPage::Settings => self.t("设置", "Settings", "設定"),
             AppPage::Onboarding => self.t("欢迎", "Welcome", "ようこそ"),
         }
@@ -97,10 +97,6 @@ impl I18n {
 
     pub fn kill_process(&self) -> &'static str {
         self.t("结束", "End", "終了")
-    }
-
-    pub fn clean_cache(&self) -> &'static str {
-        self.t("清理缓存", "Clean Cache", "キャッシュ削除")
     }
 
     pub fn save(&self) -> &'static str {
@@ -461,11 +457,57 @@ impl I18n {
         )
     }
 
-    pub fn last_cleanup_freed(&self, size: &str) -> String {
+    // ── Cleanup history ────────────────────────────────────────────────
+
+    pub fn cleanup_history_title(&self) -> &'static str {
+        self.t("清理趋势", "Cleanup Trend", "削除トレンド")
+    }
+
+    pub fn no_cleanup_history(&self) -> String {
         match self.lang {
-            Language::Zh => format!("上次清理已释放 {size}"),
-            Language::En => format!("Last cleanup freed {size}"),
-            Language::Ja => format!("前回の削除で {size} を解放"),
+            Language::Zh => "尚无清理记录".to_string(),
+            Language::En => "No cleanup history yet".to_string(),
+            Language::Ja => "削除履歴なし".to_string(),
+        }
+    }
+
+    pub fn history_summary(&self, freed_7d: &str, cleanups: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("过去 7 天释放 {freed_7d}，共 {cleanups} 次清理"),
+            Language::En => format!("Freed {freed_7d} in the last 7 days, {cleanups} cleanup(s)"),
+            Language::Ja => format!("過去 7 日で {freed_7d} を解放、{cleanups} 回の削除"),
+        }
+    }
+
+    pub fn history_7d_freed(&self) -> &'static str {
+        self.t("近 7 天", "Last 7 Days", "過去 7 日")
+    }
+
+    pub fn history_30d_freed(&self) -> &'static str {
+        self.t("近 30 天", "Last 30 Days", "過去 30 日")
+    }
+
+    pub fn history_cleanups_count(&self, count: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("{count} 次清理"),
+            Language::En => format!("{count} cleanup(s)"),
+            Language::Ja => format!("{count} 回削除"),
+        }
+    }
+
+    pub fn history_7d_detail(&self, success: usize, failed: usize) -> String {
+        if failed == 0 {
+            match self.lang {
+                Language::Zh => format!("全部成功，共清理 {success} 项"),
+                Language::En => format!("All {success} item(s) cleaned successfully"),
+                Language::Ja => format!("すべて成功、{success} 件を削除"),
+            }
+        } else {
+            match self.lang {
+                Language::Zh => format!("成功 {success} 项，失败 {failed} 项"),
+                Language::En => format!("{success} succeeded, {failed} failed"),
+                Language::Ja => format!("{success} 件成功、{failed} 件失敗"),
+            }
         }
     }
 
@@ -543,33 +585,6 @@ impl I18n {
 
     pub fn filter_ai(&self) -> &'static str {
         labels::cleanup_bucket_label(self.lang, CleanupBucket::AiGenerated)
-    }
-
-    pub fn cleanup_bucket_label(&self, bucket: CleanupBucket) -> &'static str {
-        labels::cleanup_bucket_label(self.lang, bucket)
-    }
-
-    pub fn rule_description_label(&self, description: RuleDescription) -> &'static str {
-        labels::rule_description_label(self.lang, description)
-    }
-
-    pub fn agent_reason_text(&self, parts: &[AgentReasonPart]) -> String {
-        format_agent_reason(self.lang, parts)
-    }
-
-    pub fn cleanup_bucket_hint(&self, bucket: CleanupBucket) -> &'static str {
-        labels::cleanup_bucket_hint(self.lang, bucket)
-    }
-
-    pub fn cleanup_filter_label(&self, filter: CleanupFilter) -> &'static str {
-        match filter {
-            CleanupFilter::All => self.filter_all(),
-            CleanupFilter::SafeOnly => self.filter_safe(),
-            CleanupFilter::ProjectBuildCache => self.filter_project(),
-            CleanupFilter::SharedToolCache => self.filter_shared(),
-            CleanupFilter::DevEnvironment => self.filter_dev_env(),
-            CleanupFilter::AiGenerated => self.filter_ai(),
-        }
     }
 
     pub fn items_selected_summary(&self, total: usize, selected: usize) -> String {
@@ -738,9 +753,9 @@ impl I18n {
 
     pub fn agent_empty_hint(&self) -> &'static str {
         self.t(
-            "点击上方「扫描 Agent 项目」，将识别含 .agents / .claude 等标记的目录",
-            "Tap “Scan Agent Projects” to find directories with .agents, .claude, etc.",
-            "上の「Agent プロジェクトをスキャン」で .agents / .claude 等を検出",
+            "点击上方扫描。仅名称像试验项目，或带 Agent 标记且长期未使用的目录会出现在此。",
+            "Scan above. Only experiment-named folders, or marker folders unused for 14+ days, appear here.",
+            "上でスキャン。試験的な名前、または 14 日以上未使用のマーカー付きフォルダのみ表示。",
         )
     }
 
@@ -858,6 +873,10 @@ impl I18n {
 
     pub fn col_name(&self) -> &'static str {
         self.t("名称", "Name", "名前")
+    }
+
+    pub fn col_cpu(&self) -> &'static str {
+        "CPU"
     }
 
     pub fn col_memory(&self) -> &'static str {
@@ -1033,10 +1052,6 @@ impl I18n {
         }
     }
 
-    pub fn scan_preparing(&self) -> &'static str {
-        self.t("准备扫描…", "Preparing scan…", "スキャン準備中…")
-    }
-
     pub fn scan_interrupted(&self) -> &'static str {
         self.t("扫描已中断", "Scan interrupted", "スキャンが中断されました")
     }
@@ -1085,50 +1100,48 @@ impl I18n {
         }
     }
 
-    pub fn cleanup_status_detail(&self, completed: usize, total: usize) -> String {
-        match self.lang {
-            Language::Zh => format!("正在清理 {completed}/{total}…"),
-            Language::En => format!("Cleaning {completed}/{total}…"),
-            Language::Ja => format!("削除中 {completed}/{total}…"),
-        }
-    }
-
-    pub fn cleanup_switch_pages_hint(&self) -> &'static str {
-        self.t(
-            "可切换页面，清理不会中断",
-            "Switch pages — cleanup continues",
-            "ページ切替可 — 削除は継続",
-        )
-    }
-
     pub fn cleanup_interrupted(&self) -> &'static str {
         self.t("清理已中断", "Cleanup interrupted", "削除が中断されました")
     }
 
+    pub fn cleanup_complete_title(&self) -> &'static str {
+        self.t("清理完成", "Cleanup Complete", "削除完了")
+    }
+
+    pub fn cleanup_complete_notification(&self, report: &CleanupReport) -> String {
+        self.cleanup_result_message(report, true)
+    }
+
     pub fn cleanup_summary(&self, report: &CleanupReport) -> String {
+        self.cleanup_result_message(report, false)
+    }
+
+    fn cleanup_result_message(&self, report: &CleanupReport, notification: bool) -> String {
+        let size = format_bytes(report.freed_bytes);
         let failed_suffix = if report.failed.is_empty() {
             String::new()
         } else {
             match self.lang {
-                Language::Zh => format!("，失败 {} 项", report.failed.len()),
+                Language::Zh => format!("，{} 项失败", report.failed.len()),
                 Language::En => format!(", {} failed", report.failed.len()),
                 Language::Ja => format!("、{} 件失敗", report.failed.len()),
             }
         };
-        match self.lang {
-            Language::Zh => format!(
-                "已释放 {}，成功 {} 项{failed_suffix}",
-                format_bytes(report.freed_bytes),
+        match (self.lang, notification) {
+            (Language::Zh, true) => format!(
+                "成功释放 {size}，共清理 {} 项{failed_suffix}",
                 report.success_count,
             ),
-            Language::En => format!(
-                "Freed {}, {} item(s) cleaned{failed_suffix}",
-                format_bytes(report.freed_bytes),
+            (Language::Zh, false) => format!(
+                "已释放 {size}，成功 {} 项{failed_suffix}",
                 report.success_count,
             ),
-            Language::Ja => format!(
-                "{} を解放、{} 件を削除{failed_suffix}",
-                format_bytes(report.freed_bytes),
+            (Language::En, _) => format!(
+                "Freed {size}, {} item(s) cleaned{failed_suffix}",
+                report.success_count,
+            ),
+            (Language::Ja, _) => format!(
+                "{size} を解放、{} 件を削除{failed_suffix}",
                 report.success_count,
             ),
         }
@@ -1158,26 +1171,10 @@ impl I18n {
         }
     }
 
-    pub fn kill_process_internal_error(&self) -> &'static str {
-        self.t(
-            "结束进程时发生内部错误",
-            "Internal error while ending process",
-            "プロセス終了中に内部エラー",
-        )
-    }
-
     // ── Scan progress bar ────────────────────────────────────────────────
 
     pub fn fast_scanning(&self) -> &'static str {
         self.t("正在极速扫描", "Fast Scanning", "高速スキャン中")
-    }
-
-    pub fn scan_switch_pages_hint(&self) -> &'static str {
-        self.t(
-            "可切换页面，扫描不会中断",
-            "Switch pages — scan continues",
-            "ページ切替可 — スキャンは継続",
-        )
     }
 
     pub fn scan_bar_detail(
@@ -1188,5 +1185,263 @@ impl I18n {
         path: Option<&str>,
     ) -> String {
         self.scan_progress_detail(phase, found, bytes, path)
+    }
+
+    // ── Dashboard P0/P1 enhancements ───────────────────────────────────
+
+    pub fn view_cleanup_details(&self) -> &'static str {
+        self.t("查看清理详情", "View Clean Details", "クリーン詳細を見る")
+    }
+
+    pub fn reclaim_safe_summary(&self, bytes: &str, count: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("可释放 {bytes}（{count} 项安全）"),
+            Language::Ja => format!("{bytes} 解放可能（安全 {count} 件）"),
+            Language::En => format!("{bytes} reclaimable ({count} safe items)"),
+        }
+    }
+
+    pub fn disk_volumes_title(&self) -> &'static str {
+        self.t("磁盘分区", "Disk Volumes", "ディスクボリューム")
+    }
+
+    pub fn disk_volumes_loading(&self) -> &'static str {
+        self.t(
+            "正在读取分区信息…",
+            "Reading volume details…",
+            "ボリューム情報を読み込み中…",
+        )
+    }
+
+    pub fn disk_volumes_empty(&self) -> &'static str {
+        self.t(
+            "未找到磁盘分区",
+            "No disk volumes found",
+            "ディスクボリュームが見つかりません",
+        )
+    }
+
+    pub fn large_files_tile(&self) -> &'static str {
+        self.t("大文件", "Large Files", "大容量ファイル")
+    }
+
+    pub fn large_files_tile_hint(&self) -> &'static str {
+        self.t("查看超大文件", "Review huge files", "巨大ファイルを確認")
+    }
+
+    pub fn large_files_title(&self) -> &'static str {
+        self.t("大文件查找", "Large File Finder", "大容量ファイル検索")
+    }
+
+    pub fn large_files_subtitle(&self, threshold: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("显示扫描目录中大于 {threshold} 的单个文件"),
+            Language::Ja => format!("スキャン対象で {threshold} 超のファイルを表示"),
+            Language::En => format!("Individual files above {threshold} in scan paths"),
+        }
+    }
+
+    pub fn large_files_empty_title(&self) -> &'static str {
+        self.t("暂无大文件", "No Large Files", "大容量ファイルなし")
+    }
+
+    pub fn large_files_empty_hint(&self) -> &'static str {
+        self.t(
+            "完成健康扫描后，这里会列出超大文件",
+            "Run a health scan to list very large files here",
+            "ヘルススキャン後に巨大ファイルを表示します",
+        )
+    }
+
+    pub fn pick_folders_title(&self) -> &'static str {
+        self.t(
+            "选择要扫描的文件夹",
+            "Choose Folders to Scan",
+            "スキャンするフォルダを選択",
+        )
+    }
+
+    pub fn add_scan_folders(&self) -> &'static str {
+        self.t("添加文件夹…", "Add Folders…", "フォルダを追加…")
+    }
+
+    pub fn folders_added(&self) -> &'static str {
+        self.t(
+            "已添加扫描文件夹",
+            "Scan folders added",
+            "スキャンフォルダを追加しました",
+        )
+    }
+
+    pub fn onboard_custom_paths_hint(&self) -> &'static str {
+        self.t(
+            "可添加你存放项目的文件夹；留空则使用默认目录",
+            "Add folders where you keep projects, or use defaults",
+            "プロジェクトフォルダを追加するか、デフォルトを使用",
+        )
+    }
+
+    pub fn tray_tooltip(&self, disk_pct: f32) -> String {
+        match self.lang {
+            Language::Zh => format!("CLV3000 Plus · 磁盘 {disk_pct:.0}%"),
+            Language::Ja => format!("CLV3000 Plus · ディスク {disk_pct:.0}%"),
+            Language::En => format!("CLV3000 Plus · Disk {disk_pct:.0}%"),
+        }
+    }
+
+    pub fn tray_open(&self) -> &'static str {
+        self.t(
+            "打开 CLV3000 Plus",
+            "Open CLV3000 Plus",
+            "CLV3000 Plus を開く",
+        )
+    }
+
+    pub fn tray_scan(&self) -> &'static str {
+        self.t("立即扫描", "Scan Now", "今すぐスキャン")
+    }
+
+    pub fn tray_quit(&self) -> &'static str {
+        self.t("退出", "Quit", "終了")
+    }
+
+    pub fn cancel(&self) -> &'static str {
+        self.t("停止", "Stop", "停止")
+    }
+
+    pub fn scan_cancelling(&self) -> &'static str {
+        self.t(
+            "正在停止扫描…",
+            "Stopping scan…",
+            "スキャンを停止しています…",
+        )
+    }
+
+    pub fn scan_cancelled(&self) -> &'static str {
+        self.t("扫描已停止", "Scan stopped", "スキャンを停止しました")
+    }
+
+    pub fn cleanup_cancelling(&self) -> &'static str {
+        self.t(
+            "正在停止清理…",
+            "Stopping cleanup…",
+            "削除を停止しています…",
+        )
+    }
+
+    pub fn confirm_kill_title(&self) -> &'static str {
+        self.t("结束进程？", "End process?", "プロセスを終了しますか？")
+    }
+
+    pub fn confirm_kill_body(&self, name: &str, pid: u32) -> String {
+        match self.lang {
+            Language::Zh => format!("将向 {name}（PID {pid}）发送结束信号。未保存的工作可能丢失。"),
+            Language::En => {
+                format!("Send a terminate signal to {name} (PID {pid}). Unsaved work may be lost.")
+            }
+            Language::Ja => format!(
+                "{name}（PID {pid}）に終了信号を送ります。未保存の作業は失われる可能性があります。"
+            ),
+        }
+    }
+
+    pub fn confirm_delete_file_title(&self) -> &'static str {
+        self.t(
+            "删除这个文件？",
+            "Delete this file?",
+            "このファイルを削除しますか？",
+        )
+    }
+
+    pub fn confirm_delete_file_body(&self, name: &str, size: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("即将删除 {name}（{size}）。默认移入应用回收站。"),
+            Language::En => {
+                format!("Delete {name} ({size}). It will move to the in-app trash by default.")
+            }
+            Language::Ja => {
+                format!("{name}（{size}）を削除します。既定ではアプリ内ゴミ箱へ移動します。")
+            }
+        }
+    }
+
+    pub fn review_in_cleanup(&self) -> &'static str {
+        self.t("在清理中查看", "Review in Cleanup", "クリーンで確認")
+    }
+
+    pub fn confirm_caution_items_title(&self) -> &'static str {
+        self.t(
+            "包含需确认的项目",
+            "Includes items that need review",
+            "要確認の項目が含まれます",
+        )
+    }
+
+    pub fn confirm_caution_items_body(&self) -> &'static str {
+        self.t(
+            "将选中该项目下需谨慎处理的缓存。请在清理页核对路径后再删除。",
+            "This selects caution-level caches for this project. Review the paths on Cleanup before deleting.",
+            "このプロジェクトの要確認キャッシュを選択します。削除前にクリーン画面でパスを確認してください。",
+        )
+    }
+
+    pub fn cleanup_search_placeholder(&self) -> &'static str {
+        self.t(
+            "搜索名称或路径…",
+            "Search name or path…",
+            "名前またはパスで検索…",
+        )
+    }
+
+    pub fn sizes_truncated_hint(&self) -> &'static str {
+        self.t(
+            "部分目录条目过多，显示大小可能偏低",
+            "Some folders were truncated; displayed sizes may be low",
+            "一部フォルダは件数上限のため、表示サイズが小さい場合があります",
+        )
+    }
+
+    pub fn restore(&self) -> &'static str {
+        self.t("还原", "Restore", "復元")
+    }
+
+    pub fn press_esc_to_close(&self) -> &'static str {
+        self.t("按 Esc 关闭", "Press Esc to close", "Esc で閉じる")
+    }
+
+    pub fn recently_trashed_summary(&self, count: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("最近删除（可还原）· {count} 项"),
+            Language::En => format!("Recently deleted (restorable) · {count}"),
+            Language::Ja => format!("最近削除（復元可）· {count} 件"),
+        }
+    }
+
+    pub fn restore_ok(&self, name: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("已还原 {name}"),
+            Language::En => format!("Restored {name}"),
+            Language::Ja => format!("{name} を復元しました"),
+        }
+    }
+
+    pub fn restore_failed(&self, err: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("还原失败：{err}"),
+            Language::En => format!("Restore failed: {err}"),
+            Language::Ja => format!("復元に失敗：{err}"),
+        }
+    }
+
+    pub fn delete_file(&self) -> &'static str {
+        self.t("删除", "Delete", "削除")
+    }
+
+    pub fn nav_large_files(&self) -> &'static str {
+        self.t("大文件", "Files", "大容量")
+    }
+
+    pub fn filter_with_count(&self, label: &str, count: usize) -> String {
+        format!("{label} ({count})")
     }
 }

@@ -1,12 +1,11 @@
-use clv_core::{CleanupBucket, CleanupCategory, Language, RiskLevel, RuleDescription, TechStack, tr};
+use clv_core::{
+    localized_text_matches_query, tr, CleanupBucket, CleanupCategory, Language, RiskLevel,
+    RuleDescription, TechStack,
+};
 use clv_platform::{ProcessCategory, StartupImpact, StartupKind};
 
-const ALL_LANGUAGES: [Language; 3] = [Language::Zh, Language::En, Language::Ja];
-
 fn localized_label_matches_query(query: &str, label: impl Fn(Language) -> &'static str) -> bool {
-    ALL_LANGUAGES.iter().any(|&lang| {
-        label(lang).to_lowercase().contains(query)
-    })
+    localized_text_matches_query(query, label)
 }
 
 pub fn tech_stack_matches_query(stack: TechStack, query: &str) -> bool {
@@ -63,7 +62,12 @@ pub fn startup_kind_label(lang: Language, kind: &StartupKind) -> &'static str {
         StartupKind::LaunchDaemon => tr(lang, "后台服务", "Launch Daemon", "デーモン"),
         StartupKind::ScheduledTask => tr(lang, "计划任务", "Scheduled Task", "スケジュールタスク"),
         StartupKind::RegistryRun => tr(lang, "注册表启动", "Registry Run", "レジストリ起動"),
-        StartupKind::StartupFolder => tr(lang, "启动文件夹", "Startup Folder", "スタートアップフォルダ"),
+        StartupKind::StartupFolder => tr(
+            lang,
+            "启动文件夹",
+            "Startup Folder",
+            "スタートアップフォルダ",
+        ),
         StartupKind::Service => tr(lang, "系统服务", "System Service", "システムサービス"),
     }
 }
@@ -81,7 +85,7 @@ pub fn process_category_label(lang: Language, category: &ProcessCategory) -> &'s
 pub fn scan_category_label(lang: Language, category: CleanupCategory) -> &'static str {
     use CleanupCategory::*;
     match category {
-        CompileCache => tr(lang, "编译缓存", "Build Cache", "ビルドキャッシュ"),
+        CompileCache => tr(lang, "编译缓存", "Compile Cache", "コンパイルキャッシュ"),
         Dependencies => tr(lang, "依赖包", "Dependencies", "依存パッケージ"),
         BuildCache => tr(lang, "构建缓存", "Build Cache", "ビルドキャッシュ"),
         BuildOutput => tr(lang, "构建产物", "Build Output", "ビルド成果物"),
@@ -90,14 +94,24 @@ pub fn scan_category_label(lang: Language, category: CleanupCategory) -> &'stati
         AgentSession => tr(lang, "Agent 会话", "Agent Session", "Agent セッション"),
         AgentCache => tr(lang, "Agent 缓存", "Agent Cache", "Agent キャッシュ"),
         BuildDir => tr(lang, "构建目录", "Build Directory", "ビルドディレクトリ"),
-        BytecodeCache => tr(lang, "字节码缓存", "Bytecode Cache", "バイトコードキャッシュ"),
+        BytecodeCache => tr(
+            lang,
+            "字节码缓存",
+            "Bytecode Cache",
+            "バイトコードキャッシュ",
+        ),
         IntermediateOutput => tr(lang, "中间产物", "Intermediate Output", "中間成果物"),
         XcodeCache => tr(lang, "Xcode 缓存", "Xcode Cache", "Xcode キャッシュ"),
         TestCache => tr(lang, "测试缓存", "Test Cache", "テストキャッシュ"),
         ToolCache => tr(lang, "工具缓存", "Tool Cache", "ツールキャッシュ"),
         TestOutput => tr(lang, "测试产物", "Test Output", "テスト成果物"),
         LintCache => tr(lang, "Lint 缓存", "Lint Cache", "Lint キャッシュ"),
-        TypeCheckCache => tr(lang, "类型检查缓存", "Type-check Cache", "型チェックキャッシュ"),
+        TypeCheckCache => tr(
+            lang,
+            "类型检查缓存",
+            "Type-check Cache",
+            "型チェックキャッシュ",
+        ),
         GradleCache => tr(lang, "Gradle 缓存", "Gradle Cache", "Gradle キャッシュ"),
         PluginCache => tr(lang, "插件缓存", "Plugin Cache", "プラグインキャッシュ"),
         EditorCache => tr(lang, "编辑器缓存", "Editor Cache", "エディタキャッシュ"),
@@ -108,7 +122,12 @@ pub fn scan_category_label(lang: Language, category: CleanupCategory) -> &'stati
         SystemTemp => tr(lang, "系统临时", "System Temp", "システム一時"),
         VirtualEnv => tr(lang, "虚拟环境", "Virtual Env", "仮想環境"),
         TestEnv => tr(lang, "测试环境", "Test Env", "テスト環境"),
-        ProviderCache => tr(lang, "Provider 缓存", "Provider Cache", "Provider キャッシュ"),
+        ProviderCache => tr(
+            lang,
+            "Provider 缓存",
+            "Provider Cache",
+            "Provider キャッシュ",
+        ),
     }
 }
 
@@ -118,42 +137,19 @@ pub fn rule_description_label(lang: Language, description: RuleDescription) -> &
 
 pub fn cleanup_bucket_label(lang: Language, bucket: CleanupBucket) -> &'static str {
     match bucket {
-        CleanupBucket::ProjectBuildCache => {
-            tr(lang, "项目临时产物", "Project Build Cache", "プロジェクト一時ファイル")
-        }
-        CleanupBucket::SharedToolCache => {
-            tr(lang, "构建下载缓存", "Shared Tool Cache", "共有ツールキャッシュ")
-        }
-        CleanupBucket::DevEnvironment => tr(lang, "环境与依赖", "Dev Environment", "環境と依存"),
-        CleanupBucket::AiGenerated => tr(lang, "AI 工具数据", "AI Tool Data", "AI ツールデータ"),
-    }
-}
-
-pub fn cleanup_bucket_hint(lang: Language, bucket: CleanupBucket) -> &'static str {
-    match bucket {
         CleanupBucket::ProjectBuildCache => tr(
             lang,
-            "项目里的编译/测试临时文件，多数可安全清理",
-            "Build and test temp files inside projects; usually safe to clean",
-            "プロジェクト内のビルド/テスト一時ファイル。多くは安全に削除できます",
+            "项目临时产物",
+            "Project Build Cache",
+            "プロジェクト一時ファイル",
         ),
         CleanupBucket::SharedToolCache => tr(
             lang,
-            "各工具共用的下载缓存，删后首次使用会重新下载",
-            "Shared download caches; tools will re-download on first use after cleanup",
-            "各ツールの共有ダウンロードキャッシュ。削除後は初回利用時に再ダウンロードされます",
+            "构建下载缓存",
+            "Shared Tool Cache",
+            "共有ツールキャッシュ",
         ),
-        CleanupBucket::DevEnvironment => tr(
-            lang,
-            "依赖包、虚拟环境、语言工具链，删后需重新安装",
-            "Dependencies, virtual environments, and toolchains; reinstall after cleanup",
-            "依存パッケージ、仮想環境、ツールチェーン。削除後は再インストールが必要です",
-        ),
-        CleanupBucket::AiGenerated => tr(
-            lang,
-            "AI 助手会话、缓存与相关试验项目",
-            "AI assistant sessions, caches, and related experiment projects",
-            "AI アシスタントのセッション、キャッシュ、関連する実験プロジェクト",
-        ),
+        CleanupBucket::DevEnvironment => tr(lang, "环境与依赖", "Dev Environment", "環境と依存"),
+        CleanupBucket::AiGenerated => tr(lang, "AI 工具数据", "AI Tool Data", "AI ツールデータ"),
     }
 }

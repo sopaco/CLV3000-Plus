@@ -5,7 +5,7 @@ use crate::theme::colors;
 use clv_core::format_bytes;
 use clv_platform::{ProcessEnumerator, ProcessInfo, ProcessSort};
 use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::input::{Input, InputState};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -48,7 +48,7 @@ impl ProcessView {
             }
         });
 
-        Self {
+        let mut view = Self {
             store,
             _store_subscription: store_subscription,
             all_processes: Vec::new(),
@@ -61,7 +61,11 @@ impl ProcessView {
             visible: false,
             enumerator: None,
             last_process_refresh_trigger: 0,
+        };
+        if view.store.read(cx).page == AppPage::Process {
+            view.on_show(cx);
         }
+        view
     }
 
     fn processes_from_enumerator(
@@ -102,24 +106,18 @@ impl ProcessView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        if let Some(input) = &self.search_input {
-            return input.clone();
-        }
-
         let placeholder = self.store.read(cx).i18n().process_search_placeholder();
-        let input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(placeholder)
-        });
-        let subscription = cx.subscribe(&input, |view, input, event, cx| {
-            if matches!(event, InputEvent::Change) {
-                view.search_query = input.read(cx).value().to_string();
+        ui::ensure_search_input(
+            &mut self.search_input,
+            &mut self._search_subscription,
+            placeholder,
+            window,
+            cx,
+            |view, value, _cx| {
+                view.search_query = value;
                 view.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
-                cx.notify();
-            }
-        });
-        self._search_subscription = Some(subscription);
-        self.search_input = Some(input.clone());
-        input
+            },
+        )
     }
 
     pub fn on_show(&mut self, cx: &mut Context<Self>) {
@@ -128,11 +126,30 @@ impl ProcessView {
         }
         self.visible = true;
         self.poll_generation = self.poll_generation.wrapping_add(1);
-        let enumerator = Arc::new(Mutex::new(ProcessEnumerator::new()));
-        self.all_processes = Self::processes_from_enumerator(&enumerator, self.sort);
-        self.enumerator = Some(enumerator);
-        cx.notify();
-        self.spawn_poll_loop(cx);
+        let poll_gen = self.poll_generation;
+        let sort = self.sort;
+        cx.spawn(async move |weak, cx| {
+            let enumerator = cx
+                .background_spawn(async { Arc::new(Mutex::new(ProcessEnumerator::new())) })
+                .await;
+            let enumerator_for_list = enumerator.clone();
+            let processes = cx
+                .background_spawn(async move {
+                    Self::processes_from_enumerator(&enumerator_for_list, sort)
+                })
+                .await;
+            weak.update(cx, |view, cx| {
+                if view.poll_generation != poll_gen || !view.visible {
+                    return;
+                }
+                view.enumerator = Some(enumerator);
+                view.all_processes = processes;
+                cx.notify();
+                view.spawn_poll_loop(cx);
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn on_hide(&mut self, cx: &mut Context<Self>) {
@@ -152,11 +169,11 @@ impl ProcessView {
         let poll_gen = self.poll_generation;
         let sort = self.sort;
         cx.spawn(async move |weak, cx| {
-            let processes = std::thread::spawn(move || {
-                Self::processes_from_enumerator(&enumerator, sort)
-            })
-            .join()
-            .unwrap_or_default();
+            let processes = cx
+                .background_spawn(async move {
+                    Self::processes_from_enumerator(&enumerator, sort)
+                })
+                .await;
             weak.update(cx, |view, cx| {
                 if view.poll_generation != poll_gen || !view.visible {
                     return;
@@ -191,11 +208,11 @@ impl ProcessView {
                     .read_with(cx, |view, _| view.sort)
                     .unwrap_or(ProcessSort::Memory);
                 let enumerator = enumerator.clone();
-                let processes = std::thread::spawn(move || {
-                    Self::processes_from_enumerator(&enumerator, sort)
-                })
-                .join()
-                .unwrap_or_default();
+                let processes = cx
+                    .background_spawn(async move {
+                        Self::processes_from_enumerator(&enumerator, sort)
+                    })
+                    .await;
 
                 let still_valid = weak
                     .update(cx, |view, cx| {
@@ -262,7 +279,7 @@ impl ProcessView {
                             .gap_4()
                             .items_center()
                             .child(cell(pid.to_string(), px(60.), colors::text_muted()))
-                            .child(name_cell(name, colors::text_primary()))
+                            .child(name_cell(name.clone(), colors::text_primary()))
                             .child(cell(cpu, px(80.), colors::accent_blue()))
                             .child(cell(mem, px(100.), colors::text_secondary()))
                             .child(cell(cat.to_string(), px(80.), colors::text_muted())),
@@ -271,10 +288,26 @@ impl ProcessView {
                         ui::std_button(Button::new(kill_id).danger().label(i18n.kill_process())).on_click(
                             cx.listener({
                                 let store = store.clone();
-                                move |this, _, _, cx| {
-                                    this.all_processes.retain(|p| p.pid != pid);
-                                    cx.notify();
-                                    store.update(cx, |s, cx| s.kill_process_pid(pid, cx));
+                                let proc_name = name.clone();
+                                move |this, _, window, cx| {
+                                    let i18n = this.store.read(cx).i18n();
+                                    let store = store.clone();
+                                    let proc_name = proc_name.clone();
+                                    window.open_dialog(cx, move |dialog, _, _| {
+                                        dialog
+                                            .title(i18n.confirm_kill_title())
+                                            .child(i18n.confirm_kill_body(&proc_name, pid))
+                                            .confirm()
+                                            .on_ok({
+                                                let store = store.clone();
+                                                move |_, _, cx| {
+                                                    store.update(cx, |s, cx| {
+                                                        s.kill_process_pid(pid, cx);
+                                                    });
+                                                    true
+                                                }
+                                            })
+                                    });
                                 }
                             }),
                         ),
@@ -285,10 +318,6 @@ impl ProcessView {
 
 impl Render for ProcessView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.store.read(cx).page == AppPage::Process && !self.visible {
-            self.on_show(cx);
-        }
-
         let i18n = self.store.read(cx).i18n();
         let lang = self.store.read(cx).language();
         let search_input = self.ensure_search_input(window, cx);
@@ -367,7 +396,7 @@ impl Render for ProcessView {
                                     .gap_4()
                                     .child(header_cell(i18n.col_pid(), px(60.)))
                                     .child(header_name_cell(i18n.col_name()))
-                                    .child(header_cell("CPU", px(80.)))
+                                    .child(header_cell(i18n.col_cpu(), px(80.)))
                                     .child(header_cell(i18n.col_memory(), px(100.)))
                                     .child(header_cell(i18n.col_category(), px(80.)))
                                     .child(div().w(px(96.))),

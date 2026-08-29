@@ -39,7 +39,6 @@ impl StartupView {
         if self.loaded {
             return;
         }
-        self.loaded = true;
         self.refresh(cx);
     }
 
@@ -50,13 +49,23 @@ impl StartupView {
 
     /// 重新枚举启动项，保持开关与系统真实状态一致
     fn reload_items(&mut self, cx: &mut Context<Self>) {
-        self.items = list_startup_items();
-        let count = self.items.len();
-        self.store.update(cx, |store, cx| {
-            store.startup_count = count;
-            cx.notify();
-        });
-        cx.notify();
+        cx.spawn(async move |weak, cx| {
+            let items = cx
+                .background_spawn(async { list_startup_items() })
+                .await;
+            weak.update(cx, |view, cx| {
+                view.items = items;
+                view.loaded = true;
+                let count = view.items.len();
+                view.store.update(cx, |store, cx| {
+                    store.startup_count = count;
+                    cx.notify();
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn toggle_item(&mut self, id: &str, enabled: bool, cx: &mut Context<Self>) {

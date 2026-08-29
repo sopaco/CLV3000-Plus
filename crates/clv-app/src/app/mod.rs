@@ -1,3 +1,4 @@
+pub mod hud;
 pub mod shell;
 pub mod state;
 
@@ -5,20 +6,25 @@ use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::colors;
 use crate::views::{
-    agent::AgentView, cleanup::CleanupView, dashboard::DashboardView, onboarding::OnboardingView,
-    process::ProcessView, settings::SettingsView, startup::StartupView,
+    agent::AgentView, cleanup::CleanupView, dashboard::DashboardView,
+    large_files::LargeFilesView, onboarding::OnboardingView, process::ProcessView,
+    settings::SettingsView, startup::StartupView,
 };
-use clv_core::{load_settings, save_settings};
+use clv_core::load_settings;
+use gpui_component::{notification::Notification, WindowExt};
+use hud::ProgressHud;
 use state::{AppPage, AppStore};
+use crate::tray::take_scan_request;
 
 pub struct ClvApp {
     store: Entity<AppStore>,
-    _store_subscription: gpui::Subscription,
+    progress_hud: Entity<ProgressHud>,
     dashboard: Option<Entity<DashboardView>>,
     cleanup: Option<Entity<CleanupView>>,
     agent: Option<Entity<AgentView>>,
     startup: Option<Entity<StartupView>>,
     process: Option<Entity<ProcessView>>,
+    large_files: Option<Entity<LargeFilesView>>,
     settings: Option<Entity<SettingsView>>,
     onboarding: Option<Entity<OnboardingView>>,
 }
@@ -27,27 +33,41 @@ impl ClvApp {
     pub fn new(window: &Window, cx: &mut Context<Self>) -> Self {
         let settings = load_settings();
         let store = cx.new(|cx| AppStore::new(settings, cx));
-        let store_subscription = cx.observe(&store, |_this, _store, cx| {
-            cx.notify();
-        });
-        store.update(cx, |s, cx| s.refresh_disk_usage_async(cx));
+        let progress_hud = cx.new(|_| ProgressHud::new(store.clone()));
+        store.update(cx, |s, _| s.attach_progress_hud(progress_hud.clone()));
 
         if !store.read(cx).settings.onboarding_done {
             store.update(cx, |s, cx| {
                 s.page = AppPage::Onboarding;
                 cx.notify();
             });
+        } else if take_scan_request() {
+            store.update(cx, |s, cx| s.start_scan(cx));
         }
+
+        let store_for_scan = store.clone();
+        cx.spawn(async move |_, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(250))
+                    .await;
+                if take_scan_request() {
+                    let _ = store_for_scan.update(cx, |s, cx| s.start_scan(cx));
+                }
+            }
+        })
+        .detach();
 
         let _ = window;
         Self {
             store,
-            _store_subscription: store_subscription,
+            progress_hud,
             dashboard: None,
             cleanup: None,
             agent: None,
             startup: None,
             process: None,
+            large_files: None,
             settings: None,
             onboarding: None,
         }
@@ -95,6 +115,15 @@ impl ClvApp {
         }
         let view = cx.new(|cx| ProcessView::new(self.store.clone(), cx));
         self.process = Some(view.clone());
+        view
+    }
+
+    fn large_files(&mut self, cx: &mut Context<Self>) -> Entity<LargeFilesView> {
+        if let Some(view) = &self.large_files {
+            return view.clone();
+        }
+        let view = cx.new(|cx| LargeFilesView::new(self.store.clone(), cx));
+        self.large_files = Some(view.clone());
         view
     }
 
@@ -149,6 +178,7 @@ impl ClvApp {
             AppPage::Agent => self.agent(cx).into_any_element(),
             AppPage::Startup => self.startup(cx).into_any_element(),
             AppPage::Process => self.process(cx).into_any_element(),
+            AppPage::LargeFiles => self.large_files(cx).into_any_element(),
             AppPage::Settings => self.settings_view(cx).into_any_element(),
             AppPage::Onboarding => self.onboarding(cx).into_any_element(),
         }
@@ -157,6 +187,18 @@ impl ClvApp {
 
 impl Render for ClvApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Push pending cleanup completion notification before any store borrow.
+        if let Some(msg) = self.store.read(cx).pending_cleanup_notification.clone() {
+            let title = self.store.read(cx).i18n().cleanup_complete_title();
+            self.store.update(cx, |store, _| {
+                store.pending_cleanup_notification = None;
+            });
+            window.push_notification(
+                Notification::success(msg).title(title),
+                cx,
+            );
+        }
+
         let page = self.store.read(cx).page;
         let i18n = self.store.read(cx).i18n();
 
@@ -166,17 +208,6 @@ impl Render for ClvApp {
                 .bg(ui::hero_gradient_alt())
                 .child(self.onboarding(cx));
         }
-
-        let show_scan_bar = self.store.read(cx).scanning;
-        let show_cleanup_bar = self.store.read(cx).cleaning;
-        let scan_phase = self.store.read(cx).scan_phase.clone();
-        let scan_items_found = self.store.read(cx).scan_items_found;
-        let scan_bytes_found = self.store.read(cx).scan_bytes_found;
-        let scan_current_path = self.store.read(cx).scan_current_path.clone();
-        let cleanup_completed = self.store.read(cx).cleanup_completed;
-        let cleanup_total = self.store.read(cx).cleanup_total;
-        let cleanup_freed_bytes = self.store.read(cx).cleanup_freed_bytes;
-        let cleanup_current_path = self.store.read(cx).cleanup_current_path.clone();
 
         div()
             .size_full()
@@ -244,6 +275,14 @@ impl Render for ClvApp {
                                 AppPage::Process,
                                 window,
                                 cx,
+                            ))
+                            .child(self.nav_icon(
+                                "nav-large-files",
+                                ui::NAV_LARGE_FILES,
+                                i18n.nav_large_files(),
+                                AppPage::LargeFiles,
+                                window,
+                                cx,
                             )),
                     )
                     .child(
@@ -278,24 +317,7 @@ impl Render for ClvApp {
                             .flex()
                             .flex_col()
                             .p_6()
-                            .when(show_scan_bar, |this| {
-                                this.child(ui::scan_progress_bar(
-                                    &i18n,
-                                    &scan_phase,
-                                    scan_items_found,
-                                    scan_bytes_found,
-                                    scan_current_path.as_deref(),
-                                ))
-                            })
-                            .when(show_cleanup_bar, |this| {
-                                this.child(ui::cleanup_progress_bar(
-                                    &i18n,
-                                    cleanup_completed,
-                                    cleanup_total,
-                                    cleanup_freed_bytes,
-                                    cleanup_current_path.as_deref(),
-                                ))
-                            })
+                            .child(self.progress_hud.clone())
                             .child(ui::page_transition(
                                 page.transition_key(),
                                 self.render_page(page, cx),
@@ -313,11 +335,7 @@ impl ClvApp {
         let scanning = store.scanning;
         let cleaning = store.cleaning;
         let status = if cleaning {
-            if store.cleanup_total > 0 {
-                i18n.cleanup_status_detail(store.cleanup_completed, store.cleanup_total)
-            } else {
-                i18n.status_cleaning().to_string()
-            }
+            i18n.status_cleaning().to_string()
         } else if scanning {
             i18n.status_scanning().to_string()
         } else if let Some(msg) = &store.status_message {
@@ -347,9 +365,3 @@ impl ClvApp {
     }
 }
 
-#[allow(dead_code)]
-pub fn save_settings_from_store(store: &AppStore) {
-    if let Err(e) = save_settings(&store.settings) {
-        tracing::error!("save settings: {e}");
-    }
-}

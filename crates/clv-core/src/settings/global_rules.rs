@@ -323,6 +323,20 @@ pub fn global_cache_rules() -> &'static [CleanupRule] {
                 CleanupCategory::SystemTemp,
                 RuleDescription::R103,
             ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/Google/Chrome/User Data/Default/Cache",
+                TechStack::System,
+                RiskLevel::Safe,
+                CleanupCategory::SystemTemp,
+                RuleDescription::R139,
+            ),
+            CleanupRule::global(
+                "$LOCALAPPDATA/Microsoft/Edge/User Data/Default/Cache",
+                TechStack::System,
+                RiskLevel::Safe,
+                CleanupCategory::SystemTemp,
+                RuleDescription::R140,
+            ),
             ]
         });
         RULES.as_slice()
@@ -381,6 +395,34 @@ pub fn global_cache_rules() -> &'static [CleanupRule] {
                 RuleDescription::R068,
             ),
             CleanupRule::global(
+                ".bun/install/cache",
+                TechStack::NodeWeb,
+                RiskLevel::Safe,
+                CleanupCategory::GlobalCache,
+                RuleDescription::R070,
+            ),
+            CleanupRule::global(
+                "Library/Caches/Homebrew",
+                TechStack::System,
+                RiskLevel::Safe,
+                CleanupCategory::GlobalCache,
+                RuleDescription::R134,
+            ),
+            CleanupRule::global(
+                "Library/Containers/com.docker.docker/Data",
+                TechStack::System,
+                RiskLevel::Caution,
+                CleanupCategory::GlobalCache,
+                RuleDescription::R135,
+            ),
+            CleanupRule::global(
+                "/var/lib/docker",
+                TechStack::System,
+                RiskLevel::Caution,
+                CleanupCategory::GlobalCache,
+                RuleDescription::R135,
+            ),
+            CleanupRule::global(
                 "Library/Developer/Xcode/DerivedData",
                 TechStack::Ios,
                 RiskLevel::Safe,
@@ -428,6 +470,41 @@ pub fn global_cache_rules() -> &'static [CleanupRule] {
                 RiskLevel::Caution,
                 CleanupCategory::GlobalCache,
                 RuleDescription::R078,
+            ),
+            CleanupRule::global(
+                "Library/Logs",
+                TechStack::System,
+                RiskLevel::Safe,
+                CleanupCategory::Logs,
+                RuleDescription::R136,
+            ),
+            CleanupRule::global(
+                "Library/Caches/com.apple.Safari",
+                TechStack::System,
+                RiskLevel::Safe,
+                CleanupCategory::GlobalCache,
+                RuleDescription::R137,
+            ),
+            CleanupRule::global(
+                "Library/Caches/Google/Chrome",
+                TechStack::System,
+                RiskLevel::Safe,
+                CleanupCategory::GlobalCache,
+                RuleDescription::R138,
+            ),
+            CleanupRule::global(
+                "Library/Caches/com.microsoft.Edge",
+                TechStack::System,
+                RiskLevel::Safe,
+                CleanupCategory::GlobalCache,
+                RuleDescription::R139,
+            ),
+            CleanupRule::global(
+                "Library/Caches/Firefox",
+                TechStack::System,
+                RiskLevel::Safe,
+                CleanupCategory::GlobalCache,
+                RuleDescription::R140,
             ),
             ]
         });

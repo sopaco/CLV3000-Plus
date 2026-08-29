@@ -27,31 +27,6 @@ pub enum TechStack {
     Other,
 }
 
-impl TechStack {
-    pub fn all() -> &'static [TechStack] {
-        &[
-            Self::Rust,
-            Self::NodeWeb,
-            Self::Android,
-            Self::Ios,
-            Self::Flutter,
-            Self::Kmp,
-            Self::Java,
-            Self::Python,
-            Self::DotNet,
-            Self::Cpp,
-            Self::Go,
-            Self::Ruby,
-            Self::Php,
-            Self::Unity,
-            Self::Infra,
-            Self::Agent,
-            Self::System,
-            Self::Other,
-        ]
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum RiskLevel {
     Safe = 0,
@@ -59,7 +34,7 @@ pub enum RiskLevel {
     Protected = 2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CleanupBucket {
     /// 各项目目录内的编译/构建临时文件，删后重新打开项目通常会再生成。
     ProjectBuildCache,
@@ -148,9 +123,14 @@ impl AgentProject {
 pub struct ScanReport {
     pub items: Vec<ScanItem>,
     pub agent_projects: Vec<AgentProject>,
+    pub large_files: Vec<crate::large_files::LargeFileEntry>,
     pub scanned_at: Option<DateTime<Utc>>,
     pub scan_duration_ms: u64,
     pub roots_scanned: Vec<PathBuf>,
+    #[serde(default)]
+    pub cancelled: bool,
+    #[serde(default)]
+    pub sizes_truncated: bool,
 }
 
 impl ScanReport {
@@ -174,12 +154,8 @@ impl ScanReport {
             .sum()
     }
 
-    pub fn by_stack(&self, stack: TechStack) -> Vec<&ScanItem> {
-        self.items.iter().filter(|i| i.stack == stack).collect()
-    }
-
-    pub fn stack_total(&self, stack: TechStack) -> u64 {
-        self.by_stack(stack).iter().map(|i| i.size_bytes).sum()
+    pub fn safe_item_count(&self) -> usize {
+        self.items.iter().filter(|i| i.risk == RiskLevel::Safe).count()
     }
 }
 

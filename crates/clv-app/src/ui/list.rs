@@ -1,8 +1,37 @@
 //! Virtualized list helpers (`uniform_list` + flex-safe scroll layout).
 
 use crate::prelude::*;
-use gpui::{uniform_list, ElementId, ListSizingBehavior, UniformListScrollHandle};
+use gpui::{uniform_list, ElementId, ListSizingBehavior, Subscription, UniformListScrollHandle};
+use gpui_component::input::{InputEvent, InputState};
 use std::ops::Range;
+
+/// Lazily create a search `InputState` and subscribe to change events.
+pub fn ensure_search_input<V>(
+    slot: &mut Option<Entity<InputState>>,
+    subscription_slot: &mut Option<Subscription>,
+    placeholder: impl Into<SharedString>,
+    window: &mut Window,
+    cx: &mut Context<V>,
+    on_change: impl Fn(&mut V, String, &mut Context<V>) + 'static,
+) -> Entity<InputState>
+where
+    V: Render + 'static,
+{
+    if let Some(input) = slot {
+        return input.clone();
+    }
+    let input = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+    let subscription = cx.subscribe(&input, move |view, input, event, cx| {
+        if matches!(event, InputEvent::Change) {
+            let value = input.read(cx).value().to_string();
+            on_change(view, value, cx);
+            cx.notify();
+        }
+    });
+    *subscription_slot = Some(subscription);
+    *slot = Some(input.clone());
+    input
+}
 
 /// Scrollable virtualized list pane for **fixed-height** rows.
 ///

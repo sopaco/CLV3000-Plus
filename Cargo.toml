@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.2.1"
 edition = "2024"
 license = "MIT"
 authors = ["Sopaco"]
@@ -26,6 +26,9 @@ tracing = { version = "0.1", features = ["release_max_level_warn"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 sys-locale = "0.3"
+rfd = "0.15"
+tray-icon = "0.19"
+muda = "0.15"
 
 gpui = "0.2.2"
 gpui-component = "0.5.1"

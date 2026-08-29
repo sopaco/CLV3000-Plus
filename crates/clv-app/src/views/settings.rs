@@ -157,6 +157,7 @@ impl Render for SettingsView {
                             .child(
                                 h_flex()
                                     .gap_2()
+                                    .flex_wrap()
                                     .child(
                                         ui::std_button(
                                             Button::new("save-scan-paths")
@@ -177,6 +178,20 @@ impl Render for SettingsView {
                                                             }
                                                             let _ = save_settings(&s.settings);
                                                             cx.notify();
+                                                        });
+                                                    }
+                                                }),
+                                        ),
+                                    )
+                                    .child(
+                                        ui::std_button(
+                                            Button::new("browse-scan-paths")
+                                                .label(i18n.add_scan_folders())
+                                                .on_click({
+                                                    let store = store.clone();
+                                                    move |_, _, cx| {
+                                                        store.update(cx, |s, cx| {
+                                                            s.pick_scan_folders(cx);
                                                         });
                                                     }
                                                 }),
@@ -431,6 +446,7 @@ fn language_pill(
         store.update(cx, |s, cx| {
             s.settings.language = preference;
             let _ = save_settings(&s.settings);
+            crate::tray::TrayController::set_global_menu(s.language());
             cx.notify();
         });
     })

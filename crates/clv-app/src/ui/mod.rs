@@ -14,9 +14,9 @@ pub use text::*;
 
 use crate::i18n::{self, I18n};
 use crate::prelude::*;
-use crate::theme::{colors, corner_md, corner_sm};
+use crate::theme::{colors, corner_sm};
 use clv_core::RiskLevel;
-use gpui::{Animation, AnimationExt, ease_in_out, ElementId, Hsla, Stateful};
+use gpui::{Animation, AnimationExt, ease_in_out, ElementId, Stateful};
 use std::time::Duration;
 use gpui_component::{
     button::ButtonCustomVariant,
@@ -92,47 +92,6 @@ pub fn card() -> Div {
     glass_card()
 }
 
-pub fn stat_card(title: &str, value: &str, subtitle: &str, accent: Hsla) -> Div {
-    card()
-        .flex_1()
-        .min_w(px(170.))
-        .p_4()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(
-            h_flex()
-                .justify_between()
-                .items_start()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(colors::text_secondary())
-                        .child(title.to_string()),
-                )
-                .child(
-                    div()
-                        .w(px(8.))
-                        .h(px(8.))
-                        .rounded(corner_sm())
-                        .bg(accent),
-                ),
-        )
-        .child(
-            div()
-                .text_2xl()
-                .font_weight(FontWeight::BOLD)
-                .text_color(colors::text_primary())
-                .child(value.to_string()),
-        )
-        .child(
-            div()
-                .text_sm()
-                .text_color(colors::text_muted())
-                .child(subtitle.to_string()),
-        )
-}
-
 pub fn empty_state(icon: IconName, title: impl Into<SharedString>, hint: impl Into<SharedString>) -> Div {
     security::empty_state(icon, title, hint)
 }
@@ -158,12 +117,6 @@ pub fn primary_button_variant(cx: &App) -> ButtonCustomVariant {
         .border(colors::accent_blue())
         .hover(colors::accent_filled_hover())
         .active(colors::accent_filled_pressed())
-}
-
-pub fn primary_icon(name: IconName, size: f32) -> Icon {
-    Icon::new(name)
-        .with_size(px(size))
-        .text_color(colors::on_accent())
 }
 
 /// Dashboard hero "Scan Now" — filled accent with forced white label & icon.
@@ -239,7 +192,7 @@ pub fn ghost_pill(
 }
 
 pub fn open_path_button(id: SharedString, path: &std::path::Path, i18n: &I18n) -> Button {
-    let path = path.to_path_buf();
+    let open_path = folder_open_target(path);
     std_button(
         Button::new(id)
             .icon(Icon::new(ACTION_OPEN_FOLDER).with_size(px(20.)))
@@ -247,8 +200,19 @@ pub fn open_path_button(id: SharedString, path: &std::path::Path, i18n: &I18n) -
             .ghost(),
     )
     .on_click(move |_, _, _| {
-        open::that(&path).ok();
+        open::that(&open_path).ok();
     })
+}
+
+/// Open a directory as-is; for a file, open its parent folder.
+pub fn folder_open_target(path: &std::path::Path) -> std::path::PathBuf {
+    if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| path.to_path_buf())
+    }
 }
 
 // ── Badges ──────────────────────────────────────────────────────────────────
@@ -293,68 +257,6 @@ pub fn risk_badge(risk: RiskLevel, lang: clv_core::Language) -> Div {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(fg)
                 .child(i18n::risk_label(lang, risk).to_string()),
-        )
-}
-
-// ── Navigation ──────────────────────────────────────────────────────────────
-
-pub fn nav_item(
-    id: &'static str,
-    icon: IconName,
-    label: &'static str,
-    active: bool,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    let icon_color = if active {
-        colors::accent_blue()
-    } else {
-        colors::text_secondary()
-    };
-    let text_color = if active {
-        colors::text_primary()
-    } else {
-        colors::text_secondary()
-    };
-    let bg = if active {
-        colors::accent_blue_bg()
-    } else {
-        Hsla::transparent_black()
-    };
-
-    div()
-        .id(id)
-        .w_full()
-        .h(px(40.))
-        .flex()
-        .items_center()
-        .gap_2()
-        .px_2()
-        .rounded(corner_md())
-        .bg(bg)
-        .cursor_pointer()
-        .on_click(on_click)
-        .when(!active, |el| {
-            surface_pressable(el)
-        })
-        .child(
-            div()
-                .size(px(40.))
-                .flex()
-                .flex_shrink_0()
-                .items_center()
-                .justify_center()
-                .child(Icon::new(icon).with_size(px(21.)).text_color(icon_color)),
-        )
-        .child(
-            div()
-                .text_base()
-                .font_weight(if active {
-                    FontWeight::MEDIUM
-                } else {
-                    FontWeight::NORMAL
-                })
-                .text_color(text_color)
-                .child(label),
         )
 }
 

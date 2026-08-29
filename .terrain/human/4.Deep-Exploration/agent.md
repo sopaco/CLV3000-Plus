@@ -1,29 +1,29 @@
 # Agent Detection Domain
 
-**Module paths:** `crates/clv-core/src/agent.rs`, `crates/clv-core/src/agent_sessions.rs`  
-**Generated:** 2026-08-23
+**Module path:** `crates/clv-core/src/agent.rs`, `crates/clv-core/src/agent_sessions.rs`  
+**Generated:** 2026-08-28
 
 ---
 
 ## What This Module Does
 
-Generic disk cleaners know about `node_modules` and `target`. This module understands the ecosystem of **AI coding agents** — Claude Code, Cursor, Codex, Trae, OpenCode, TraeX, and related tools. It discovers known session/cache directories, finds experiment project roots via marker files, aggregates scan items per project, and produces `AgentProject` records with structured `AgentReasonPart` explanations. This is the product differentiator described in the README.
+This module answers the question no generic disk cleaner can: **"Which folders are leftovers from AI coding experiments?"** It combines three signals—folder name patterns (`claude-experiment`), agent marker files (`.cursor`, `AGENTS.md`), and inactivity timers—to surface projects you likely forgot about, plus known session cache directories for Claude, Cursor, Codex, Trae, and OpenCode.
+
+The design carefully avoids false positives: an active repo that adopted Cursor yesterday should not appear on the list just because `.cursor/` exists.
 
 ---
 
 ## Core Capabilities
 
-1. **Session target catalog** — `discover_agent_session_targets()` (`agent_sessions.rs:17`) enumerates Codex sessions, Claude projects, Cursor caches, Trae CLI data, OpenCode dirs, etc., with env overrides (`TRAE_DIR`, `OPENCODE_DIR`, …).
+1. **Agent project grouping** — `detect_agent_projects` (`agent.rs:12`) aggregates `ScanItem`s by project root and applies heuristics.
 
-2. **Marker-based root discovery** — `discover_agent_roots` (`agent.rs:10`) walks scan paths for `.cursor`, `.claude`, `.agents`, `AGENTS.md`, `CLAUDE.md` (max depth 8).
+2. **Name-pattern always-on detection** — Folders matching `agent_name_patterns()` always surface regardless of activity.
 
-3. **Project aggregation** — `detect_agent_projects` (`agent.rs:51`) merges `ScanItem`s by `project_root` with discovered roots.
+3. **Marker-based inactive detection** — Marker files count only after 14+ days inactive (`MARKER_INACTIVE_DAYS` — `agent.rs:8`) or when all items are 30+ day zombies.
 
-4. **Heuristic classification** — `is_agent_project_path` (scanner) checks markers and `agent_name_patterns` from settings.
+4. **Session cache discovery** — `discover_agent_session_targets` (`agent_sessions.rs:17`) enumerates Codex sessions, Claude projects, Cursor caches, Trae/OpenCode data dirs.
 
-5. **Zombie detection** — Projects where all items are 30+ days inactive get `AgentReasonPart::InactiveOver30Days` (`agent.rs:92–94`).
-
-6. **Structured reasons** — `AgentReasonPart` enum (`messages/agent_reason.rs`) — never raw Chinese strings in domain layer.
+5. **Structured reasons** — `AgentReasonPart` enums (`messages/agent_reason.rs`) explain *why* each project was flagged, formatted per language.
 
 ---
 
@@ -31,14 +31,14 @@ Generic disk cleaners know about `node_modules` and `target`. This module unders
 
 | Component | File path | Responsibility |
 |-----------|-----------|----------------|
-| `discover_agent_session_targets` | `agent_sessions.rs:17` | Known CLI/cache paths |
-| `AgentSessionTarget` | `agent_sessions.rs:8` | Path + risk + RuleDescription |
-| `discover_agent_roots` | `agent.rs:10` | Marker walk on scan paths |
-| `detect_agent_projects` | `agent.rs:51` | Build `Vec<AgentProject>` |
-| `AgentProject` | `models.rs` | path, size, reason_parts, stacks |
-| `AgentReasonPart` | `messages/agent_reason.rs` | Typed reason fragments |
-| `format_agent_reason` | `messages/agent_reason.rs` | Locale formatting |
-| `agent_marker_files` | `settings/markers.rs` | Marker file list |
+| `detect_agent_projects` | `crates/clv-core/src/agent.rs:12` | Main grouping + filtering logic |
+| `agent_path_signals` | `crates/clv-core/src/scanner.rs` | Name/marker signal extraction |
+| `discover_agent_session_targets` | `crates/clv-core/src/agent_sessions.rs:17` | Known session/cache paths |
+| `AgentSessionTarget` | `crates/clv-core/src/agent_sessions.rs:8` | Session directory descriptor |
+| `AgentProject` | `crates/clv-core/src/models.rs:105` | Grouped project output type |
+| `AgentReasonPart` | `crates/clv-core/src/messages/agent_reason.rs` | Typed reason enum |
+| `agent_marker_files` | `crates/clv-core/src/settings/markers.rs` | Marker filename list |
+| `agent_name_patterns` | `crates/clv-core/src/settings/markers.rs` | Name regex/prefix patterns |
 
 ---
 
@@ -46,14 +46,16 @@ Generic disk cleaners know about `node_modules` and `target`. This module unders
 
 ```mermaid
 flowchart TD
-    A["scan_paths"] --> B["discover_agent_roots<br/>agent.rs:10"]
-    C["ScanItems"] --> D["detect_agent_projects<br/>agent.rs:51"]
-    B --> D
-    E["agent_sessions.rs"] --> F["Scanner session pass"]
-    D --> G["is_agent_project_path"]
-    G --> H["AgentProject list"]
-    H --> I["ScanReport.agent_projects<br/>scanner.rs:133"]
-    F --> J["ScanItem entries"]
+    A["ScanItems + known_agent_roots"] --> B["detect_agent_projects"]
+    B --> C["Group by project_root"]
+    C --> D["agent_path_signals"]
+    D --> E{"name_hit?"}
+    E -->|yes| F["Include project"]
+    E -->|no| G{"marker + inactive?"}
+    G -->|yes| F
+    G -->|no| H["Skip active repo"]
+    F --> I["Attach AgentReasonPart list"]
+    I --> J["AgentProject vector"]
 ```
 
 ---
@@ -62,26 +64,17 @@ flowchart TD
 
 | Module | Direction | Interface | Notes |
 |--------|-----------|-----------|-------|
-| scanner | bidirectional | session pass + `detect_agent_projects` | Called at end of scan |
-| models | produces | `AgentProject` | UI data |
-| views | consumed by | `AgentView` | Search, bulk select |
-| app-store | consumed by | `filtered agent projects` | From `last_report` |
-| i18n | display | `format_agent_reason` | Trilingual reasons |
+| Scanner | Called from | scan items + agent roots collected during walk | Provides raw inputs |
+| Models | Produces | `AgentProject` | Consumed by AgentView |
+| Messages | Uses | `AgentReasonPart`, `format_agent_reason` | i18n reasons |
+| Views/agent.rs | Displays | `report.agent_projects` | Search/filter UI |
 
-**In agent review workflow** — `select_project_items` (`state.rs:258`) selects all scan items under a project path for cleanup.
-
----
-
-## Extension Points
-
-- Add session path: new `push_dir` block in `agent_sessions.rs` + `RuleDescription` in translation JSON.
-- Add marker: extend `agent_marker_files` in `markers.rs`.
-- Add reason part: new `AgentReasonPart` variant + translations in `agent_reason.rs`.
+**Active repo exclusion test** (`lib.rs:355-365`): repo with `.cursor` + `AGENTS.md` but recent activity → empty agent project list.
 
 ---
 
 ## Implementation Highlights
 
-`AgentSessionTarget` carries full rule metadata (stack, risk, category, description) so session dirs integrate into the same `ScanItem` pipeline as project rules (`agent_sessions.rs:8–14`).
-
-Codex home resolution supports multiple candidate paths including `CODEX_HOME` env (`agent_sessions.rs` — `codex_home_paths`).
+- Environment overrides: `TRAE_DIR`, `TRAEX_SESSIONS_DIR`, `OPENCODE_DIR` for non-standard install paths.
+- Session targets assigned typed `RuleDescription` IDs (R106–R112+) for consistent UI labels.
+- Projects sorted by total bytes descending (`agent.rs:100`)—biggest wins surfaced first.

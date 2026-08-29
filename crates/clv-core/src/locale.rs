@@ -42,7 +42,7 @@ pub fn resolve_language(preference: LanguagePreference) -> Language {
     }
 }
 
-pub fn detect_system_language() -> Language {
+pub(crate) fn detect_system_language() -> Language {
     let locale = sys_locale::get_locale()
         .unwrap_or_else(|| "en-US".to_string())
         .to_lowercase();
@@ -56,10 +56,10 @@ pub fn detect_system_language() -> Language {
 }
 
 pub fn scan_phase_preparing(lang: Language) -> String {
-    tr(lang, "准备扫描", "Preparing scan", "スキャン準備中").to_string()
+    tr(lang, "准备扫描…", "Preparing scan…", "スキャン準備中…").to_string()
 }
 
-pub fn scan_phase_scanning_path(lang: Language, path: &Path) -> String {
+pub(crate) fn scan_phase_scanning_path(lang: Language, path: &Path) -> String {
     match lang {
         Language::Zh => format!("扫描 {}", path.display()),
         Language::En => format!("Scanning {}", path.display()),
@@ -67,11 +67,11 @@ pub fn scan_phase_scanning_path(lang: Language, path: &Path) -> String {
     }
 }
 
-pub fn scan_phase_scanning_projects(lang: Language) -> String {
+pub(crate) fn scan_phase_scanning_projects(lang: Language) -> String {
     tr(lang, "扫描项目目录", "Scanning project directories", "プロジェクトをスキャン中").to_string()
 }
 
-pub fn scan_phase_agent_sessions(lang: Language) -> String {
+pub(crate) fn scan_phase_agent_sessions(lang: Language) -> String {
     tr(
         lang,
         "发现 Agent 会话",
@@ -81,7 +81,7 @@ pub fn scan_phase_agent_sessions(lang: Language) -> String {
     .to_string()
 }
 
-pub fn scan_phase_discovering(lang: Language) -> String {
+pub(crate) fn scan_phase_discovering(lang: Language) -> String {
     tr(lang, "发现可清理项", "Discovering cleanable items", "削除可能な項目を検出中")
         .to_string()
 }
@@ -92,6 +92,17 @@ pub fn tr<'a>(lang: Language, zh: &'a str, en: &'a str, ja: &'a str) -> &'a str 
         Language::En => en,
         Language::Ja => ja,
     }
+}
+
+pub const ALL_LANGUAGES: [Language; 3] = [Language::Zh, Language::En, Language::Ja];
+
+pub fn localized_text_matches_query<S: AsRef<str>>(
+    query: &str,
+    text: impl Fn(Language) -> S,
+) -> bool {
+    ALL_LANGUAGES
+        .iter()
+        .any(|&lang| text(lang).as_ref().to_lowercase().contains(query))
 }
 
 #[cfg(test)]

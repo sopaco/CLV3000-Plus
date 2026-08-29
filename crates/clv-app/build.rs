@@ -13,7 +13,7 @@ fn sync_icons() {
     let workspace_icons = manifest_dir.join("../../assets/icons");
     let local_icons = manifest_dir.join("assets/icons");
 
-    for name in ["icon_app.png", "icon_app.ico", "icon_app.icns"] {
+    for name in ["icon_app.png", "icon_app.ico", "icon_app.icns", "tray.png"] {
         let src = workspace_icons.join(name);
         if !src.exists() {
             continue;

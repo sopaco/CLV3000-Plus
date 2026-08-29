@@ -3,9 +3,10 @@ use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::{colors, corner_md};
 use clv_core::{ScanItem};
-use gpui::{ScrollStrategy, UniformListScrollHandle};
+use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
+use gpui_component::input::{Input, InputState};
 use gpui_component::Icon;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Virtualized row slot — card body + gap between rows.
 const CLEANUP_ROW_H: f32 = 108.;
@@ -15,6 +16,8 @@ const CLEANUP_PATH_ROW_H: f32 = 36.;
 pub struct CleanupView {
     store: Entity<AppStore>,
     scroll_handle: UniformListScrollHandle,
+    search_input: Option<Entity<InputState>>,
+    _search_subscription: Option<Subscription>,
 }
 
 impl CleanupView {
@@ -22,13 +25,37 @@ impl CleanupView {
         Self {
             store,
             scroll_handle: UniformListScrollHandle::new(),
+            search_input: None,
+            _search_subscription: None,
         }
+    }
+
+    fn ensure_search_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        let placeholder = self.store.read(cx).i18n().cleanup_search_placeholder();
+        let store = self.store.clone();
+        ui::ensure_search_input(
+            &mut self.search_input,
+            &mut self._search_subscription,
+            placeholder,
+            window,
+            cx,
+            move |view, value, cx| {
+                store.update(cx, |s, _| {
+                    s.search_query = value;
+                });
+                view.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+            },
+        )
     }
 
     fn render_row(
         &self,
         item: &ScanItem,
-        expert: bool,
+        _expert: bool,
         i18n: &I18n,
         lang: clv_core::Language,
         store: Entity<AppStore>,
@@ -37,14 +64,7 @@ impl CleanupView {
     ) -> Div {
         let id = item.id.clone();
         let selected = store.read(cx).is_item_selected(&id);
-        let path_display = if expert {
-            item.path.display().to_string()
-        } else {
-            item.project_root
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| item.name.clone())
-        };
+        let path_display = item.path.display().to_string();
         let item_path = item.path.clone();
         let item_name = item.name.clone();
         let item_description = i18n::rule_description_label(lang, item.description);
@@ -84,10 +104,10 @@ impl CleanupView {
                                                 let store = store.clone();
                                                 move |_, checked, _, cx| {
                                                     let selected = *checked;
-                                                    store.update(cx, |s, cx| {
+                                                    store.update(cx, |s, _| {
                                                         s.set_item_selected(&id, selected);
-                                                        cx.notify();
                                                     });
+                                                    cx.notify();
                                                 }
                                             })),
                                     ),
@@ -163,19 +183,25 @@ impl CleanupView {
 }
 
 impl Render for CleanupView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let search_input = self.ensure_search_input(window, cx);
         let store_ref = self.store.read(cx);
         let i18n = store_ref.i18n();
         let lang = store_ref.language();
-        let items = store_ref.filtered_items();
+        let indices = store_ref.filtered_indices();
         let selected_bytes = store_ref.selected_bytes();
-        let selected_count = store_ref.selected_items().len();
+        let selected_count = store_ref.selected_count();
         let has_report = store_ref.last_report.is_some();
         let scanning = store_ref.scanning;
         let cleaning = store_ref.cleaning;
         let expert = store_ref.settings.expert_mode;
+        let sizes_truncated = store_ref
+            .last_report
+            .as_ref()
+            .is_some_and(|r| r.sizes_truncated);
+        let counts = store_ref.cleanup_filter_counts();
         let store = self.store.clone();
-        let count = items.len();
+        let count = indices.len();
         let scroll_handle = self.scroll_handle.clone();
 
         div()
@@ -202,7 +228,7 @@ impl Render for CleanupView {
                     )
                     .child(filter_btn(
                         "filter-all",
-                        i18n.filter_all(),
+                        i18n.filter_with_count(i18n.filter_all(), counts[0]),
                         CleanupFilter::All,
                         &store,
                         &self.scroll_handle,
@@ -210,7 +236,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-safe",
-                        i18n.filter_safe(),
+                        i18n.filter_with_count(i18n.filter_safe(), counts[1]),
                         CleanupFilter::SafeOnly,
                         &store,
                         &self.scroll_handle,
@@ -218,7 +244,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-project",
-                        i18n.filter_project(),
+                        i18n.filter_with_count(i18n.filter_project(), counts[2]),
                         CleanupFilter::ProjectBuildCache,
                         &store,
                         &self.scroll_handle,
@@ -226,7 +252,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-shared",
-                        i18n.filter_shared(),
+                        i18n.filter_with_count(i18n.filter_shared(), counts[3]),
                         CleanupFilter::SharedToolCache,
                         &store,
                         &self.scroll_handle,
@@ -234,7 +260,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-dev-env",
-                        i18n.filter_dev_env(),
+                        i18n.filter_with_count(i18n.filter_dev_env(), counts[4]),
                         CleanupFilter::DevEnvironment,
                         &store,
                         &self.scroll_handle,
@@ -242,7 +268,7 @@ impl Render for CleanupView {
                     ))
                     .child(filter_btn(
                         "filter-ai",
-                        i18n.filter_ai(),
+                        i18n.filter_with_count(i18n.filter_ai(), counts[5]),
                         CleanupFilter::AiGenerated,
                         &store,
                         &self.scroll_handle,
@@ -259,102 +285,121 @@ impl Render for CleanupView {
                     .flex_col()
                     .overflow_hidden()
                     .child(
-                        h_flex()
+                        v_flex()
                             .flex_shrink_0()
                             .p_4()
                             .gap_3()
-                            .items_center()
-                            .justify_between()
                             .child(
                                 h_flex()
-                                    .gap_2()
+                                    .w_full()
+                                    .gap_3()
                                     .items_center()
+                                    .justify_between()
                                     .child(
-                                        ui::ghost_pill("select-all", i18n.select_all(), false, cx).on_click({
-                                            let store = store.clone();
-                                            move |_, _, cx| {
-                                                store.update(cx, |s, cx| {
-                                                    s.select_all_filtered(true);
-                                                    cx.notify();
-                                                });
-                                            }
-                                        }),
+                                        h_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .min_w_0()
+                                            .child(
+                                                ui::ghost_pill("select-all", i18n.select_all(), false, cx).on_click(
+                                                    cx.listener({
+                                                        let store = store.clone();
+                                                        move |_, _, _, cx| {
+                                                            store.update(cx, |s, _| {
+                                                                s.select_all_filtered(true);
+                                                            });
+                                                            cx.notify();
+                                                        }
+                                                    }),
+                                                ),
+                                            )
+                                            .child(
+                                                ui::ghost_pill("deselect-all", i18n.deselect_all(), false, cx).on_click(
+                                                    cx.listener({
+                                                        let store = store.clone();
+                                                        move |_, _, _, cx| {
+                                                            store.update(cx, |s, _| {
+                                                                s.select_all_filtered(false);
+                                                            });
+                                                            cx.notify();
+                                                        }
+                                                    }),
+                                                ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .min_w_0()
+                                                    .flex_1()
+                                                    .text_base()
+                                                    .text_color(colors::text_secondary())
+                                                    .truncate()
+                                                    .child(if has_report {
+                                                        i18n.items_selected_summary(count, selected_count)
+                                                    } else {
+                                                        i18n.not_scanned_yet().to_string()
+                                                    }),
+                                            ),
                                     )
                                     .child(
-                                        ui::ghost_pill("deselect-all", i18n.deselect_all(), false, cx).on_click({
-                                            let store = store.clone();
-                                            move |_, _, cx| {
-                                                store.update(cx, |s, cx| {
-                                                    s.select_all_filtered(false);
-                                                    cx.notify();
-                                                });
-                                            }
-                                        }),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_base()
-                                            .text_color(colors::text_secondary())
-                                            .child(if has_report {
-                                                i18n.items_selected_summary(items.len(), selected_count)
-                                            } else {
-                                                i18n.not_scanned_yet().to_string()
-                                            }),
+                                        h_flex()
+                                            .gap_2()
+                                            .flex_shrink_0()
+                                            .child(
+                                                ui::action_button(
+                                                    "rescan",
+                                                    if has_report { i18n.rescan() } else { i18n.start_scan() },
+                                                    Some(ui::ACTION_SCAN),
+                                                    true,
+                                                    cx,
+                                                )
+                                                .disabled(scanning || cleaning)
+                                                .on_click({
+                                                    let store = store.clone();
+                                                    move |_, _, cx| {
+                                                        store.update(cx, |s, cx| s.start_scan(cx));
+                                                    }
+                                                }),
+                                            )
+                                            .child(
+                                                ui::action_button(
+                                                    "cleanup-run",
+                                                    i18n.clean_selected(),
+                                                    Some(ui::ACTION_CLEAN),
+                                                    true,
+                                                    cx,
+                                                )
+                                                .disabled(selected_count == 0 || cleaning || !has_report)
+                                                .on_click({
+                                                    let store = store.clone();
+                                                    move |_, window, cx| {
+                                                        let bytes = store.read(cx).selected_bytes();
+                                                        let count = store.read(cx).selected_items().len();
+                                                        let i18n = store.read(cx).i18n();
+                                                        let store_confirm = store.clone();
+                                                        window.open_dialog(cx, move |dialog, _window, _cx| {
+                                                            dialog
+                                                                .title(i18n.confirm_cleanup_title())
+                                                                .child(i18n.confirm_cleanup_body(count, bytes))
+                                                                .confirm()
+                                                                .on_ok({
+                                                                    let store = store_confirm.clone();
+                                                                    move |_, _, cx| {
+                                                                        store.update(cx, |s, cx| {
+                                                                            s.run_cleanup(cx);
+                                                                        });
+                                                                        true
+                                                                    }
+                                                                })
+                                                        });
+                                                    }
+                                                }),
+                                            ),
                                     ),
                             )
                             .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(
-                                        ui::action_button(
-                                            "rescan",
-                                            if has_report { i18n.rescan() } else { i18n.start_scan() },
-                                            Some(ui::ACTION_SCAN),
-                                            true,
-                                            cx,
-                                        )
-                                        .disabled(scanning || cleaning)
-                                        .on_click({
-                                            let store = store.clone();
-                                            move |_, _, cx| {
-                                                store.update(cx, |s, cx| s.start_scan(cx));
-                                            }
-                                        }),
-                                    )
-                                    .child(
-                                        ui::action_button(
-                                            "cleanup-run",
-                                            i18n.clean_selected(),
-                                            Some(ui::ACTION_CLEAN),
-                                            true,
-                                            cx,
-                                        )
-                                        .disabled(selected_count == 0 || cleaning || !has_report)
-                                        .on_click({
-                                            let store = store.clone();
-                                            move |_, window, cx| {
-                                                let bytes = store.read(cx).selected_bytes();
-                                                let count = store.read(cx).selected_items().len();
-                                                let i18n = store.read(cx).i18n();
-                                                let store_confirm = store.clone();
-                                                window.open_dialog(cx, move |dialog, _window, _cx| {
-                                                    dialog
-                                                        .title(i18n.confirm_cleanup_title())
-                                                        .child(i18n.confirm_cleanup_body(count, bytes))
-                                                        .confirm()
-                                                        .on_ok({
-                                                            let store = store_confirm.clone();
-                                                            move |_, _, cx| {
-                                                                store.update(cx, |s, cx| {
-                                                                    s.run_cleanup(cx);
-                                                                });
-                                                                true
-                                                            }
-                                                        })
-                                                });
-                                            }
-                                        }),
-                                    ),
+                                div()
+                                    .w_full()
+                                    .child(Input::new(&search_input)),
                             ),
                     )
                     .child(ui::panel_divider())
@@ -370,17 +415,7 @@ impl Render for CleanupView {
                                 .when(!has_report && !scanning, |this| {
                                     this.child(cleanup_scan_prompt(&store, &i18n, cx))
                                 })
-                                .when(has_report && count == 0 && !scanning, |this| {
-                                    this.flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .child(ui::empty_state(
-                                            ui::EMPTY_SCAN,
-                                            i18n.empty_filter_title(),
-                                            i18n.empty_filter_hint(),
-                                        ))
-                                })
-                                .when(scanning, |this| {
+                                .when(!has_report && scanning, |this| {
                                     let phase = store_ref.scan_phase.clone();
                                     let found = store_ref.scan_items_found;
                                     let bytes = store_ref.scan_bytes_found;
@@ -398,26 +433,18 @@ impl Render for CleanupView {
                                             ),
                                         ))
                                 })
-                                .when(cleaning, |this| {
-                                    let completed = store_ref.cleanup_completed;
-                                    let total = store_ref.cleanup_total;
-                                    let freed = store_ref.cleanup_freed_bytes;
-                                    let path = store_ref.cleanup_current_path.clone();
+                                .when(has_report && count == 0, |this| {
                                     this.flex()
                                         .items_center()
                                         .justify_center()
-                                        .child(ui::empty_state_loading(
-                                            i18n.cleanup_progress_title(),
-                                            i18n.cleanup_progress_detail(
-                                                completed,
-                                                total,
-                                                freed,
-                                                path.as_deref(),
-                                            ),
+                                        .child(ui::empty_state(
+                                            ui::EMPTY_SCAN,
+                                            i18n.empty_filter_title(),
+                                            i18n.empty_filter_hint(),
                                         ))
                                 })
-                                .when(has_report && count > 0 && !scanning && !cleaning, |this| {
-                                    let items = items.clone();
+                                .when(has_report && count > 0, |this| {
+                                    let indices = indices.clone();
                                     let store = store.clone();
                                     let i18n = i18n;
                                     this.child(ui::uniform_list_pane(
@@ -428,17 +455,24 @@ impl Render for CleanupView {
                                         move |this, visible_range, window, cx| {
                                             visible_range
                                                 .filter_map(|ix| {
-                                                    items.get(ix).map(|item| {
-                                                        this.render_row(
-                                                            item,
-                                                            expert,
-                                                            &i18n,
-                                                            lang,
-                                                            store.clone(),
-                                                            window,
-                                                            cx,
-                                                        )
-                                                    })
+                                                    let item_ix = *indices.get(ix)?;
+                                                    let item = this
+                                                        .store
+                                                        .read(cx)
+                                                        .last_report
+                                                        .as_ref()?
+                                                        .items
+                                                        .get(item_ix)
+                                                        .cloned()?;
+                                                    Some(this.render_row(
+                                                        &item,
+                                                        expert,
+                                                        &i18n,
+                                                        lang,
+                                                        store.clone(),
+                                                        window,
+                                                        cx,
+                                                    ))
                                                 })
                                                 .collect()
                                         },
@@ -457,7 +491,15 @@ impl Render for CleanupView {
                                     .text_sm()
                                     .text_color(colors::text_secondary())
                                     .child(i18n.selected_summary(selected_count, selected_bytes)),
-                            ),
+                            )
+                            .when(sizes_truncated, |row| {
+                                row.child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(colors::warn_orange())
+                                        .child(i18n.sizes_truncated_hint()),
+                                )
+                            }),
                     ),
             )
     }
@@ -562,7 +604,7 @@ fn clickable_folder_path(
     path: &Path,
     label: impl Into<SharedString>,
 ) -> impl IntoElement {
-    let open_path = folder_open_target(path);
+    let open_path = ui::folder_open_target(path);
     let label: SharedString = label.into();
     let id: SharedString = id.into();
 
@@ -587,16 +629,6 @@ fn clickable_folder_path(
                 .text_color(colors::accent_blue()),
         )
         .child(ui::middle_truncated_path(label))
-}
-
-fn folder_open_target(path: &Path) -> PathBuf {
-    if path.is_dir() {
-        path.to_path_buf()
-    } else {
-        path.parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| path.to_path_buf())
-    }
 }
 
 fn filter_btn(

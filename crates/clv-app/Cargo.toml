@@ -16,17 +16,17 @@ clv-core = { path = "../clv-core" }
 clv-platform = { path = "../clv-platform" }
 anyhow.workspace = true
 chrono.workspace = true
-directories.workspace = true
 open.workspace = true
 rust-embed = "8"
-serde.workspace = true
-serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 gpui.workspace = true
 gpui-component.workspace = true
 gpui-component-assets.workspace = true
+tray-icon.workspace = true
+muda.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

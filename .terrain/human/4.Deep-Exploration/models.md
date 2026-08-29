@@ -1,87 +1,71 @@
-# Models Domain
+# Domain Models
 
-**Module paths:** `crates/clv-core/src/models.rs`, `crates/clv-core/src/category.rs`  
-**Generated:** 2026-08-23
+**Module path:** `crates/clv-core/src/models.rs`, `crates/clv-core/src/category.rs`  
+**Generated:** 2026-08-28
 
 ---
 
 ## What This Module Does
 
-Models defines the shared vocabulary of CLV3000 Plus — what a scannable item looks like, how risky deletion is, which technology stack it belongs to, and how the UI groups items into cleanup buckets. Centralizing these types in `clv-core` lets scanner, cleanup, AppStore, and views agree on semantics without stringly-typed categories or duplicated risk logic.
+Models define the shared vocabulary of the app—the structs and enums that travel from scanner through AppStore to views. If you understand `ScanItem`, `ScanReport`, and `RiskLevel`, you understand what data flows through every workflow.
 
 ---
 
-## Core Capabilities
+## Core Types
 
-1. **Tech stack taxonomy** — `TechStack` enum with 18 values (`models.rs:9–28`): Rust, NodeWeb, Android, Ios, Flutter, Agent, System, etc.
-
-2. **Risk levels** — `RiskLevel::Safe | Caution | Protected` with ordering (`models.rs:56–60`) drives default selection and expert visibility.
-
-3. **Cleanup buckets** — `CleanupBucket` (`models.rs:63–72`) — four UI groups: ProjectBuildCache, SharedToolCache, DevEnvironment, AiGenerated.
-
-4. **Fine categories** — `CleanupCategory` (`category.rs:7–36`) maps to buckets via `cleanup_bucket()` (`category.rs:39`).
-
-5. **Scan artifacts** — `ScanItem`, `ScanReport`, `ScanProgress`, `AgentProject` with serde for potential future export.
-
-6. **Selection helpers** — `default_selected_item_ids` (Safe only), `item_cleanup_bucket` (path heuristics for agent dirs).
-
----
-
-## Key Components
-
-| Component | File path | Responsibility |
-|-----------|-----------|----------------|
-| `TechStack` | `models.rs:9` | Technology classification |
-| `RiskLevel` | `models.rs:56` | Deletion risk gate |
-| `CleanupBucket` | `models.rs:63` | UI filter tabs |
-| `CleanupCategory` | `category.rs:7` | Fine-grained rule category |
-| `ScanItem` | `models.rs:110` | Single cleanable path |
-| `ScanReport` | `models.rs` | Full scan output |
-| `AgentProject` | `models.rs` | Aggregated agent experiment |
-| `item_cleanup_bucket` | `models.rs:74` | Bucket with path fallback |
-| `default_selected_item_ids` | `models.rs:101` | Post-scan safe defaults |
+| Type | File:line | Purpose |
+|------|-----------|---------|
+| `TechStack` | `models.rs:9` | 18-variant enum (Rust, NodeWeb, Agent, …) |
+| `RiskLevel` | `models.rs:31` | Safe / Caution / Protected ordering |
+| `CleanupBucket` | `models.rs:38` | UI grouping: ProjectBuildCache, SharedToolCache, DevEnvironment, AiGenerated |
+| `ScanItem` | `models.rs:85` | Single cleanable finding with typed description |
+| `AgentProject` | `models.rs:105` | Grouped agent experiment folder |
+| `ScanReport` | `models.rs:123` | Complete scan output with metadata flags |
+| `ScanProgress` | `models.rs:163` | In-flight scan progress snapshot |
+| `CleanupCategory` | `category.rs` | Fine-grained category → bucket mapping |
 
 ---
 
-## Internal Data Flow
+## Key Functions
+
+| Function | File:line | Purpose |
+|----------|-----------|---------|
+| `item_cleanup_bucket` | `models.rs:49` | Derives UI bucket from item path/stack/category |
+| `default_selected_item_ids` | `models.rs:76` | Pre-selects Safe-risk items after scan |
+| `format_bytes` | `models.rs:170` | Human-readable size strings |
+| `ScanReport::total_reclaimable` | `models.rs:137` | Sum non-protected item sizes |
+
+---
+
+## Internal Relationships
 
 ```mermaid
 flowchart TD
-    A["CleanupRule"] --> B["ScanItem<br/>models.rs:110"]
-    B --> C["ScanReport"]
-    C --> D["AppStore.last_report"]
-    B --> E["item_cleanup_bucket<br/>models.rs:74"]
-    E --> F["CleanupFilter tabs"]
-    G["CleanupCategory"] --> H["cleanup_bucket<br/>category.rs:39"]
-    H --> E
+    A["ScanReport"] --> B["ScanItem[]"]
+    A --> C["AgentProject[]"]
+    A --> D["LargeFileEntry[]"]
+    B --> E["RuleDescription"]
+    B --> F["TechStack + RiskLevel + CleanupCategory"]
+    C --> G["AgentReasonPart[]"]
+    F --> H["CleanupBucket via item_cleanup_bucket"]
 ```
-
-`ScanItem.description` is `RuleDescription` (`models.rs:118`) — not a display string.
 
 ---
 
 ## Cross-Module Interactions
 
-| Module | Direction | Interface | Notes |
-|--------|-----------|-----------|-------|
-| scanner | produces | `ScanItem`, `ScanReport` | Primary consumer |
-| cleanup | consumes | `ScanItem`, `RiskLevel` | Per-item delete |
-| category | consumed by | `CleanupCategory` on ScanItem | Bucket mapping |
-| messages | consumed by | `RuleDescription`, `AgentReasonPart` | Typed text IDs |
-| app-store | filters | `filtered_items`, buckets | `state.rs:176` |
-
----
-
-## Design Decisions
-
-**Bucket path fallback** — `item_cleanup_bucket` checks path substrings for `.cursor`, `.claude`, etc. (`models.rs:80–95`) even when category alone might not mark AI content — catches edge cases in session paths.
-
-**Selection not on ScanItem** — Per `AGENTS.md`, `selected_item_ids` lives on `AppStore`, keeping `ScanReport` an immutable snapshot.
+| Module | Usage | Notes |
+|--------|-------|-------|
+| Scanner | Produces | Builds ScanItem vector |
+| Cleanup | Consumes | Takes ScanItem references |
+| Agent | Produces/consumes | AgentProject aggregation |
+| Views | Displays | All UI rendering derives from these types |
+| serde | Serializes | ScanReport persisted to last_scan.json |
 
 ---
 
 ## Implementation Highlights
 
-Unit tests in `lib.rs` validate bucket classification for cargo cache, rustup toolchains, target dirs, and agent sessions (`lib.rs:179–251`).
-
-`TechStack::all()` provides complete stack list for filter UI (`models.rs:31`).
+- `CleanupBucket` path heuristics detect AI markers in path strings (`models.rs:55-70`) even when category alone would not classify as AiGenerated.
+- `ScanReport` includes `cancelled` and `sizes_truncated` flags for honest UI messaging after partial scans.
+- Risk level ordering enables sort/filter in CleanupView without custom comparators.

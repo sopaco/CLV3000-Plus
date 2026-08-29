@@ -1,11 +1,13 @@
 use crate::app::state::AppStore;
 use crate::prelude::*;
 use crate::theme::{colors, corner_sm};
+use clv_core::{format_scan_paths, AppSettings};
 
 pub struct OnboardingView {
     store: Entity<AppStore>,
     step: u8,
     expert: bool,
+    custom_paths: Vec<std::path::PathBuf>,
 }
 
 impl OnboardingView {
@@ -14,6 +16,7 @@ impl OnboardingView {
             store,
             step: 0,
             expert: false,
+            custom_paths: Vec::new(),
         }
     }
 }
@@ -24,6 +27,11 @@ impl Render for OnboardingView {
         let i18n = self.store.read(cx).i18n();
         let step = self.step;
         let expert = self.expert;
+        let paths_preview = if self.custom_paths.is_empty() {
+            i18n.default_scan_dirs().to_string()
+        } else {
+            format_scan_paths(&self.custom_paths)
+        };
 
         div()
             .size_full()
@@ -129,11 +137,53 @@ impl Render for OnboardingView {
                                     .child(i18n.scan_dirs_intro()),
                             )
                             .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(colors::text_muted())
+                                    .child(i18n.onboard_custom_paths_hint()),
+                            )
+                            .child(
                                 ui::glass_card()
                                     .p_4()
                                     .text_base()
                                     .text_color(colors::text_primary())
-                                    .child(i18n.default_scan_dirs()),
+                                    .child(paths_preview),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        ui::action_button(
+                                            "onboard-add-folders",
+                                            i18n.add_scan_folders(),
+                                            Some(crate::ui::ACTION_OPEN_FOLDER),
+                                            false,
+                                            cx,
+                                        )
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            let title = this.store.read(cx).i18n().pick_folders_title().to_string();
+                                            cx.spawn(async move |weak, cx| {
+                                                let picked = cx
+                                                    .background_spawn(async move {
+                                                        clv_platform::pick_folders(&title)
+                                                    })
+                                                    .await;
+                                                if picked.is_empty() {
+                                                    return;
+                                                }
+                                                weak.update(cx, |view, cx| {
+                                                    for path in picked {
+                                                        if !view.custom_paths.iter().any(|p| p == &path) {
+                                                            view.custom_paths.push(path);
+                                                        }
+                                                    }
+                                                    cx.notify();
+                                                })
+                                                .ok();
+                                            })
+                                            .detach();
+                                        })),
+                                    ),
                             )
                             .into_any_element()
                     })
@@ -162,9 +212,15 @@ impl Render for OnboardingView {
                                     .on_click({
                                         let store = store.clone();
                                         let expert = expert;
+                                        let paths = self.custom_paths.clone();
                                         move |_, _, cx| {
+                                            let scan_paths = if paths.is_empty() {
+                                                AppSettings::default().scan_paths
+                                            } else {
+                                                paths.clone()
+                                            };
                                             store.update(cx, |s, cx| {
-                                                s.finish_onboarding(expert, vec![], cx);
+                                                s.finish_onboarding(expert, scan_paths, cx);
                                                 s.start_scan(cx);
                                             });
                                         }
