@@ -9,6 +9,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 <a href="https://github.com/sopaco/CLV3000-Plus/releases"><img alt="App Download" src="https://img.shields.io/badge/Download-Secure-blue?logo=Download&color=%23008a60"/></a>
 
+<p>
+  <b>简体中文</b> ·
+  <a href="./README.md">English</a> ·
+  <a href="./README_ja.md">日本語</a>
+</p>
+
 </div>
 
 你用了不少 WorkBuddy、Deepseek Harness、Codex、Claude Code、Cursor这类 AI 工具吧？  
