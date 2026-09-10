@@ -24,6 +24,7 @@ source: .
     - clv-app/
     - clv-platform/
     - clv-core/
+  - README_ja.md
   - .agents/
     - skills/
   - .claude/
@@ -31,6 +32,7 @@ source: .
   - Cargo.lock
   - README.md
   - .gitignore
+  - README_zh.md
   - scripts/
     - rule-description-translations.json
     - bundle-macos.sh
