@@ -82,7 +82,7 @@ pub fn middle_truncated_path(label: impl Into<SharedString>) -> impl IntoElement
                 .overflow_hidden()
                 .child(
                     div()
-                        .flex_shrink()
+                        .flex_shrink(1.)
                         .min_w_0()
                         .truncate()
                         .child(left),
@@ -90,7 +90,7 @@ pub fn middle_truncated_path(label: impl Into<SharedString>) -> impl IntoElement
                 .child(div().flex_shrink_0().child("…"))
                 .child(
                     div()
-                        .flex_shrink()
+                        .flex_shrink(1.)
                         .min_w_0()
                         .truncate()
                         .child(right),

@@ -16,16 +16,16 @@ use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::{colors, corner_sm};
 use clv_core::RiskLevel;
-use gpui::{Animation, AnimationExt, ease_in_out, ElementId, Stateful};
+use gpui_kit::{Animation, AnimationExt, ease_in_out, ElementId, Stateful};
 use std::time::Duration;
-use gpui_component::{
+use gpui_kit::component::{
     button::ButtonCustomVariant,
     Icon, IconName,
 };
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
-/// Hover + pressed background for custom clickable surfaces (not gpui-component Button).
+/// Hover + pressed background for custom clickable surfaces (not gpui-kit Button).
 pub fn surface_pressable(el: Stateful<Div>) -> Stateful<Div> {
     el.hover(|s| s.bg(colors::accent_blue_bg_hover().opacity(0.55)))
         .active(|s| s.bg(colors::accent_blue_bg_pressed().opacity(0.75)))
@@ -101,22 +101,29 @@ pub fn empty_state_loading(title: impl Into<SharedString>, hint: impl Into<Share
 }
 
 /// Animated loading spinner (rotates continuously).
-pub fn loading_spinner(size: f32, color: gpui::Hsla) -> gpui_component::spinner::Spinner {
-    gpui_component::spinner::Spinner::new()
-        .with_size(gpui_component::Size::Size(px(size)))
+pub fn loading_spinner(size: f32, color: gpui_kit::Hsla) -> gpui_kit::component::spinner::Spinner {
+    gpui_kit::component::spinner::Spinner::new()
+        .with_size(gpui_kit::component::Size::Size(px(size)))
         .color(color)
 }
 
 // ── Buttons ─────────────────────────────────────────────────────────────────
 
 /// Filled primary / CTA button — white label & icon on accent background.
+///
+/// Border is no longer part of `ButtonCustomVariant` in gpui-kit; callers apply
+/// it on the button element via [`accent_border`].
 pub fn primary_button_variant(cx: &App) -> ButtonCustomVariant {
     ButtonCustomVariant::new(cx)
         .color(colors::accent_blue())
         .foreground(colors::on_accent())
-        .border(colors::accent_blue())
         .hover(colors::accent_filled_hover())
         .active(colors::accent_filled_pressed())
+}
+
+/// Accent-coloured 1px border for custom-variant buttons.
+pub fn accent_border(btn: Button) -> Button {
+    btn.border_1().border_color(colors::accent_blue())
 }
 
 /// Dashboard hero "Scan Now" — filled accent with forced white label & icon.
@@ -149,19 +156,22 @@ pub fn action_button(
     }
     if primary {
         lg_button(
-            btn.custom(primary_button_variant(cx))
-                .shadow_lg()
-                .text_color(colors::on_accent()),
+            accent_border(
+                btn.custom(primary_button_variant(cx))
+                    .shadow_lg()
+                    .text_color(colors::on_accent()),
+            ),
         )
     } else {
-        btn.custom(
-            ButtonCustomVariant::new(cx)
-                .color(colors::bg_card())
-                .foreground(colors::text_primary())
-                .border(colors::border())
-                .hover(colors::accent_blue_bg_hover())
-                .active(colors::accent_blue_bg_pressed()),
-        )
+        btn.border_1()
+            .border_color(colors::border())
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(colors::bg_card())
+                    .foreground(colors::text_primary())
+                    .hover(colors::accent_blue_bg_hover())
+                    .active(colors::accent_blue_bg_pressed()),
+            )
     }
 }
 
@@ -176,14 +186,15 @@ pub fn ghost_pill(
     if active {
         std_button(Button::new(id).label(label))
             .rounded(corner_sm())
+            .border_1()
+            .border_color(colors::accent_blue())
             .custom(
-            ButtonCustomVariant::new(cx)
-                .color(colors::accent_blue_bg())
-                .foreground(colors::accent_blue())
-                .border(colors::accent_blue())
-                .hover(colors::accent_blue_bg_hover())
-                .active(colors::accent_blue_bg_pressed()),
-        )
+                ButtonCustomVariant::new(cx)
+                    .color(colors::accent_blue_bg())
+                    .foreground(colors::accent_blue())
+                    .hover(colors::accent_blue_bg_hover())
+                    .active(colors::accent_blue_bg_pressed()),
+            )
     } else {
         std_button(Button::new(id).label(label))
             .rounded(corner_sm())

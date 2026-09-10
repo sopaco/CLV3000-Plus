@@ -17,8 +17,8 @@ mod views;
 use actions::CloseWindow;
 use app::{shell::AppShell, ClvApp};
 use clv_core::{load_settings, resolve_language};
-use gpui::*;
-use gpui_component::*;
+use gpui_kit::*;
+use gpui_kit::component::*;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use theme::apply_theme;
@@ -72,7 +72,7 @@ fn main() {
 
     let settings = load_settings();
     let theme = settings.theme;
-    let application = Application::new().with_assets(assets::Assets);
+    let application = gpui_kit::application().with_assets(assets::Assets);
     application.on_reopen(|app| {
         app.activate(true);
         if let Err(e) = open_main_window(app) {
@@ -80,7 +80,7 @@ fn main() {
         }
     });
     application.run(move |cx| {
-        gpui_component::init(cx);
+        gpui_kit::init(cx);
         apply_theme(theme, cx);
         platform::apply_app_icon();
         init_window_close_shortcuts(cx);
@@ -169,10 +169,9 @@ fn is_cmd_close_window(keystroke: &Keystroke) -> bool {
 
 #[cfg(target_os = "macos")]
 fn init_macos_menus(cx: &mut App) {
-    cx.set_menus(vec![Menu {
-        name: "Window".into(),
-        items: vec![MenuItem::action("Close Window", CloseWindow)],
-    }]);
+    cx.set_menus(vec![
+        Menu::new("Window").items(vec![MenuItem::action("Close Window", CloseWindow)]),
+    ]);
 }
 
 #[cfg(debug_assertions)]

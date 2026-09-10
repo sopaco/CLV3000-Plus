@@ -6,6 +6,7 @@ use clv_core::{
     format_bytes, CleanupCategory, LargeFileEntry, RiskLevel, RuleDescription, ScanItem, TechStack,
     LARGE_FILE_THRESHOLD_BYTES,
 };
+use gpui_kit::component::dialog::DialogButtonProps;
 
 pub struct LargeFilesView {
     store: Entity<AppStore>,
@@ -128,7 +129,9 @@ fn file_row(file: &LargeFileEntry, i18n: &I18n, store: Entity<AppStore>, _cx: &A
                         dialog
                             .title(i18n_title)
                             .child(body.clone())
-                            .confirm()
+                            .button_props(
+                                DialogButtonProps::default().show_cancel(true),
+                            )
                             .on_ok({
                                 let store = store_ok.clone();
                                 let item = item.clone();

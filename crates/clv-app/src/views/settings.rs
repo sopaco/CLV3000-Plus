@@ -3,12 +3,12 @@ use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::{colors, ThemePalette, apply_theme};
 use clv_core::{format_scan_paths, parse_scan_paths, save_settings, LanguagePreference, ThemePreference};
-use gpui::{Subscription, Window};
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_kit::{Subscription, Window};
+use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 
 pub struct SettingsView {
     store: Entity<AppStore>,
-    scan_paths_input: Option<Entity<InputState>>,
+    scan_paths_input: Option<Entity<TextareaState>>,
     _scan_paths_subscription: Option<Subscription>,
 }
 
@@ -27,14 +27,13 @@ impl SettingsView {
         cx: &mut Context<Self>,
         initial: String,
         placeholder: &'static str,
-    ) -> Entity<InputState> {
+    ) -> Entity<TextareaState> {
         if let Some(input) = &self.scan_paths_input {
             return input.clone();
         }
 
         let input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
+            TextareaState::new(window, cx)
                 .default_value(initial)
                 .placeholder(placeholder)
         });
@@ -152,7 +151,7 @@ impl Render for SettingsView {
                                     .min_w_0()
                                     .h(px(160.))
                                     .overflow_hidden()
-                                    .child(Input::new(&scan_paths_input).h_full().w_full()),
+                                    .child(Textarea::new(&scan_paths_input).h_full().w_full()),
                             )
                             .child(
                                 h_flex()

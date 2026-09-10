@@ -1,8 +1,8 @@
 //! CLV3000 Plus design tokens and multi-theme skin system.
 
 use clv_core::ThemePreference;
-use gpui::{px, rgb, App, Hsla, Pixels};
-use gpui_component::{scroll::ScrollbarShow, Theme, ThemeColor, ThemeMode};
+use gpui_kit::{px, rgb, App, Hsla, Pixels};
+use gpui_kit::component::{scroll::ScrollbarMode, Theme, ThemeColor, ThemeMode};
 use std::sync::{LazyLock, RwLock};
 
 /// Active palette — updated when the user switches themes.
@@ -275,7 +275,7 @@ pub fn corner_md() -> Pixels {
     px(palette().corner_md)
 }
 
-/// gpui-component control radius (Switch, etc.).
+/// gpui-kit control radius (Switch, etc.).
 pub fn corner_control() -> Pixels {
     px(palette().corner_control)
 }
@@ -287,7 +287,7 @@ pub fn font_base() -> Pixels {
 
 /// Design token colors — read from the active theme palette.
 pub mod colors {
-    use gpui::Hsla;
+    use gpui_kit::Hsla;
 
     pub fn bg_app() -> Hsla {
         super::hex(super::palette().bg_app)
@@ -565,7 +565,7 @@ fn build_gpui_palette(p: ThemePalette) -> ThemeColor {
     t
 }
 
-/// Apply the selected visual theme to gpui-component and internal tokens.
+/// Apply the selected visual theme to gpui-kit and internal tokens.
 pub fn apply_theme(preference: ThemePreference, cx: &mut App) {
     let palette = ThemePalette::for_preference(preference);
     if let Ok(mut guard) = PALETTE.write() {
@@ -584,7 +584,7 @@ pub fn apply_theme(preference: ThemePreference, cx: &mut App) {
     theme.colors = build_gpui_palette(palette);
     theme.radius = corner_control();
     theme.radius_lg = corner_md();
-    theme.scrollbar_show = ScrollbarShow::Hover;
+    theme.scrollbar_mode = ScrollbarMode::Hover;
     theme.font_size = font_base();
     theme.shadow = !palette.is_light;
 }

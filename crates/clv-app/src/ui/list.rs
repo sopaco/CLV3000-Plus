@@ -1,8 +1,8 @@
 //! Virtualized list helpers (`uniform_list` + flex-safe scroll layout).
 
 use crate::prelude::*;
-use gpui::{uniform_list, ElementId, ListSizingBehavior, Subscription, UniformListScrollHandle};
-use gpui_component::input::{InputEvent, InputState};
+use gpui_kit::{uniform_list, ElementId, ListSizingBehavior, Subscription, UniformListScrollHandle};
+use gpui_kit::component::input::{InputEvent, InputState};
 use std::ops::Range;
 
 /// Lazily create a search `InputState` and subscribe to change events.
@@ -50,7 +50,7 @@ where
 {
     let list = uniform_list(list_id, item_count, cx.processor(render_rows))
         .size_full()
-        .track_scroll(scroll_handle.clone())
+        .track_scroll(&scroll_handle)
         .with_sizing_behavior(ListSizingBehavior::Auto);
 
     div()

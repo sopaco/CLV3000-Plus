@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.2.1"
+version = "1.2.2"
 edition = "2024"
 license = "MIT"
 authors = ["Sopaco"]
@@ -30,9 +30,7 @@ rfd = "0.15"
 tray-icon = "0.19"
 muda = "0.15"
 
-gpui = "0.2.2"
-gpui-component = "0.5.1"
-gpui-component-assets = "0.5.1"
+gpui-kit = "0.6"
 
 [profile.release]
 lto = "fat"

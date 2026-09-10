@@ -1,7 +1,7 @@
 //! Shared control sizing — Windows-like click targets.
 
 use crate::prelude::*;
-use gpui_component::button::Button;
+use gpui_kit::component::button::Button;
 
 /// Standard corner radius — slightly rounded (matches `theme::corner_control`).
 pub const BTN_RADIUS: f32 = 6.;

@@ -1,4 +1,4 @@
-use gpui::{AssetSource, Result, SharedString};
+use gpui_kit::{AssetSource, Result, SharedString};
 use rust_embed::RustEmbed;
 use std::borrow::Cow;
 
@@ -16,11 +16,11 @@ impl AssetSource for Assets {
         if let Some(file) = ClvAssets::get(path) {
             return Ok(Some(file.data));
         }
-        gpui_component_assets::Assets.load(path)
+        gpui_kit::assets::Assets.load(path)
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
-        let mut list = gpui_component_assets::Assets.list(path)?;
+        let mut list = gpui_kit::assets::Assets.list(path)?;
         for entry in ClvAssets::iter() {
             if entry.starts_with(path) {
                 list.push(entry.into());
