@@ -5,12 +5,12 @@ use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::{colors, corner, corner_md, corner_sm};
 use crate::ui::icons::*;
-use gpui::{img, linear_color_stop, linear_gradient, Hsla};
-use gpui_component::{progress::Progress, Icon, IconName};
+use gpui_kit::{img, linear_color_stop, linear_gradient, Hsla};
+use gpui_kit::component::{progress::Progress, Icon, IconName};
 
 // ── Gradients & atmosphere ───────────────────────────────────────────────────
 
-pub fn hero_gradient() -> gpui::Background {
+pub fn hero_gradient() -> gpui_kit::Background {
     linear_gradient(
         128.,
         linear_color_stop(colors::gradient_hero_start(), 0.0),
@@ -18,7 +18,7 @@ pub fn hero_gradient() -> gpui::Background {
     )
 }
 
-pub fn hero_gradient_alt() -> gpui::Background {
+pub fn hero_gradient_alt() -> gpui_kit::Background {
     linear_gradient(
         145.,
         linear_color_stop(colors::gradient_hero_alt_start(), 0.0),
@@ -26,7 +26,7 @@ pub fn hero_gradient_alt() -> gpui::Background {
     )
 }
 
-pub fn sidebar_gradient() -> gpui::Background {
+pub fn sidebar_gradient() -> gpui_kit::Background {
     linear_gradient(
         175.,
         linear_color_stop(colors::gradient_sidebar_start(), 0.0),
@@ -34,7 +34,7 @@ pub fn sidebar_gradient() -> gpui::Background {
     )
 }
 
-pub fn content_gradient() -> gpui::Background {
+pub fn content_gradient() -> gpui_kit::Background {
     linear_gradient(
         168.,
         linear_color_stop(colors::gradient_content_start(), 0.0),
@@ -246,11 +246,11 @@ pub fn hero_banner(
     accent: Hsla,
     scanning: bool,
     scan_label: impl Into<SharedString>,
-    on_scan: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_scan: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     reclaim_summary: Option<impl Into<SharedString>>,
     show_view_details: bool,
     details_label: impl Into<SharedString>,
-    on_view_details: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_view_details: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     i18n: &I18n,
     cx: &App,
 ) -> impl IntoElement {
@@ -368,7 +368,7 @@ pub fn quick_tile(
     value: impl Into<SharedString>,
     hint: impl Into<SharedString>,
     tint: Hsla,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let value: SharedString = value.into();
     let hint: SharedString = hint.into();
@@ -462,7 +462,7 @@ pub fn metric_bar(label: &str, value_pct: f32, color: Hsla) -> Div {
                 ),
         )
         .child(
-            Progress::new()
+            Progress::new(SharedString::from(format!("metric-bar-{label}")))
                 .value(value_pct)
                 .bg(color)
                 .h(px(8.))
@@ -482,7 +482,7 @@ pub fn nav_icon(
     active: bool,
     window: &mut Window,
     cx: &mut App,
-    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let hovered = window.use_keyed_state(id, cx, |_, _| false);
     let is_hovered = *hovered.read(cx);
@@ -684,7 +684,7 @@ fn inline_progress_bar(
     accent: Hsla,
     cancel_id: &'static str,
     cancel_label: impl Into<SharedString>,
-    on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_cancel: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> Div {
     glass_card()
@@ -717,7 +717,7 @@ fn inline_progress_bar(
                         ),
                 )
                 .child(
-                    Progress::new()
+                    Progress::new(SharedString::from(format!("{cancel_id}-progress")))
                         .value(pct)
                         .bg(accent)
                         .h(px(8.))
@@ -739,7 +739,7 @@ pub fn scan_progress_bar(
     items_found: usize,
     bytes_found: u64,
     current_path: Option<&str>,
-    on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_cancel: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> Div {
     let pct = (items_found.min(80) as f32 / 80.0 * 100.0).min(99.0);
@@ -762,7 +762,7 @@ pub fn cleanup_progress_bar(
     total: usize,
     freed_bytes: u64,
     current_path: Option<&str>,
-    on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_cancel: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> Div {
     let pct = if total == 0 {

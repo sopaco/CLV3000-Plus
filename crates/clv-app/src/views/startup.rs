@@ -3,7 +3,7 @@ use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::{colors, corner_sm};
 use clv_platform::{list_startup_items, set_startup_enabled, StartupImpact};
-use gpui::{Subscription, UniformListScrollHandle};
+use gpui_kit::{Subscription, UniformListScrollHandle};
 
 const STARTUP_ROW_H: f32 = 92.;
 

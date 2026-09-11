@@ -4,8 +4,9 @@ use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::format_bytes;
 use clv_platform::{ProcessEnumerator, ProcessInfo, ProcessSort};
-use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
-use gpui_component::input::{Input, InputState};
+use gpui_kit::{ScrollStrategy, Subscription, UniformListScrollHandle};
+use gpui_kit::component::dialog::DialogButtonProps;
+use gpui_kit::component::input::{Input, InputState};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -297,7 +298,9 @@ impl ProcessView {
                                         dialog
                                             .title(i18n.confirm_kill_title())
                                             .child(i18n.confirm_kill_body(&proc_name, pid))
-                                            .confirm()
+                                            .button_props(
+                                                DialogButtonProps::default().show_cancel(true),
+                                            )
                                             .on_ok({
                                                 let store = store.clone();
                                                 move |_, _, cx| {
@@ -449,7 +452,7 @@ impl Render for ProcessView {
     }
 }
 
-fn header_cell(text: &str, width: gpui::Pixels) -> Div {
+fn header_cell(text: &str, width: gpui_kit::Pixels) -> Div {
     div()
         .w(width)
         .text_sm()
@@ -468,7 +471,7 @@ fn header_name_cell(text: &str) -> Div {
         .child(text.to_string())
 }
 
-fn name_cell(text: String, color: gpui::Hsla) -> Div {
+fn name_cell(text: String, color: gpui_kit::Hsla) -> Div {
     div()
         .flex_1()
         .min_w_0()
@@ -478,7 +481,7 @@ fn name_cell(text: String, color: gpui::Hsla) -> Div {
         .child(text)
 }
 
-fn cell(text: String, width: gpui::Pixels, color: gpui::Hsla) -> Div {
+fn cell(text: String, width: gpui_kit::Pixels, color: gpui_kit::Hsla) -> Div {
     div()
         .w(width)
         .text_base()

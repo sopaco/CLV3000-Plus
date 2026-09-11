@@ -3,9 +3,10 @@ use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::{colors, corner_md};
 use clv_core::{ScanItem};
-use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
-use gpui_component::input::{Input, InputState};
-use gpui_component::Icon;
+use gpui_kit::{ScrollStrategy, Subscription, UniformListScrollHandle};
+use gpui_kit::component::dialog::DialogButtonProps;
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::Icon;
 use std::path::Path;
 
 /// Virtualized row slot — card body + gap between rows.
@@ -380,7 +381,10 @@ impl Render for CleanupView {
                                                             dialog
                                                                 .title(i18n.confirm_cleanup_title())
                                                                 .child(i18n.confirm_cleanup_body(count, bytes))
-                                                                .confirm()
+                                                                .button_props(
+                                                                    DialogButtonProps::default()
+                                                                        .show_cancel(true),
+                                                                )
                                                                 .on_ok({
                                                                     let store = store_confirm.clone();
                                                                     move |_, _, cx| {
@@ -536,7 +540,6 @@ fn open_item_detail_dialog(
                             .child(path.clone()),
                     ),
             )
-            .alert()
             .on_ok(|_, _, _| true)
     });
 }
@@ -560,7 +563,7 @@ fn cleanup_scan_prompt(store: &Entity<AppStore>, i18n: &I18n, cx: &App) -> Div {
                 .items_center()
                 .justify_center()
                 .child(
-                    gpui_component::Icon::new(ui::EMPTY_SCAN)
+                    gpui_kit::component::Icon::new(ui::EMPTY_SCAN)
                         .with_size(px(36.))
                         .text_color(colors::accent_blue()),
                 ),

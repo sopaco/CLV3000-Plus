@@ -4,7 +4,7 @@ use crate::prelude::*;
 use crate::theme::{colors, corner};
 use clv_core::{format_bytes, CleanupHistory};
 use clv_platform::{list_disk_volumes, DiskVolume};
-use gpui::Hsla;
+use gpui_kit::Hsla;
 
 enum VolumesDialogState {
     Loading,
@@ -433,7 +433,7 @@ fn history_card(
     store: Entity<AppStore>,
     i18n: &I18n,
     recently_deleted_expanded: bool,
-    on_toggle: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_toggle: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> Div {
     let freed_7d = history.freed_in_days(7);

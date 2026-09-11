@@ -11,7 +11,7 @@ use crate::views::{
     settings::SettingsView, startup::StartupView,
 };
 use clv_core::load_settings;
-use gpui_component::{notification::Notification, WindowExt};
+use gpui_kit::component::{notification::Notification, WindowExt};
 use hud::ProgressHud;
 use state::{AppPage, AppStore};
 use crate::tray::take_scan_request;

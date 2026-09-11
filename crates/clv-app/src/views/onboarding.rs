@@ -256,7 +256,7 @@ fn mode_option(
     desc: &'static str,
     selected: bool,
     cx: &mut Context<OnboardingView>,
-    on_click: impl Fn(&mut OnboardingView, &gpui::ClickEvent, &mut Window, &mut Context<OnboardingView>) + 'static,
+    on_click: impl Fn(&mut OnboardingView, &gpui_kit::ClickEvent, &mut Window, &mut Context<OnboardingView>) + 'static,
 ) -> impl IntoElement {
     ui::glass_card()
         .p_4()

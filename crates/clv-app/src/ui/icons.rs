@@ -1,6 +1,6 @@
-//! Semantic icon mapping — Lucide SVG via gpui-component-assets + app assets.
+//! Semantic icon mapping — Lucide SVG via gpui-kit-assets + app assets.
 
-use gpui_component::{Icon, IconName};
+use gpui_kit::component::{Icon, IconName};
 
 /// Custom asset paths (see `assets/icons/`).
 pub const ICON_BROOM: &str = "icons/broom.svg";

@@ -3,8 +3,9 @@ use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::colors;
 use clv_core::{agent_reason_matches_query, format_agent_reason, AgentProject, RiskLevel};
-use gpui::{ScrollStrategy, Subscription, UniformListScrollHandle};
-use gpui_component::input::{Input, InputState};
+use gpui_kit::{ScrollStrategy, Subscription, UniformListScrollHandle};
+use gpui_kit::component::dialog::DialogButtonProps;
+use gpui_kit::component::input::{Input, InputState};
 use std::sync::Arc;
 
 /// Virtualized row slot — card body + gap between rows.
@@ -222,7 +223,10 @@ impl AgentView {
                                                                     .child(
                                                                         i18n.confirm_caution_items_body(),
                                                                     )
-                                                                    .confirm()
+                                                                    .button_props(
+                                                                        DialogButtonProps::default()
+                                                                            .show_cancel(true),
+                                                                    )
                                                                     .on_ok({
                                                                         let go = go.clone();
                                                                         move |_, _, cx| {

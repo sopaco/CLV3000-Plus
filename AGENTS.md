@@ -2,6 +2,45 @@
 
 This file guides AI coding agents working in this repository.
 
+## UI 依赖（gpui-kit）
+
+本项目 UI 基于 **`gpui-kit` 0.6**（Longbridge GPUI 工具箱）。**只声明 `gpui-kit` 一个依赖**，不要另行引入上游子 crate。
+
+```toml
+# Cargo.toml（workspace）
+gpui-kit = "0.6"
+```
+
+### 门面路径
+
+| 需要的东西 | 导入写法 |
+|------------|----------|
+| GPUI 本体（`div`/`px`/`Window`/`App`…） | `use gpui_kit::{…}` 或 `use gpui_kit::*;` |
+| 样式化组件 | `use gpui_kit::component::{…}`（UI 层统一经 `crate::prelude::*` 再导出） |
+| 无样式行为层 | `use gpui_kit::base::{…}` |
+| 默认图标资源（Lucide） | `gpui_kit::assets::Assets` |
+| 启动入口 | `gpui_kit::application().with_assets(assets::Assets)` + `gpui_kit::init(cx)` |
+| 自定义 action | `use gpui_kit::actions;`（**不要**用 `gpui::actions`） |
+
+### 写 UI 代码时的 API 约定
+
+| 场景 | 写法 |
+|------|------|
+| 单行输入 | `InputState` + `Input` |
+| 多行输入 | `TextareaState` + `Textarea`（`InputState` 仅单行） |
+| 对话框按钮 | `.button_props(DialogButtonProps::default().show_cancel(true))` 为确认框；不调用即 alert 形态（默认无取消） |
+| 进度条 | `Progress::new(id)`，需传稳定唯一的 `ElementId` |
+| 虚拟列表滚动 | `.track_scroll(&handle)`（传引用） |
+| 弹性布局 | `.flex_shrink(1.)` / `.flex_grow(1.)`，需显式传 `f32`；取零用 `.flex_shrink_0()` |
+| 按钮自定义配色 | `ButtonCustomVariant::{color, foreground, hover, active}`；边框画在元素上（`.border_1().border_color(..)`），见 `ui::accent_border` |
+| 窗口菜单 | `Menu::new("Window").items(vec![..])` |
+| 主题滚动条 | `theme.scrollbar_mode = ScrollbarMode::Hover` |
+
+**两个易错点**：
+
+1. `button_props(..)` 会整体替换按钮属性，必须在 `.on_ok(..)` **之前**调用，否则回调被静默重置。
+2. `open_window` 失败在 `cx.spawn` 里会被静默吞掉 —— 改 UI 后除了 `cargo build`，还要实跑二进制 10s 以上确认进程存活。
+
 ## 清理规则与国际化（必读）
 
 本项目的扫描/清理规则使用**类型化 ID + 三语翻译表**，不要在领域层硬编码展示文案。

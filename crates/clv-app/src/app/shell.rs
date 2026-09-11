@@ -3,8 +3,8 @@
 use super::{state::AppPage, ClvApp};
 use crate::prelude::*;
 use crate::theme::colors;
-use gpui::{linear_color_stop, linear_gradient};
-use gpui_component::{Root, TitleBar};
+use gpui_kit::{linear_color_stop, linear_gradient};
+use gpui_kit::component::{Root, TitleBar};
 
 pub struct AppShell {
     app: Entity<ClvApp>,
@@ -70,7 +70,7 @@ impl Render for AppShell {
     }
 }
 
-fn titlebar_content_gradient() -> gpui::Background {
+fn titlebar_content_gradient() -> gpui_kit::Background {
     linear_gradient(
         180.,
         linear_color_stop(colors::bg_app(), 0.0),
