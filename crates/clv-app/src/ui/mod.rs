@@ -18,10 +18,7 @@ use crate::theme::{colors, corner_sm};
 use clv_core::RiskLevel;
 use gpui_kit::{Animation, AnimationExt, ease_in_out, ElementId, Stateful};
 use std::time::Duration;
-use gpui_kit::component::{
-    button::ButtonCustomVariant,
-    Icon, IconName,
-};
+use gpui_kit::component::{Icon, IconName};
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
@@ -111,22 +108,13 @@ pub fn loading_spinner(size: f32, color: gpui_kit::Hsla) -> gpui_kit::component:
 
 /// Filled primary / CTA button — white label & icon on accent background.
 ///
-/// Border is no longer part of `ButtonCustomVariant` in gpui-kit; callers apply
-/// it on the button element via [`accent_border`].
-pub fn primary_button_variant(cx: &App) -> ButtonCustomVariant {
-    ButtonCustomVariant::new(cx)
-        .color(colors::accent_blue())
-        .foreground(colors::on_accent())
-        .hover(colors::accent_filled_hover())
-        .active(colors::accent_filled_pressed())
-}
-
-/// Accent-coloured 1px border for custom-variant buttons.
-pub fn accent_border(btn: Button) -> Button {
-    btn.border_1().border_color(colors::accent_blue())
-}
-
-/// Dashboard hero "Scan Now" — filled accent with forced white label & icon.
+/// Uses the **built-in** `Primary` variant so the fill comes from `theme.tokens`
+/// as a solid `Background`. Deliberately NOT `ButtonCustomVariant`: gpui-kit
+/// mixes a custom `color` with transparency for the resting state
+/// (`button.rs`: `colors.color.mix_oklab(transparent, 0.2)`), so the un-clicked
+/// button shows ~80% alpha — it bleeds the page background and reads as washed
+/// out / dirty, while hover & active stay fully opaque. The built-in tokens
+/// have no such blend.
 pub fn hero_scan_button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
@@ -141,7 +129,7 @@ pub fn action_button(
     label: impl Into<SharedString>,
     icon: Option<IconName>,
     primary: bool,
-    cx: &App,
+    _cx: &App,
 ) -> Button {
     let id: SharedString = id.into();
     let label: SharedString = label.into();
@@ -155,23 +143,13 @@ pub fn action_button(
         btn = btn.icon(Icon::new(name).with_size(px(20.)).text_color(icon_color));
     }
     if primary {
-        lg_button(
-            accent_border(
-                btn.custom(primary_button_variant(cx))
-                    .shadow_lg()
-                    .text_color(colors::on_accent()),
-            ),
-        )
+        // Solid accent fill straight from the theme tokens (`button_primary`),
+        // no blend, no stacked border, no drop shadow.
+        lg_button(btn.primary())
     } else {
-        btn.border_1()
-            .border_color(colors::border())
-            .custom(
-                ButtonCustomVariant::new(cx)
-                    .color(colors::bg_card())
-                    .foreground(colors::text_primary())
-                    .hover(colors::accent_blue_bg_hover())
-                    .active(colors::accent_blue_bg_pressed()),
-            )
+        // Built-in `Default` variant: token-driven solid card fill plus the
+        // theme's 1px input border.
+        btn.border_1().border_color(colors::border())
     }
 }
 
@@ -179,26 +157,20 @@ pub fn ghost_pill(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     active: bool,
-    cx: &App,
+    _cx: &App,
 ) -> Button {
     let id: SharedString = id.into();
     let label: SharedString = label.into();
+    let btn = std_button(Button::new(id).label(label)).rounded(corner_sm());
     if active {
-        std_button(Button::new(id).label(label))
-            .rounded(corner_sm())
-            .border_1()
+        // Built-in `Secondary` variant gives the token-driven solid tint; the
+        // accent border is drawn on the element. Avoids `ButtonCustomVariant`,
+        // whose resting color is blended 20% toward transparent (see button.rs).
+        btn.border_1()
             .border_color(colors::accent_blue())
-            .custom(
-                ButtonCustomVariant::new(cx)
-                    .color(colors::accent_blue_bg())
-                    .foreground(colors::accent_blue())
-                    .hover(colors::accent_blue_bg_hover())
-                    .active(colors::accent_blue_bg_pressed()),
-            )
+            .secondary()
     } else {
-        std_button(Button::new(id).label(label))
-            .rounded(corner_sm())
-            .ghost()
+        btn.ghost()
     }
 }
 
@@ -246,6 +218,8 @@ pub fn risk_badge(risk: RiskLevel, lang: clv_core::Language) -> Div {
             colors::red(),
         ),
     };
+    // Tinted background + 1px border already carry the risk level; the previous
+    // 4px solid bar stacked a third redundant accent on top of it.
     h_flex()
         .items_center()
         .gap_2()
@@ -255,13 +229,6 @@ pub fn risk_badge(risk: RiskLevel, lang: clv_core::Language) -> Div {
         .bg(bg)
         .border_1()
         .border_color(border)
-        .child(
-            div()
-                .w(px(4.))
-                .h(px(14.))
-                .rounded(corner_sm())
-                .bg(fg),
-        )
         .child(
             div()
                 .text_sm()
