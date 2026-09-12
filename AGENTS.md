@@ -32,14 +32,25 @@ gpui-kit = "0.6"
 | 进度条 | `Progress::new(id)`，需传稳定唯一的 `ElementId` |
 | 虚拟列表滚动 | `.track_scroll(&handle)`（传引用） |
 | 弹性布局 | `.flex_shrink(1.)` / `.flex_grow(1.)`，需显式传 `f32`；取零用 `.flex_shrink_0()` |
-| 按钮自定义配色 | `ButtonCustomVariant::{color, foreground, hover, active}`；边框画在元素上（`.border_1().border_color(..)`），见 `ui::accent_border` |
+| 按钮配色 | **优先用内置变体**：`Button::new(id).primary()`（实心 CTA）/ 默认 `Default`（次级）。见下方易错点 3 |
 | 窗口菜单 | `Menu::new("Window").items(vec![..])` |
 | 主题滚动条 | `theme.scrollbar_mode = ScrollbarMode::Hover` |
 
-**两个易错点**：
+**三个易错点**：
 
 1. `button_props(..)` 会整体替换按钮属性，必须在 `.on_ok(..)` **之前**调用，否则回调被静默重置。
 2. `open_window` 失败在 `cx.spawn` 里会被静默吞掉 —— 改 UI 后除了 `cargo build`，还要实跑二进制 10s 以上确认进程存活。
+3. **不要用 `ButtonCustomVariant` 做按钮底色**。gpui-kit 的静态态会把自定义 `color` 与透明混合
+   20%（`gpui-component/src/button/button.rs`：`colors.color.mix_oklab(transparent, 0.2)`），
+   于是**未点击态是 ~80% 半透明**（透出页面背景、发灰发脏），而 hover/active 却是实色 ——
+   表现为"未点击时样子很奇怪"。改用内置变体（`.primary()` / 默认 `Default`），它们读
+   `theme.tokens.button*` 的纯色 `Background`：
+   - 这些 token 是 `ThemeColor` 的**一次性派生**，`theme::apply_theme` 里必须在写
+     `theme.colors` 之后显式重算 `theme.tokens = ThemeTokens::from(&colors)`，
+     并在 `build_gpui_palette` 中显式设置 `button` / `button_primary` 等字段，
+     否则内置变体会回落到 gpui-kit 默认主题色（浅色下主按钮变蓝紫）。
+   - 回归测试：`crates/clv-app/src/theme.rs` 的 `button_tokens_follow_the_active_palette`
+     同时锁住"token 跟随调色板"和"静态填充 alpha = 1"。
 
 ## 清理规则与国际化（必读）
 

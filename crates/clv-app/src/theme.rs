@@ -2,7 +2,7 @@
 
 use clv_core::ThemePreference;
 use gpui_kit::{px, rgb, App, Hsla, Pixels};
-use gpui_kit::component::{scroll::ScrollbarMode, Theme, ThemeColor, ThemeMode};
+use gpui_kit::component::{scroll::ScrollbarMode, Theme, ThemeColor, ThemeMode, ThemeTokens};
 use std::sync::{LazyLock, RwLock};
 
 /// Active palette — updated when the user switches themes.
@@ -505,6 +505,20 @@ fn build_gpui_palette(p: ThemePalette) -> ThemeColor {
     t.primary_active = accent_pressed;
     t.accent = accent_bg;
     t.accent_foreground = accent;
+    // Button tokens — gpui-kit 的内置 Default / Primary 变体只读这些字段。
+    // 不显式设置就会回落到 gpui-kit 默认主题色（浅色主题下主按钮会变成默认蓝紫）。
+    t.button = hex(p.bg_card);
+    t.button_hover = accent_bg_hover;
+    t.button_active = accent_bg_pressed;
+    t.button_foreground = hex(p.text_primary);
+    t.button_primary = accent;
+    t.button_primary_hover = accent_active;
+    t.button_primary_active = accent_pressed;
+    t.button_primary_foreground = hex(0xffffff);
+    t.button_secondary = accent_bg;
+    t.button_secondary_hover = accent_bg_hover;
+    t.button_secondary_active = accent_bg_pressed;
+    t.button_secondary_foreground = accent;
     t.info = accent;
     t.info_foreground = hex(0xffffff);
     t.info_hover = accent_active;
@@ -581,7 +595,12 @@ pub fn apply_theme(preference: ThemePreference, cx: &mut App) {
         cx,
     );
     let theme = Theme::global_mut(cx);
-    theme.colors = build_gpui_palette(palette);
+    // gpui-kit 的组件 token 是 `ThemeColor` 的一次性派生：只改 `colors` 会让
+    // `tokens` 停在默认主题，内置按钮变体（Default / Primary）就会用默认色。
+    // 必须显式重算，先用局部变量避开同时借用 `theme` 与其字段。
+    let colors = build_gpui_palette(palette);
+    theme.tokens = ThemeTokens::from(&colors);
+    theme.colors = colors;
     theme.radius = corner_control();
     theme.radius_lg = corner_md();
     theme.scrollbar_mode = ScrollbarMode::Hover;
@@ -592,4 +611,64 @@ pub fn apply_theme(preference: ThemePreference, cx: &mut App) {
 /// Apply the default defender theme (alias for startup).
 pub fn apply_clv_theme(cx: &mut App) {
     apply_theme(ThemePreference::Defender, cx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: [ThemePreference; 4] = [
+        ThemePreference::Defender,
+        ThemePreference::Blossom,
+        ThemePreference::Neon,
+        ThemePreference::Aurora,
+    ];
+
+    /// gpui-kit 的内置按钮变体只读 `theme.tokens`，而 tokens 是 `ThemeColor`
+    /// 的一次性派生。若 `apply_theme` 只写 `colors` 而不重算 `tokens`，主按钮
+    /// 就会渲染成 gpui-kit 默认主题色。这条测试锁住"token 跟随调色板"。
+    ///
+    /// 同时锁住**不透明度**：`PartialEq` 比较包含 alpha 分量，所以与
+    /// `hex(accent)`（alpha=1）相等即证明静态填充不是 0.8 半透明。
+    #[test]
+    fn button_tokens_follow_the_active_palette() {
+        for pref in ALL {
+            let palette = ThemePalette::for_preference(pref);
+            let colors = build_gpui_palette(palette);
+            let tokens = ThemeTokens::from(&colors);
+
+            assert_eq!(
+                tokens.button_primary,
+                hex(palette.accent).into(),
+                "{pref:?}: button_primary 必须等于当前调色板的 accent（且 alpha=1）"
+            );
+            assert_eq!(
+                tokens.button_primary_hover,
+                hex(palette.accent_active).into(),
+                "{pref:?}: hover 必须跟随 accent_active"
+            );
+            assert_eq!(
+                tokens.button_primary_active,
+                hex(palette.accent_pressed).into(),
+                "{pref:?}: active 必须跟随 accent_pressed"
+            );
+            assert_eq!(
+                tokens.button,
+                hex(palette.bg_card).into(),
+                "{pref:?}: 次级按钮底色必须跟随 bg_card"
+            );
+
+            // 显式断言 alpha：gpui-kit 的 `ButtonCustomVariant` 会与透明混合 20%
+            // （`button.rs`: `colors.color.mix_oklab(transparent, 0.2)`），
+            // 未点击态因此透出页面背景而发灰。内置变体不得重蹈覆辙。
+            assert_eq!(
+                colors.button_primary.a, 1.0,
+                "{pref:?}: 主按钮静态填充必须完全不透明"
+            );
+            assert_eq!(
+                colors.button_primary_foreground.a, 1.0,
+                "{pref:?}: 主按钮文字色必须完全不透明"
+            );
+        }
+    }
 }

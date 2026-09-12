@@ -402,14 +402,6 @@ pub fn quick_tile(
                 .gap_3()
                 .child(
                     div()
-                        .w(px(4.))
-                        .h_full()
-                        .min_h(px(56.))
-                        .rounded(corner())
-                        .bg(tint),
-                )
-                .child(
-                    div()
                         .flex()
                         .flex_col()
                         .gap(px(1.))
@@ -586,37 +578,26 @@ pub fn sidebar_logo() -> impl IntoElement {
 }
 
 pub fn page_banner(title: impl Into<SharedString>, subtitle: impl Into<SharedString>) -> Div {
-    h_flex()
+    // Plain title + subtitle stack — the previous 4px accent bar on the left
+    // looked stylised/cheap against the minimalist palette.
+    div()
         .w_full()
         .mb_5()
-        .gap_3()
-        .items_start()
+        .flex()
+        .flex_col()
+        .gap_1()
         .child(
             div()
-                .w(px(4.))
-                .h(px(36.))
-                .rounded(corner())
-                .bg(colors::accent_blue())
-                .mt(px(4.)),
+                .text_2xl()
+                .font_weight(FontWeight::BOLD)
+                .text_color(colors::text_primary())
+                .child(title.into()),
         )
         .child(
             div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .text_2xl()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(colors::text_primary())
-                        .child(title.into()),
-                )
-                .child(
-                    div()
-                        .text_base()
-                        .text_color(colors::text_secondary())
-                        .child(subtitle.into()),
-                ),
+                .text_base()
+                .text_color(colors::text_secondary())
+                .child(subtitle.into()),
         )
 }
 

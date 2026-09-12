@@ -587,13 +587,14 @@ fn history_stat_block(title: &str, value: &str, sub: String, color: Hsla) -> Div
 }
 
 fn feature_line(text: &str) -> Div {
+    // Dot bullet (same shape as the onboarding feature list) instead of the
+    // previous 3px accent bar — keeps the accent subtle and consistent.
     h_flex()
         .gap_3()
         .items_center()
         .child(
             div()
-                .w(px(3.))
-                .h(px(16.))
+                .size(px(8.))
                 .rounded(corner())
                 .bg(colors::accent_cyan()),
         )
