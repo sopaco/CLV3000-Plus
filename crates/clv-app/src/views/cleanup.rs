@@ -166,10 +166,12 @@ impl CleanupView {
                                     .child(
                                         ui::std_button(Button::new(exp_id).ghost().label(i18n.details()))
                                             .on_click(cx.listener({
+                                                let ok_text = i18n.dialog_ok();
                                                 move |_, _, window, cx| {
                                                     open_item_detail_dialog(
                                                         window,
                                                         cx,
+                                                        ok_text,
                                                         &item_name,
                                                         &item_description,
                                                         &item_path,
@@ -377,12 +379,16 @@ impl Render for CleanupView {
                                                         let count = store.read(cx).selected_items().len();
                                                         let i18n = store.read(cx).i18n();
                                                         let store_confirm = store.clone();
-                                                        window.open_dialog(cx, move |dialog, _window, _cx| {
-                                                            dialog
+                                                        window.open_alert_dialog(cx, move |alert, _window, _cx| {
+                                                            alert
                                                                 .title(i18n.confirm_cleanup_title())
-                                                                .child(i18n.confirm_cleanup_body(count, bytes))
+                                                                .child(
+                                                                    i18n.confirm_cleanup_body(count, bytes),
+                                                                )
                                                                 .button_props(
                                                                     DialogButtonProps::default()
+                                                                        .ok_text(i18n.dialog_ok())
+                                                                        .cancel_text(i18n.dialog_cancel())
                                                                         .show_cancel(true),
                                                                 )
                                                                 .on_ok({
@@ -403,7 +409,7 @@ impl Render for CleanupView {
                             .child(
                                 div()
                                     .w_full()
-                                    .child(Input::new(&search_input)),
+                                    .child(ui::std_input(Input::new(&search_input))),
                             ),
                     )
                     .child(ui::panel_divider())
@@ -512,6 +518,7 @@ impl Render for CleanupView {
 fn open_item_detail_dialog(
     window: &mut Window,
     cx: &mut App,
+    ok_text: &'static str,
     name: &str,
     description: &str,
     path: &Path,
@@ -519,8 +526,8 @@ fn open_item_detail_dialog(
     let name: SharedString = name.to_string().into();
     let description: SharedString = description.to_string().into();
     let path: SharedString = path.display().to_string().into();
-    window.open_dialog(cx, move |dialog, _window, _cx| {
-        dialog
+    window.open_alert_dialog(cx, move |alert, _window, _cx| {
+        alert
             .title(name.clone())
             .child(
                 div()
@@ -540,6 +547,7 @@ fn open_item_detail_dialog(
                             .child(path.clone()),
                     ),
             )
+            .button_props(DialogButtonProps::default().ok_text(ok_text))
             .on_ok(|_, _, _| true)
     });
 }

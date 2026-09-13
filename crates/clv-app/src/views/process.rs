@@ -294,12 +294,15 @@ impl ProcessView {
                                     let i18n = this.store.read(cx).i18n();
                                     let store = store.clone();
                                     let proc_name = proc_name.clone();
-                                    window.open_dialog(cx, move |dialog, _, _| {
-                                        dialog
+                                    window.open_alert_dialog(cx, move |alert, _, _| {
+                                        alert
                                             .title(i18n.confirm_kill_title())
                                             .child(i18n.confirm_kill_body(&proc_name, pid))
                                             .button_props(
-                                                DialogButtonProps::default().show_cancel(true),
+                                                DialogButtonProps::default()
+                                                    .ok_text(i18n.dialog_ok())
+                                                    .cancel_text(i18n.dialog_cancel())
+                                                    .show_cancel(true),
                                             )
                                             .on_ok({
                                                 let store = store.clone();
@@ -363,7 +366,7 @@ impl Render for ProcessView {
                                     .child(
                                         div()
                                             .w(px(240.))
-                                            .child(Input::new(&search_input)),
+                                            .child(ui::std_input(Input::new(&search_input))),
                                     )
                                     .child(sort_button("sort-mem", i18n.sort_by_memory(), ProcessSort::Memory, sort, cx))
                                     .child(sort_button("sort-cpu", i18n.sort_by_cpu(), ProcessSort::Cpu, sort, cx))

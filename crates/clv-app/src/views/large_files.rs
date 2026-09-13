@@ -120,17 +120,22 @@ fn file_row(file: &LargeFileEntry, i18n: &I18n, store: Entity<AppStore>, _cx: &A
             .on_click({
                 let store = store.clone();
                 let i18n_title = i18n.confirm_delete_file_title();
+                let i18n_ok = i18n.dialog_ok();
+                let i18n_cancel = i18n.dialog_cancel();
                 let body = i18n.confirm_delete_file_body(&entry.name, &entry.size_human());
                 move |_, window, cx| {
                     let store_ok = store.clone();
                     let item = large_file_as_item(&entry);
                     let body = body.clone();
-                    window.open_dialog(cx, move |dialog, _, _| {
-                        dialog
+                    window.open_alert_dialog(cx, move |alert, _, _| {
+                        alert
                             .title(i18n_title)
                             .child(body.clone())
                             .button_props(
-                                DialogButtonProps::default().show_cancel(true),
+                                DialogButtonProps::default()
+                                    .ok_text(i18n_ok)
+                                    .cancel_text(i18n_cancel)
+                                    .show_cancel(true),
                             )
                             .on_ok({
                                 let store = store_ok.clone();

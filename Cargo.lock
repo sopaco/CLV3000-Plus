@@ -994,7 +994,7 @@ dependencies = [
 
 [[package]]
 name = "clv-app"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "clv-core"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "clv-platform"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "anyhow",
  "directories",

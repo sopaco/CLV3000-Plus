@@ -36,11 +36,18 @@ gpui-kit = "0.6"
 | 窗口菜单 | `Menu::new("Window").items(vec![..])` |
 | 主题滚动条 | `theme.scrollbar_mode = ScrollbarMode::Hover` |
 
-**三个易错点**：
+**五个易错点**：
 
 1. `button_props(..)` 会整体替换按钮属性，必须在 `.on_ok(..)` **之前**调用，否则回调被静默重置。
 2. `open_window` 失败在 `cx.spawn` 里会被静默吞掉 —— 改 UI 后除了 `cargo build`，还要实跑二进制 10s 以上确认进程存活。
-3. **不要用 `ButtonCustomVariant` 做按钮底色**。gpui-kit 的静态态会把自定义 `color` 与透明混合
+3. **确认框必须用 `window.open_alert_dialog(..)`，不要用 `window.open_dialog(..)`**。gpui-kit 0.6 里
+   只有 `AlertDialog::build_surface`（`gpui-component/src/dialog/alert_dialog.rs`）会把 `button_props`
+   渲染成底部 `DialogFooter`；裸 `Dialog::render` 只渲染 `self.footer`，`button_props` 仅作为回调来源，
+   因此"`open_dialog` + `.button_props(show_cancel(true))`"的弹窗**只有标题、正文和右上角 ×，
+   没有任何确认/取消按钮**（只能靠回车 / ESC 触发回调，用户无法点击）。仅"用 × 关闭的信息类弹窗"
+   才可以继续用 `open_dialog`。按钮文案用 `I18n::dialog_ok()` / `dialog_cancel()` 传入，不要依赖
+   rust_i18n 默认值（本项目未设置 rust_i18n locale）。
+4. **不要用 `ButtonCustomVariant` 做按钮底色**。gpui-kit 的静态态会把自定义 `color` 与透明混合
    20%（`gpui-component/src/button/button.rs`：`colors.color.mix_oklab(transparent, 0.2)`），
    于是**未点击态是 ~80% 半透明**（透出页面背景、发灰发脏），而 hover/active 却是实色 ——
    表现为"未点击时样子很奇怪"。改用内置变体（`.primary()` / 默认 `Default`），它们读
@@ -51,6 +58,22 @@ gpui-kit = "0.6"
      否则内置变体会回落到 gpui-kit 默认主题色（浅色下主按钮变蓝紫）。
    - 回归测试：`crates/clv-app/src/theme.rs` 的 `button_tokens_follow_the_active_palette`
      同时锁住"token 跟随调色板"和"静态填充 alpha = 1"。
+5. **在 action 监听器里关窗口必须 `cx.defer(..)`，不能直接 `handle.update(..)`**。
+   gpui 派发 action 时，目标窗口正被 `take()` 出 `App::windows`（`app.rs::update_window_id`
+   开头 `cx.windows.get_mut(id)?.take()?`），此时再嵌一层 `WindowHandle::update(..)`
+   会取不到窗口、返回 `Err("window not found")`；若错误被 `let _ =` 丢掉，就表现为
+   **⌘W / "Close Window" 菜单项点了没反应**（handler 明明跑了）。
+   正确写法见 `main.rs::close_active_window`：用 `cx.defer(move |cx| { handle.update(..) })`
+   把移除推迟到下个 effect 周期（此时窗口已回到槽位），原生窗口随平台窗口 Drop 一并关闭。
+   排查提示：加一行 `tracing::info!("ok={}", r.is_ok())` 就能立刻分辨"没派发"还是"派发了但移除失败"。
+
+## 窗口生命周期
+
+- 单一主窗口句柄存在 `main.rs` 的 `MAIN_WINDOW`，经 `tracked_window()` 取出（需要时再 `downcast`）。
+- `cx.active_window()` 在**应用非前台**时返回 `None`（macOS 取 `NSApplication.mainWindow`），
+  所以窗口查找要 `active_window().or_else(tracked_window)` 兜底。
+- macOS 关闭最后一个窗口不退出进程（`QuitMode::Default`），靠托盘 + `application.on_reopen`
+  （已改为 `ensure_main_window`，避免重复开窗）恢复窗口。
 
 ## 清理规则与国际化（必读）
 

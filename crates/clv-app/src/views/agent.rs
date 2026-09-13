@@ -215,8 +215,8 @@ impl AgentView {
                                                         });
                                                         if caution {
                                                             let i18n = store.read(cx).i18n();
-                                                            window.open_dialog(cx, move |dialog, _, _| {
-                                                                dialog
+                                                            window.open_alert_dialog(cx, move |alert, _, _| {
+                                                                alert
                                                                     .title(
                                                                         i18n.confirm_caution_items_title(),
                                                                     )
@@ -225,6 +225,10 @@ impl AgentView {
                                                                     )
                                                                     .button_props(
                                                                         DialogButtonProps::default()
+                                                                            .ok_text(i18n.dialog_ok())
+                                                                            .cancel_text(
+                                                                                i18n.dialog_cancel(),
+                                                                            )
                                                                             .show_cancel(true),
                                                                     )
                                                                     .on_ok({
@@ -300,7 +304,7 @@ impl Render for AgentView {
                             .child(
                                 div()
                                     .w(px(280.))
-                                    .child(Input::new(&search_input)),
+                                    .child(ui::std_input(Input::new(&search_input))),
                             )
                             .child(
                                 ui::action_button(

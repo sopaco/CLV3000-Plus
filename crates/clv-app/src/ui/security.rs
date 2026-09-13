@@ -320,11 +320,10 @@ pub fn hero_banner(
                                     )
                                     .when(show_view_details, |row| {
                                         row.child(
-                                            crate::ui::action_button(
+                                            crate::ui::hero_action_button(
                                                 "hero-view-details",
                                                 details_label,
                                                 Some(crate::ui::icons::ACTION_OPEN_FOLDER),
-                                                false,
                                                 cx,
                                             )
                                             .on_click(on_view_details),
