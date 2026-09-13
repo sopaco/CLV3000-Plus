@@ -1385,6 +1385,14 @@ impl I18n {
         )
     }
 
+    pub fn dialog_ok(&self) -> &'static str {
+        self.t("确定", "OK", "OK")
+    }
+
+    pub fn dialog_cancel(&self) -> &'static str {
+        self.t("取消", "Cancel", "キャンセル")
+    }
+
     pub fn cleanup_search_placeholder(&self) -> &'static str {
         self.t(
             "搜索名称或路径…",

@@ -48,10 +48,18 @@ fn remember_window(handle: WindowHandle<Root>) {
     }
 }
 
+/// The window we opened last, as a type-erased handle.
+fn tracked_window() -> Option<AnyWindowHandle> {
+    MAIN_WINDOW
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+        .map(AnyWindowHandle::from)
+}
+
 fn ensure_main_window(cx: &mut App) {
     cx.activate(true);
-    let handle = MAIN_WINDOW.lock().ok().and_then(|g| g.clone());
-    if let Some(handle) = handle {
+    if let Some(handle) = tracked_window() {
         if handle
             .update(cx, |_, window, _| {
                 window.activate_window();
@@ -74,10 +82,10 @@ fn main() {
     let theme = settings.theme;
     let application = gpui_kit::application().with_assets(assets::Assets);
     application.on_reopen(|app| {
-        app.activate(true);
-        if let Err(e) = open_main_window(app) {
-            tracing::error!("reopen window: {e}");
-        }
+        // Fired when the app is re-activated — typically by clicking the dock
+        // icon after the last window was closed. Reuse a window that is already
+        // around instead of stacking a second one.
+        ensure_main_window(app);
     });
     application.run(move |cx| {
         gpui_kit::init(cx);
@@ -136,12 +144,36 @@ fn open_main_window(app: &mut App) -> anyhow::Result<WindowHandle<Root>> {
     Ok(handle)
 }
 
+/// Close the focused window — the target of ⌘W and the "Close Window" menu item.
+///
+/// The removal must be **deferred** rather than performed inline. gpui invokes
+/// action listeners while the target window is off `App::windows`: the window is
+/// `take()`n for the duration of the update that dispatches the action, and a
+/// nested `WindowHandle::update` therefore fails with "window not found" —
+/// silently, if the error is discarded. The window then never closes even though
+/// the handler ran. Deferring to the next effect cycle performs the removal once
+/// the window is back on the stack, which is also the point where the native
+/// window is torn down (dropping the platform window closes it).
+///
+/// Prefer the platform's active window; fall back to the window we track, since
+/// `active_window()` reports `None` whenever the app is not frontmost.
 fn close_active_window(_: &CloseWindow, cx: &mut App) {
-    if let Some(handle) = cx.active_window() {
+    let Some(handle) = cx.active_window().or_else(tracked_window) else {
+        return;
+    };
+    cx.defer(move |cx| {
         let _ = handle.update(cx, |_, window, _| window.remove_window());
-    }
+    });
 }
 
+/// Bind ⌘W to [`CloseWindow`] and register the global handler.
+///
+/// The key binding is also what gives the macOS "Close Window" menu item its ⌘W
+/// key equivalent, so keep it even though AppKit routes the shortcut through the
+/// menu item rather than delivering a key event. The interceptor covers platforms
+/// where a bare ⌘W reaches us without a menu taking it first. Note that gpui
+/// always hands interceptors `action: None`, so the guard below only skips the
+/// work when a future version starts populating it.
 fn init_window_close_shortcuts(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("cmd-w", CloseWindow, None),

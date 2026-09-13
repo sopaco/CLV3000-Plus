@@ -153,6 +153,20 @@ pub fn action_button(
     }
 }
 
+/// Hero-row secondary action: outline styling, but the **large** CTA box
+/// (`BTN_H_LG`) so it sits flush with [`hero_scan_button`] in the same row.
+///
+/// Plain [`action_button`] uses the standard 38px control height; used next to
+/// the 42px CTA the row reads as misaligned.
+pub fn hero_action_button(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    icon: Option<IconName>,
+    cx: &App,
+) -> Button {
+    lg_button(action_button(id, label, icon, false, cx))
+}
+
 pub fn ghost_pill(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
