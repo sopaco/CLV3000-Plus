@@ -158,10 +158,8 @@ fn process_exists(pid_s: &str) -> bool {
 
 #[cfg(target_os = "windows")]
 fn kill_process_windows(pid: u32) -> anyhow::Result<()> {
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, FALSE};
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-    };
+    use windows_sys::Win32::Foundation::{CloseHandle, FALSE, GetLastError};
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
 
     unsafe {
         let handle = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
@@ -200,8 +198,21 @@ fn kill_process_windows(pid: u32) -> anyhow::Result<()> {
 fn categorize_process(name: &str) -> ProcessCategory {
     let lower = name.to_lowercase();
     let agent_keywords = [
-        "cursor", "claude", "codex", "copilot", "windsurf", "aider", "node", "cargo",
-        "gradle", "java", "python", "dotnet", "flutter", "dart", "xcodebuild",
+        "cursor",
+        "claude",
+        "codex",
+        "copilot",
+        "windsurf",
+        "aider",
+        "node",
+        "cargo",
+        "gradle",
+        "java",
+        "python",
+        "dotnet",
+        "flutter",
+        "dart",
+        "xcodebuild",
     ];
     let system_keywords = ["kernel", "launchd", "systemd", "svchost", "windowserver"];
 

@@ -471,11 +471,163 @@ impl I18n {
         }
     }
 
-    pub fn history_summary(&self, freed_7d: &str, cleanups: usize) -> String {
+    pub fn history_summary(&self, freed_7d: &str, pending: Option<&str>, cleanups: usize) -> String {
+        match (self.lang, pending) {
+            (Language::Zh, Some(pending)) => {
+                format!("过去 7 天已清理 {freed_7d}（待释放 {pending}），共 {cleanups} 次")
+            }
+            (Language::Zh, None) => format!("过去 7 天已清理 {freed_7d}，共 {cleanups} 次"),
+            (Language::En, Some(pending)) => format!(
+                "Cleaned {freed_7d} in the last 7 days ({pending} pending), {cleanups} run(s)"
+            ),
+            (Language::En, None) => {
+                format!("Cleaned {freed_7d} in the last 7 days, {cleanups} run(s)")
+            }
+            (Language::Ja, Some(pending)) => {
+                format!("過去 7 日で {freed_7d} を削除（{pending} 解放待ち）、{cleanups} 回")
+            }
+            (Language::Ja, None) => format!("過去 7 日で {freed_7d} を削除、{cleanups} 回"),
+        }
+    }
+
+    // ── Recycle area (soft delete) ───────────────────────────────────────
+
+    pub fn pending_release_title(&self) -> &'static str {
+        self.t("待释放空间", "Pending Release", "解放待ちの容量")
+    }
+
+    pub fn pending_release_desc(&self, size: &str, count: usize) -> String {
         match self.lang {
-            Language::Zh => format!("过去 7 天释放 {freed_7d}，共 {cleanups} 次清理"),
-            Language::En => format!("Freed {freed_7d} in the last 7 days, {cleanups} cleanup(s)"),
-            Language::Ja => format!("過去 7 日で {freed_7d} を解放、{cleanups} 回の削除"),
+            Language::Zh => format!(
+                "回收区仍有 {size}（{count} 项）。永久删除后，这部分空间才会真正归还给系统。"
+            ),
+            Language::En => format!(
+                "{size} ({count} item(s)) is still in the recycle area. The space returns to the system only after a permanent delete."
+            ),
+            Language::Ja => format!(
+                "ごみ箱に {size}（{count} 件）残っています。完全削除して初めて容量がシステムに戻ります。"
+            ),
+        }
+    }
+
+    pub fn pending_release_path(&self, path: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("回收区位置：{path}"),
+            Language::En => format!("Recycle area: {path}"),
+            Language::Ja => format!("ごみ箱の場所：{path}"),
+        }
+    }
+
+    pub fn purge_now(&self) -> &'static str {
+        self.t("立即永久释放", "Delete Permanently", "完全削除")
+    }
+
+    pub fn open_trash_folder(&self) -> &'static str {
+        self.t("打开回收区", "Open Recycle Area", "ごみ箱を開く")
+    }
+
+    pub fn purge_confirm_title(&self) -> &'static str {
+        self.t(
+            "永久删除回收区内容？",
+            "Delete the recycle area permanently?",
+            "ごみ箱の内容を完全削除しますか？",
+        )
+    }
+
+    pub fn purge_confirm_body(&self, size: &str, count: usize) -> String {
+        match self.lang {
+            Language::Zh => format!(
+                "将永久删除 {count} 项（{size}），删除后无法恢复。确定继续吗？"
+            ),
+            Language::En => format!(
+                "This permanently deletes {count} item(s) ({size}) and cannot be undone. Continue?"
+            ),
+            Language::Ja => format!(
+                "{count} 件（{size}）を完全削除します。元に戻せません。続行しますか？"
+            ),
+        }
+    }
+
+    pub fn purge_in_progress(&self) -> &'static str {
+        self.t("正在永久删除…", "Deleting permanently…", "完全削除中…")
+    }
+
+    pub fn purge_done(&self, size: &str, removed: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("已永久删除 {removed} 项，实际释放 {size}"),
+            Language::En => format!("Permanently deleted {removed} item(s), {size} actually freed"),
+            Language::Ja => format!("{removed} 件を完全削除し、{size} を実際に解放しました"),
+        }
+    }
+
+    pub fn purge_done_notification(&self, size: &str, remaining: usize) -> String {
+        match (self.lang, remaining) {
+            (_, 0) => match self.lang {
+                Language::Zh => format!("回收区已清空，实际释放 {size}"),
+                Language::En => format!("Recycle area emptied, {size} actually freed"),
+                Language::Ja => format!("ごみ箱を空にしました。{size} を実際に解放"),
+            },
+            (_, count) => match self.lang {
+                Language::Zh => format!("已释放 {size}，另有 {count} 项因权限未能删除"),
+                Language::En => {
+                    format!("Freed {size}; {count} item(s) could not be deleted due to permissions")
+                }
+                Language::Ja => format!(
+                    "{size} を解放しました。{count} 件は権限の問題で削除できませんでした"
+                ),
+            },
+        }
+    }
+
+    pub fn purge_failed(&self, err: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("永久删除失败：{err}"),
+            Language::En => format!("Permanent delete failed: {err}"),
+            Language::Ja => format!("完全削除に失敗しました：{err}"),
+        }
+    }
+
+    // ── Weekly checkup reminder ──────────────────────────────────────────
+
+    pub fn weekly_checkup_label(&self) -> &'static str {
+        self.t("每周体检提醒", "Weekly checkup reminder", "毎週の診断リマインダー")
+    }
+
+    pub fn weekly_checkup_desc(&self) -> &'static str {
+        self.t(
+            "距离上次体检满 7 天时，在首页显示提醒（不会自动扫描）。",
+            "Show a reminder on the dashboard once 7 days have passed since the last scan (no automatic scan).",
+            "前回の診断から 7 日経過するとダッシュボードに通知します（自動スキャンは行いません）。",
+        )
+    }
+
+    pub fn weekly_checkup_reminder(&self, days: i64) -> String {
+        match self.lang {
+            Language::Zh => format!("距上次体检已 {days} 天，建议现在扫描一次。"),
+            Language::En => {
+                format!("It has been {days} days since the last checkup. A quick scan is recommended.")
+            }
+            Language::Ja => format!(
+                "前回の診断から {days} 日経過しました。そろそろスキャンをおすすめします。"
+            ),
+        }
+    }
+
+    pub fn dismiss(&self) -> &'static str {
+        self.t("稍后提醒", "Remind me later", "後で通知")
+    }
+
+    pub fn cross_volume_blocked(&self, cross: &str, free: &str) -> String {
+        match self.lang {
+            Language::Zh => format!(
+                "所选项目中有 {cross} 位于其他磁盘，需先复制到系统盘回收区，但回收区所在磁盘仅剩 {free}。已取消本次清理：请先永久释放回收区，或只选择系统盘内的项目。"
+            ),
+            Language::En => format!(
+                "{cross} of the selection lives on another drive and must be copied into the system-drive recycle area first, but only {free} is free there. Cleanup cancelled: permanently delete the recycle area first, or select items on the system drive only."
+            ),
+            Language::Ja => format!(
+                "選択した項目のうち {cross} は別ドライブにあり、システムドライブのごみ箱へコピーする必要がありますが、空き容量は {free} しかありません。削除を中止しました。先にごみ箱を完全削除するか、システムドライブ内の項目のみを選択してください。"
+            ),
         }
     }
 
@@ -1086,12 +1238,20 @@ impl I18n {
         total: usize,
         freed_bytes: u64,
         path: Option<&str>,
+        pending: bool,
     ) -> String {
         let size = format_bytes(freed_bytes);
-        let base = match self.lang {
-            Language::Zh => format!("已完成 {completed}/{total} · 已释放 {size}"),
-            Language::En => format!("{completed}/{total} done · {size} freed"),
-            Language::Ja => format!("{completed}/{total} 完了 · {size} 解放"),
+        let base = match (self.lang, pending) {
+            (Language::Zh, true) => format!("已完成 {completed}/{total} · 已清理 {size}（待释放）"),
+            (Language::Zh, false) => format!("已完成 {completed}/{total} · 已释放 {size}"),
+            (Language::En, true) => {
+                format!("{completed}/{total} done · {size} cleaned (pending)")
+            }
+            (Language::En, false) => format!("{completed}/{total} done · {size} freed"),
+            (Language::Ja, true) => {
+                format!("{completed}/{total} 完了 · {size} を削除（解放待ち）")
+            }
+            (Language::Ja, false) => format!("{completed}/{total} 完了 · {size} 解放"),
         };
         if let Some(path) = path {
             format!("{base}\n{path}")
@@ -1108,15 +1268,20 @@ impl I18n {
         self.t("清理完成", "Cleanup Complete", "削除完了")
     }
 
-    pub fn cleanup_complete_notification(&self, report: &CleanupReport) -> String {
-        self.cleanup_result_message(report, true)
+    pub fn cleanup_complete_notification(&self, report: &CleanupReport, pending: bool) -> String {
+        self.cleanup_result_message(report, pending, true)
     }
 
-    pub fn cleanup_summary(&self, report: &CleanupReport) -> String {
-        self.cleanup_result_message(report, false)
+    pub fn cleanup_summary(&self, report: &CleanupReport, pending: bool) -> String {
+        self.cleanup_result_message(report, pending, false)
     }
 
-    fn cleanup_result_message(&self, report: &CleanupReport, notification: bool) -> String {
+    fn cleanup_result_message(
+        &self,
+        report: &CleanupReport,
+        pending: bool,
+        notification: bool,
+    ) -> String {
         let size = format_bytes(report.freed_bytes);
         let failed_suffix = if report.failed.is_empty() {
             String::new()
@@ -1127,23 +1292,25 @@ impl I18n {
                 Language::Ja => format!("、{} 件失敗", report.failed.len()),
             }
         };
-        match (self.lang, notification) {
-            (Language::Zh, true) => format!(
-                "成功释放 {size}，共清理 {} 项{failed_suffix}",
-                report.success_count,
+        let count = report.success_count;
+        match (self.lang, pending, notification) {
+            (Language::Zh, true, _) => format!(
+                "已清理 {size}（已移入回收区，待永久释放），共 {count} 项{failed_suffix}"
             ),
-            (Language::Zh, false) => format!(
-                "已释放 {size}，成功 {} 项{failed_suffix}",
-                report.success_count,
+            (Language::Zh, false, true) => format!("成功释放 {size}，共清理 {count} 项{failed_suffix}"),
+            (Language::Zh, false, false) => format!("已释放 {size}，成功 {count} 项{failed_suffix}"),
+            (Language::En, true, _) => format!(
+                "Cleaned {size} (moved to the recycle area, pending permanent delete), {count} item(s){failed_suffix}"
             ),
-            (Language::En, _) => format!(
-                "Freed {size}, {} item(s) cleaned{failed_suffix}",
-                report.success_count,
+            (Language::En, false, _) => {
+                format!("Freed {size}, {count} item(s) cleaned{failed_suffix}")
+            }
+            (Language::Ja, true, _) => format!(
+                "{size} を削除しました（ごみ箱へ移動、完全削除待ち）、{count} 件{failed_suffix}"
             ),
-            (Language::Ja, _) => format!(
-                "{size} を解放、{} 件を削除{failed_suffix}",
-                report.success_count,
-            ),
+            (Language::Ja, false, _) => {
+                format!("{size} を解放、{count} 件を削除{failed_suffix}")
+            }
         }
     }
 

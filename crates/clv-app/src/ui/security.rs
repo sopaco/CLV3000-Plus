@@ -741,6 +741,7 @@ pub fn cleanup_progress_bar(
     completed: usize,
     total: usize,
     freed_bytes: u64,
+    pending: bool,
     current_path: Option<&str>,
     on_cancel: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
@@ -752,7 +753,7 @@ pub fn cleanup_progress_bar(
     };
     inline_progress_bar(
         i18n.cleanup_progress_title(),
-        i18n.cleanup_progress_detail(completed, total, freed_bytes, current_path),
+        i18n.cleanup_progress_detail(completed, total, freed_bytes, current_path, pending),
         pct,
         colors::accent_blue(),
         "cleanup-cancel",

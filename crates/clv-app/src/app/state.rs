@@ -6,13 +6,13 @@ use crate::services::{
 };
 use chrono::Utc;
 use clv_core::{
-    default_selected_item_ids, detect_agent_projects, item_cleanup_bucket, load_last_scan,
-    purge_old_trash, resolve_language, restore_trashed, rule_description_matches_query,
-    save_last_scan, save_settings, scan_phase_preparing, AppSettings, CleanupBucket, CleanupHistory,
-    CleanupHistoryRecord,
-    Language, RiskLevel, ScanItem, ScanReport, TrashedEntry,
+    cross_volume_bytes, default_selected_item_ids, detect_agent_projects, format_bytes,
+    item_cleanup_bucket, load_last_scan, purge_all_trash, purge_old_trash, resolve_language,
+    restore_trashed, rule_description_matches_query, save_last_scan, save_settings,
+    scan_phase_preparing, scan_reminder_days, trash_dir, trash_usage, AppSettings, CleanupBucket,
+    CleanupHistory, CleanupHistoryRecord, Language, RiskLevel, ScanItem, ScanReport, TrashedEntry,
 };
-use clv_platform::{pick_folders, primary_disk_usage};
+use clv_platform::{pick_folders, primary_disk_usage, MountTable};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -85,6 +85,12 @@ pub struct AppStore {
     pub process_refresh_trigger: u64,
     pub cleanup_history: CleanupHistory,
     pub pending_cleanup_notification: Option<String>,
+    /// Bytes sitting in the recycle area: cleaned but not yet returned to the OS.
+    pub pending_trash_bytes: u64,
+    pub pending_trash_count: usize,
+    pub purging_trash: bool,
+    /// Days since the last scan when the weekly checkup reminder should show.
+    pub scan_reminder_days: Option<i64>,
     scan_cancel: Option<Arc<AtomicBool>>,
     cleanup_cancel: Option<Arc<AtomicBool>>,
     scan_restart_pending: bool,
@@ -106,13 +112,16 @@ impl AppStore {
             .as_ref()
             .map(|r| default_selected_item_ids(&r.items))
             .unwrap_or_default();
+        let cleanup_history = CleanupHistory::load();
+        let scan_reminder = if settings.auto_scan_weekly {
+            scan_reminder_days(
+                last_report.as_ref().and_then(|report| report.scanned_at),
+                Utc::now(),
+            )
+        } else {
+            None
+        };
         let trash_days = settings.soft_delete_days;
-        cx.spawn(async move |_, cx| {
-            let _ = cx
-                .background_spawn(async move { purge_old_trash(trash_days) })
-                .await;
-        })
-        .detach();
 
         let mut store = Self {
             settings,
@@ -136,15 +145,118 @@ impl AppStore {
             disk_used: 0,
             startup_count: 0,
             process_refresh_trigger: 0,
-            cleanup_history: CleanupHistory::load(),
+            cleanup_history,
             pending_cleanup_notification: None,
+            pending_trash_bytes: 0,
+            pending_trash_count: 0,
+            purging_trash: false,
+            scan_reminder_days: scan_reminder,
             scan_cancel: None,
             cleanup_cancel: None,
             scan_restart_pending: false,
             progress_hud: None,
         };
+        store.purge_expired_trash(trash_days, cx);
         store.refresh_disk_usage_async(cx);
         store
+    }
+
+    /// Age-based purge of the recycle area, run once at startup. Keeps the
+    /// dashboard's "pending release" figure honest by re-reading the history
+    /// afterwards.
+    fn purge_expired_trash(&mut self, days: u32, cx: &mut Context<Self>) {
+        cx.spawn(async move |weak, cx| {
+            let _ = cx
+                .background_spawn(async move { purge_old_trash(days) })
+                .await;
+            weak.update(cx, |store, cx| {
+                store.cleanup_history.prune_missing_trash();
+                let _ = store.cleanup_history.save();
+                store.refresh_pending_trash(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn refresh_pending_trash(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |weak, cx| {
+            let (bytes, count) = cx.background_spawn(async { trash_usage() }).await;
+            weak.update(cx, |store, cx| {
+                store.pending_trash_bytes = bytes;
+                store.pending_trash_count = count;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Toggle the weekly checkup reminder, recomputing whether it is due now.
+    pub fn set_auto_scan_weekly(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.settings.auto_scan_weekly = enabled;
+        let _ = save_settings(&self.settings);
+        self.scan_reminder_days = if enabled {
+            scan_reminder_days(
+                self.last_report.as_ref().and_then(|report| report.scanned_at),
+                Utc::now(),
+            )
+        } else {
+            None
+        };
+        cx.notify();
+    }
+
+    pub fn dismiss_scan_reminder(&mut self, cx: &mut Context<Self>) {
+        if self.scan_reminder_days.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Permanently delete the recycle area so the space actually returns to
+    /// the OS. Soft delete only moves entries; this is the step users expect
+    /// when they check their free space afterwards.
+    pub fn purge_trash(&mut self, cx: &mut Context<Self>) {
+        if self.purging_trash || self.pending_trash_count == 0 {
+            return;
+        }
+        self.purging_trash = true;
+        self.status_message = Some(self.i18n().purge_in_progress().into());
+        cx.notify();
+
+        cx.spawn(async move |weak, cx| {
+            let result = cx
+                .background_spawn(async move { purge_all_trash() })
+                .await;
+            weak.update(cx, |store, cx| {
+                store.purging_trash = false;
+                let i18n = store.i18n();
+                match result {
+                    Ok((freed, removed, remaining)) => {
+                        store.cleanup_history.prune_missing_trash();
+                        let _ = store.cleanup_history.save();
+                        store.refresh_pending_trash(cx);
+                        let size = format_bytes(freed);
+                        store.status_message = Some(i18n.purge_done(&size, removed));
+                        store.pending_cleanup_notification =
+                            Some(i18n.purge_done_notification(&size, remaining));
+                        store.refresh_disk_usage_async(cx);
+                    }
+                    Err(e) => {
+                        store.status_message = Some(i18n.purge_failed(&e.to_string()));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Where the recycle area lives, for the "open folder" affordance.
+    pub fn trash_location(&self) -> Option<PathBuf> {
+        trash_dir()
     }
 
     pub fn attach_progress_hud(&mut self, hud: Entity<super::hud::ProgressHud>) {
@@ -463,6 +575,8 @@ impl AppStore {
                             } else {
                                 store.i18n().scan_complete().into()
                             });
+                            // A fresh scan resets the weekly checkup reminder.
+                            store.scan_reminder_days = None;
                             restart = store.scan_restart_pending;
                             store.scan_restart_pending = false;
                             store.refresh_disk_usage_async(cx);
@@ -525,6 +639,28 @@ impl AppStore {
             return false;
         }
 
+        // Soft delete moves entries into the recycle area. Entries on another
+        // volume are copied there first, so a cleanup can fill the system drive
+        // before anything is removed. Refuse up front instead of failing
+        // halfway through with a half-cleaned tree.
+        if self.settings.soft_delete {
+            if let Some(trash) = trash_dir() {
+                let mounts = MountTable::detect();
+                let cross = cross_volume_bytes(&selected, &trash, |path| mounts.key(path));
+                if cross > 0 {
+                    let free = mounts.free_bytes(&trash).unwrap_or(0);
+                    if cross > free {
+                        self.status_message = Some(
+                            self.i18n()
+                                .cross_volume_blocked(&format_bytes(cross), &format_bytes(free)),
+                        );
+                        cx.notify();
+                        return false;
+                    }
+                }
+            }
+        }
+
         self.cleaning = true;
         self.cleanup_completed = 0;
         self.cleanup_total = selected.len();
@@ -562,9 +698,16 @@ impl AppStore {
                             store.cleanup_total = 0;
                             store.cleanup_freed_bytes = 0;
                             store.cleanup_current_path = None;
-                            store.status_message = Some(store.i18n().cleanup_summary(&result));
-                            store.pending_cleanup_notification =
-                                Some(store.i18n().cleanup_complete_notification(&result));
+                            store.status_message = Some(
+                                store
+                                    .i18n()
+                                    .cleanup_summary(&result, store.settings.soft_delete),
+                            );
+                            store.pending_cleanup_notification = Some(
+                                store
+                                    .i18n()
+                                    .cleanup_complete_notification(&result, store.settings.soft_delete),
+                            );
 
                             let record = CleanupHistoryRecord {
                                 timestamp: Utc::now(),
@@ -575,6 +718,7 @@ impl AppStore {
                             };
                             store.cleanup_history.append(record);
                             let _ = store.cleanup_history.save();
+                            store.refresh_pending_trash(cx);
 
                             if let Some(current) = &mut store.last_report {
                                 let removed: HashSet<_> = removed_paths.into_iter().collect();
@@ -640,6 +784,7 @@ impl AppStore {
                     Ok(()) => {
                         store.cleanup_history.remove_trashed(&entry.trash_path);
                         let _ = store.cleanup_history.save();
+                        store.refresh_pending_trash(cx);
                         store.status_message = Some(store.i18n().restore_ok(&entry.name));
                     }
                     Err(e) => {

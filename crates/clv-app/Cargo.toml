@@ -29,5 +29,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
 
-[target.'cfg(target_os = "windows")'.build-dependencies]
+# Build scripts are compiled for the *host*, so this must be available
+# unconditionally; `build.rs` decides at runtime whether the target is Windows
+# (via `CARGO_CFG_TARGET_OS`) and only then compiles resources.
+[build-dependencies]
 embed-resource = "3"

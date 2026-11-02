@@ -127,6 +127,9 @@ fn main() {
 fn window_options(cx: &App) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::centered(size(px(1280.), px(720.)), cx)),
+        // Keep the three-column shell usable: below this the sidebar and the
+        // detail pane start overlapping.
+        window_min_size: Some(size(px(1024.), px(640.))),
         titlebar: Some(TitleBar::title_bar_options()),
         ..WindowOptions::default()
     }

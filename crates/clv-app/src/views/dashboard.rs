@@ -4,6 +4,7 @@ use crate::prelude::*;
 use crate::theme::{colors, corner};
 use clv_core::{format_bytes, CleanupHistory};
 use clv_platform::{list_disk_volumes, DiskVolume};
+use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::Hsla;
 
 enum VolumesDialogState {
@@ -202,6 +203,9 @@ impl Render for DashboardView {
                         &i18n,
                         cx,
                     ))
+                    .when_some(store.scan_reminder_days, |this, days| {
+                        this.child(scan_reminder_banner(days, store_entity.clone(), &i18n, cx))
+                    })
                     .child(
                         h_flex()
                             .gap_3()
@@ -303,6 +307,12 @@ impl Render for DashboardView {
                         store_entity.clone(),
                         &i18n,
                         self.recently_deleted_expanded,
+                        PendingTrash {
+                            bytes: store.pending_trash_bytes,
+                            count: store.pending_trash_count,
+                            purging: store.purging_trash,
+                            location: store.trash_location(),
+                        },
                         {
                             let dashboard = dashboard.clone();
                             move |_, _, cx| {
@@ -428,11 +438,19 @@ fn system_status_card(
         )
 }
 
+struct PendingTrash {
+    bytes: u64,
+    count: usize,
+    purging: bool,
+    location: Option<std::path::PathBuf>,
+}
+
 fn history_card(
     history: &CleanupHistory,
     store: Entity<AppStore>,
     i18n: &I18n,
     recently_deleted_expanded: bool,
+    pending: PendingTrash,
     on_toggle: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> Div {
@@ -445,8 +463,13 @@ fn history_card(
 
     let has_data = !history.records.is_empty();
 
+    let pending_label = (pending.count > 0).then(|| format_bytes(pending.bytes));
     let subtitle = if has_data {
-        i18n.history_summary(&format_bytes(freed_7d), cleanups_7d)
+        i18n.history_summary(
+            &format_bytes(freed_7d),
+            pending_label.as_deref(),
+            cleanups_7d,
+        )
     } else {
         i18n.no_cleanup_history().to_string()
     };
@@ -495,6 +518,107 @@ fn history_card(
                     .child(i18n.history_7d_detail(success_7d, failed_7d)),
             );
         }
+    }
+
+    if pending.count > 0 {
+        let size = format_bytes(pending.bytes);
+        let open_path = pending.location.clone();
+        let open_button = ui::ghost_pill("open-trash", i18n.open_trash_folder(), false, cx)
+            .on_click(move |_, _, _| {
+                if let Some(path) = &open_path {
+                    let _ = open::that(path);
+                }
+            });
+        let purge_store = store.clone();
+        let confirm_size = size.clone();
+        let purge_count = pending.count;
+        let purge_button = ui::action_button(
+            "purge-trash",
+            if pending.purging {
+                i18n.purge_in_progress()
+            } else {
+                i18n.purge_now()
+            },
+            None,
+            true,
+            cx,
+        )
+        .disabled(pending.purging)
+        .on_click(move |_, window, cx| {
+            let i18n = purge_store.read(cx).i18n();
+            let store = purge_store.clone();
+            let size = confirm_size.clone();
+            window.open_alert_dialog(cx, move |alert, _, _| {
+                alert
+                    .title(i18n.purge_confirm_title())
+                    .child(i18n.purge_confirm_body(&size, purge_count))
+                    .button_props(
+                        DialogButtonProps::default()
+                            .ok_text(i18n.dialog_ok())
+                            .cancel_text(i18n.dialog_cancel())
+                            .show_cancel(true),
+                    )
+                    .on_ok({
+                        let store = store.clone();
+                        move |_, _, cx| {
+                            store.update(cx, |s, cx| s.purge_trash(cx));
+                            true
+                        }
+                    })
+            });
+        });
+
+        card = card.child(
+            div()
+                .p_3()
+                .rounded(corner())
+                .border_1()
+                .border_color(colors::warn_orange().opacity(0.25))
+                .bg(colors::warn_orange().opacity(0.08))
+                .child(
+                    h_flex()
+                        .justify_between()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(colors::text_primary())
+                                        .child(i18n.pending_release_title()),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(colors::text_secondary())
+                                        .child(i18n.pending_release_desc(&size, pending.count)),
+                                )
+                                .when_some(pending.location.clone(), |this, path| {
+                                    this.child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(colors::text_muted())
+                                            .truncate()
+                                            .child(i18n.pending_release_path(
+                                                &path.display().to_string(),
+                                            )),
+                                    )
+                                }),
+                        )
+                        .child(
+                            h_flex()
+                                .flex_shrink_0()
+                                .gap_2()
+                                .child(open_button)
+                                .child(purge_button),
+                        ),
+                ),
+        );
     }
 
     let restorable = history.restorable_entries();
@@ -560,6 +684,62 @@ fn history_card(
     }
 
     card
+}
+
+fn scan_reminder_banner(
+    days: i64,
+    store: Entity<AppStore>,
+    i18n: &I18n,
+    cx: &App,
+) -> Div {
+    let scan_store = store.clone();
+    let scan_button = ui::action_button("reminder-scan", i18n.scan_now(), None, true, cx)
+        .on_click(move |_, _, cx| {
+            scan_store.update(cx, |s, cx| s.start_scan(cx));
+        });
+    let dismiss_store = store.clone();
+    let dismiss_button = ui::ghost_pill("reminder-dismiss", i18n.dismiss(), false, cx)
+        .on_click(move |_, _, cx| {
+            dismiss_store.update(cx, |s, cx| s.dismiss_scan_reminder(cx));
+        });
+
+    ui::glass_card()
+        .p_4()
+        .border_1()
+        .border_color(colors::accent_cyan().opacity(0.3))
+        .bg(colors::accent_cyan().opacity(0.08))
+        .child(
+            h_flex()
+                .justify_between()
+                .items_center()
+                .gap_3()
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(colors::text_primary())
+                                .child(i18n.weekly_checkup_label()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(colors::text_secondary())
+                                .child(i18n.weekly_checkup_reminder(days)),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .flex_shrink_0()
+                        .gap_2()
+                        .child(dismiss_button)
+                        .child(scan_button),
+                ),
+        )
 }
 
 fn history_stat_block(title: &str, value: &str, sub: String, color: Hsla) -> Div {

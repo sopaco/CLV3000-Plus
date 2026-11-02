@@ -126,6 +126,21 @@ impl Render for SettingsView {
                                 }
                             }),
                     ))
+                    .child(ui::setting_row(
+                        i18n.weekly_checkup_label(),
+                        i18n.weekly_checkup_desc(),
+                        Switch::new("weekly-checkup")
+                            .checked(settings.auto_scan_weekly)
+                            .cursor_pointer()
+                            .on_click({
+                                let store = store.clone();
+                                move |checked, _, cx| {
+                                    store.update(cx, |s, cx| {
+                                        s.set_auto_scan_weekly(*checked, cx);
+                                    });
+                                }
+                            }),
+                    ))
                     .child(
                         ui::card()
                             .p_5()

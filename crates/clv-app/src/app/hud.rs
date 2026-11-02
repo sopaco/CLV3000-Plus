@@ -26,6 +26,7 @@ impl Render for ProgressHud {
         let cleanup_completed = store_ref.cleanup_completed;
         let cleanup_total = store_ref.cleanup_total;
         let cleanup_freed_bytes = store_ref.cleanup_freed_bytes;
+        let cleanup_pending = store_ref.settings.soft_delete;
         let cleanup_current_path = store_ref.cleanup_current_path.clone();
         let store = self.store.clone();
 
@@ -54,6 +55,7 @@ impl Render for ProgressHud {
                     cleanup_completed,
                     cleanup_total,
                     cleanup_freed_bytes,
+                    cleanup_pending,
                     cleanup_current_path.as_deref(),
                     {
                         let store = store.clone();

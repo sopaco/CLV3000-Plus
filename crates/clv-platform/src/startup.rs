@@ -111,7 +111,10 @@ mod macos {
             };
             for entry in entries.flatten() {
                 let path = entry.path();
-                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                let file_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
 
                 let (plist_path, enabled) = if file_name.ends_with(".plist.disabled") {
                     let stem = file_name.trim_end_matches(".disabled");
@@ -278,9 +281,8 @@ mod macos {
         }
 
         let escaped = name.replace('\\', "\\\\").replace('"', "\\\"");
-        let script = format!(
-            "tell application \"System Events\" to delete login item \"{escaped}\""
-        );
+        let script =
+            format!("tell application \"System Events\" to delete login item \"{escaped}\"");
         let output = std::process::Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg(&script)
@@ -303,7 +305,7 @@ mod windows {
     use std::time::{SystemTime, UNIX_EPOCH};
     use winreg::enums::*;
     use winreg::types::FromRegValue;
-    use winreg::{RegKey, RegValue, HKEY};
+    use winreg::{HKEY, RegKey, RegValue};
 
     /// 任务管理器禁用/启用启动项所使用的“启动批准”注册表分支。
     /// 写入 HKCU 即对当前用户生效，无需管理员权限。
@@ -426,9 +428,8 @@ mod windows {
     }
 
     fn common_startup_folder() -> Option<PathBuf> {
-        std::env::var_os("ProgramData").map(|dir| {
-            PathBuf::from(dir).join("Microsoft/Windows/Start Menu/Programs/Startup")
-        })
+        std::env::var_os("ProgramData")
+            .map(|dir| PathBuf::from(dir).join("Microsoft/Windows/Start Menu/Programs/Startup"))
     }
 
     pub fn set_startup_enabled(id: &str, enabled: bool) -> anyhow::Result<()> {
@@ -479,8 +480,14 @@ mod windows {
             .map_err(|e| anyhow::anyhow!("无法写入启动批准键 {path}：{e}"))?;
         let mut bytes = vec![if enabled { 0x02 } else { 0x03 }, 0, 0, 0];
         bytes.extend_from_slice(&filetime_now_bytes());
-        key.set_raw_value(name, &RegValue { bytes, vtype: RegType::REG_BINARY })
-            .map_err(|e| anyhow::anyhow!("无法更新启动项状态：{e}"))?;
+        key.set_raw_value(
+            name,
+            &RegValue {
+                bytes,
+                vtype: RegType::REG_BINARY,
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("无法更新启动项状态：{e}"))?;
         Ok(())
     }
 

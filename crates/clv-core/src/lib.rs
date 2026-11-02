@@ -13,8 +13,9 @@ pub mod settings;
 pub use agent::detect_agent_projects;
 pub use category::CleanupCategory;
 pub use cleanup::{
-    restore_trashed, purge_old_trash, CleanupExecutor, CleanupHistory, CleanupHistoryRecord,
-    CleanupProgress, CleanupReport, TrashedEntry,
+    cross_volume_bytes, purge_all_trash, purge_old_trash, restore_trashed, trash_usage,
+    CleanupExecutor, CleanupHistory, CleanupHistoryRecord, CleanupProgress, CleanupReport,
+    TrashedEntry,
 };
 pub use messages::{
     agent_reason_matches_query, format_agent_reason, rule_description_matches_query,
@@ -29,7 +30,7 @@ pub use locale::{
 };
 pub use settings::{
     format_scan_paths, load_last_scan, load_settings, parse_scan_paths, save_last_scan,
-    save_settings, AppSettings,
+    save_settings, scan_reminder_days, trash_dir, AppSettings,
 };
 
 #[cfg(test)]

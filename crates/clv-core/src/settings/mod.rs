@@ -119,3 +119,50 @@ pub fn save_last_scan(report: &crate::models::ScanReport) -> anyhow::Result<()> 
 pub fn is_protected_system_path(path: &Path) -> bool {
     crate::paths::is_protected_system_path(path)
 }
+
+/// Days since the last scan when the weekly checkup reminder is due.
+///
+/// Returns `None` when there is no scan history yet, or when the last scan is
+/// younger than seven days. A future timestamp (clock skew) also yields `None`
+/// so a bad clock cannot produce a "scanned -3 days ago" banner.
+pub fn scan_reminder_days(
+    last_scanned_at: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<i64> {
+    let scanned_at = last_scanned_at?;
+    let days = (now - scanned_at).num_days();
+    (days >= 7).then_some(days)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, TimeZone, Utc};
+
+    fn at(days_ago: i64) -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 11, 2, 12, 0, 0).unwrap() - Duration::days(days_ago)
+    }
+
+    #[test]
+    fn reminder_is_due_exactly_on_the_seventh_day() {
+        let now = at(0);
+        assert_eq!(scan_reminder_days(Some(at(7)), now), Some(7));
+    }
+
+    #[test]
+    fn reminder_is_not_due_before_seven_days() {
+        let now = at(0);
+        assert_eq!(scan_reminder_days(Some(at(6)), now), None);
+    }
+
+    #[test]
+    fn reminder_needs_a_previous_scan() {
+        assert_eq!(scan_reminder_days(None, at(0)), None);
+    }
+
+    #[test]
+    fn reminder_ignores_future_timestamps() {
+        let now = at(0);
+        assert_eq!(scan_reminder_days(Some(at(-3)), now), None);
+    }
+}

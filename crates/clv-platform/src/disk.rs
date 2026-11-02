@@ -94,6 +94,68 @@ impl DiskVolume {
     }
 }
 
+/// Snapshot of mounted volumes, used to reason about cross-volume moves.
+///
+/// Detects the mount table once so callers can classify many paths without
+/// refreshing `sysinfo` per path.
+pub struct MountTable {
+    mounts: Vec<(PathBuf, u64)>,
+}
+
+impl MountTable {
+    pub fn detect() -> Self {
+        let disks = Disks::new_with_refreshed_list();
+        Self::from_disks(disks.list())
+    }
+
+    fn from_disks(disks: &[sysinfo::Disk]) -> Self {
+        Self {
+            mounts: disks
+                .iter()
+                .map(|disk| (disk.mount_point().to_path_buf(), disk.available_space()))
+                .collect(),
+        }
+    }
+
+    #[cfg(test)]
+    fn from_mounts(mounts: Vec<(PathBuf, u64)>) -> Self {
+        Self { mounts }
+    }
+
+    fn best(&self, path: &Path) -> Option<&(PathBuf, u64)> {
+        self.mounts
+            .iter()
+            .filter(|(mount, _)| path_on_mount(path, mount))
+            .max_by_key(|(mount, _)| mount.as_os_str().len())
+    }
+
+    /// Identity of the volume hosting `path`. Two paths share a volume exactly
+    /// when their keys are equal.
+    pub fn key(&self, path: &Path) -> String {
+        self.best(path)
+            .map(|(mount, _)| mount.display().to_string())
+            .unwrap_or_default()
+    }
+
+    /// Free bytes on the volume hosting `path`.
+    pub fn free_bytes(&self, path: &Path) -> Option<u64> {
+        self.best(path).map(|(_, free)| *free)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn path_on_mount(path: &Path, mount: &Path) -> bool {
+    // Drive letters are case-insensitive; settings can hold `c:\Users`.
+    path.to_string_lossy()
+        .to_lowercase()
+        .starts_with(&mount.to_string_lossy().to_lowercase())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn path_on_mount(path: &Path, mount: &Path) -> bool {
+    path.starts_with(mount)
+}
+
 /// Lists local fixed volumes. On Windows this is one entry per drive letter; on macOS/Linux
 /// typically a single data volume.
 pub fn list_disk_volumes() -> Vec<DiskVolume> {
@@ -215,11 +277,9 @@ mod tests {
             (PathBuf::from("/System/Volumes/Data"), 1_000, 300),
         ];
         let target = Path::new("/System/Volumes/Data/Users/test");
-        let (total, used) = select_mount_stats(
-            mounts.iter().map(|(m, t, a)| (m.as_path(), *t, *a)),
-            target,
-        )
-        .unwrap();
+        let (total, used) =
+            select_mount_stats(mounts.iter().map(|(m, t, a)| (m.as_path(), *t, *a)), target)
+                .unwrap();
         assert_eq!(total, 1_000);
         assert_eq!(used, 700);
     }
@@ -229,11 +289,9 @@ mod tests {
     fn picks_root_when_target_is_home_on_legacy_layout() {
         let mounts = [(PathBuf::from("/"), 2_000_u64, 500_u64)];
         let target = Path::new("/Users/test");
-        let (total, used) = select_mount_stats(
-            mounts.iter().map(|(m, t, a)| (m.as_path(), *t, *a)),
-            target,
-        )
-        .unwrap();
+        let (total, used) =
+            select_mount_stats(mounts.iter().map(|(m, t, a)| (m.as_path(), *t, *a)), target)
+                .unwrap();
         assert_eq!(total, 2_000);
         assert_eq!(used, 1_500);
     }
@@ -243,11 +301,10 @@ mod tests {
     fn returns_none_when_no_mount_matches() {
         let mounts = [(PathBuf::from("/Volumes/USB"), 500_u64, 100_u64)];
         let target = Path::new("/Users/test");
-        assert!(select_mount_stats(
-            mounts.iter().map(|(m, t, a)| (m.as_path(), *t, *a)),
-            target,
-        )
-        .is_none());
+        assert!(
+            select_mount_stats(mounts.iter().map(|(m, t, a)| (m.as_path(), *t, *a)), target,)
+                .is_none()
+        );
     }
 
     #[test]
@@ -307,5 +364,33 @@ mod tests {
         assert!(is_windows_drive_letter(Path::new(r"Z:/")));
         assert!(!is_windows_drive_letter(Path::new(r"C:\Users")));
         assert!(!is_windows_drive_letter(Path::new(r"/")));
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn mount_table_separates_drive_letters_case_insensitively() {
+        let table = MountTable::from_mounts(vec![
+            (PathBuf::from(r"C:\"), 1_000),
+            (PathBuf::from(r"D:\"), 200),
+        ]);
+        assert_eq!(table.key(Path::new(r"C:\Users\dev")), r"C:\");
+        assert_eq!(table.key(Path::new(r"d:\Projects\app")), r"D:\");
+        assert_eq!(table.free_bytes(Path::new(r"d:\Projects\app")), Some(200));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn mount_table_uses_longest_mount_prefix() {
+        let table = MountTable::from_mounts(vec![
+            (PathBuf::from("/"), 1_000),
+            (PathBuf::from("/Volumes/Ext"), 200),
+        ]);
+        assert_eq!(table.key(Path::new("/Users/dev/project")), "/");
+        assert_eq!(
+            table.key(Path::new("/Volumes/Ext/Projects/app")),
+            "/Volumes/Ext"
+        );
+        assert_eq!(table.free_bytes(Path::new("/Volumes/Ext/x")), Some(200));
+        assert_eq!(table.free_bytes(Path::new("/opt/x")), Some(1_000));
     }
 }
