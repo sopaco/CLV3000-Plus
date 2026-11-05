@@ -6,105 +6,90 @@ source: .
 ---
 
 ## 项目概览
-
-CLV3000 Plus 是一款原生桌面工具，用于回收开发者工作站的磁盘空间。它扫描已配置的开发目录及全局缓存，识别 13+ 技术栈的可清理构建产物，并通过回收区安全删除。核心差异化能力是检测 **AI 编码工具实验项目**（Claude/Cursor/Codex/Trae/OpenCode 残留），竞品无此功能。面向终端用户（macOS/Windows/Linux GPUI 桌面应用）和编码代理（本文档 + `agent/repomix.md`）。约束：纯本地无网络，删除操作受风险等级和受保护路径守护；UI 支持三语（zh/en/ja）。
+CLV3000 Plus 是面向开发者的原生桌面磁盘清理应用。应用扫描用户配置的开发目录与全局工具缓存，基于预定义规则识别多技术栈构建产物、依赖与 AI 编码工具残留，并通过回收区机制安全清理。目标用户为本地运行的 Rust、Node、Python 等开发者；约束为纯本地文件系统操作、无后端服务、无数据库、仅支持桌面单机运行。
 
 ## 架构设计
+采用 Rust 工作区三层分工：`clv-core` 为纯领域层，`clv-platform` 为操作系统抽象层，`clv-app` 为表现与编排层。依赖方向为 `clv-app` 依赖 `clv-core` 与 `clv-platform`，核心业务不依赖 GPUI，保证扫描、清理、Agent 识别可独立测试。
 
-三层 Cargo 工作区，UI → 平台无关逻辑 → OS 抽象：
+| 层 | 容器 | 职责 | 主要依赖 |
+|----|------|------|----------|
+| 表现层 | `crates/clv-app` | 窗口、托盘、视图、主题、国际化文案、与用户交互 | `clv-core`, `clv-platform`, `gpui-kit 0.6` |
+| 领域层 | `crates/clv-core` | 扫描规则、分桶、清理、Agent 会话、消息与分类 | 无 UI 依赖 |
+| 平台层 | `crates/clv-platform` | 磁盘、进程、原生对话框 | 系统 API |
 
-| Crate | 层级 | 职责 |
-|---|---|---|
-| `crates/clv-app` | 展示层 | GPUI 桌面应用：窗口 shell、`ProgressHud`、系统托盘、`AppStore` 状态实体、各页面视图（含大文件）、主题（Defender/Blossom/Neon/Aurora）、i18n、自定义控件 |
-| `crates/clv-core` | 领域逻辑（纯） | 扫描规则引擎、清理引擎、大文件发现、AI 代理项目/会话检测、模型、设置持久化、路径安全 |
-| `crates/clv-platform` | 平台适配 | 磁盘用量（`primary_disk_usage`、`list_disk_volumes`）、原生文件夹选择器（`pick_folders`）、进程枚举/终止（`sysinfo`）、OS 启动项辅助 |
-
-- **状态流**：视图不持有扫描结果；单一 `AppStore` 实体持有 `AppSettings`、当前页面、最近 `ScanReport`、清理报告、`CleanupHistory`、`pending_cleanup_notification`、`status_message`、磁盘用量和扫描/清理取消句柄。视图订阅/观察 store。
-- **异步任务**：`AppStore` 将后台扫描/清理委托给 `services/scan` 和 `services/cleanup`（工作线程 + mpsc）；GPUI executor 轮询 `ScanEvent` / `CleanupEvent`（含 `Progress`）回灌 store。
-- **视图延迟单例**：`ClvApp` 首次访问时创建各页面视图并缓存 entity（`crates/clv-app/src/app/mod.rs`）。
-- **进度 HUD**：`ProgressHud`（`hud.rs`）实体覆盖页面内容之上，渲染扫描/清理进度条及取消按钮；`AppStore::notify_progress_only` 通知挂载的 HUD。
-- **系统托盘**：`TrayController`（`tray.rs`）安装托盘图标（Open/Scan/Quit）；`request_scan` / `take_scan_request` 桥接托盘 Scan 至 `AppStore::start_scan`；双击打开应用；tooltip 随磁盘刷新更新。
-- **扫描异步可取消**（`AtomicBool`）：节流进度事件（`ScanEvent::Progress/Done`）经 `services/scan` 轮询进 store；`Scanner::scan_cancellable` 在 `scan_tree` 中内联收集大文件，可能设置 `sizes_truncated`，完成时通过 `save_last_scan` 持久化。
-- **清理异步可取消**：逐项 `CleanupProgress` 事件（`CleanupEvent::Progress/Done`）经 `services/cleanup` 轮询；`ProgressHud` 驱动进度 UI；`Done` 时持久化 `CleanupHistory`（含 `TrashedEntry` 记录），按 `soft_delete_days` 清理过期回收区，排队完成通知；支持 `restore_trashed_entry`。
-- **回收区与通知**：`CleanupHistory`（配置目录 90 天 JSON）记录每次运行的释放量和可恢复 `TrashedEntry`；Dashboard 显示 7/30 天趋势卡片；`ClvApp` 在清理完成时推送成功通知。
-- **类型化 i18n 边界**：`clv-core` 存储 `RuleDescription` / `AgentReasonPart` 枚举（非展示字符串）；用户可见文本经 `RuleDescription::text(lang)` 或 `clv-app/i18n`（`rule_description_label`、`format_agent_reason`）解析。
-- **依赖方向**：`clv-app` → `clv-core` + `clv-platform`；无反向边。
+应用内运行时分工：`app/` 管理全局状态与窗口外壳，`views/` 渲染各功能页面，`services/` 编排扫描与清理耗时任务，`i18n/` 与 `theme.rs` 提供多语言与主题。`AGENTS.md` 约定的 GPUI 接入、对话框、按钮、主题令牌等 UI 约束均在 `clv-app` 落地。
 
 ## 模块地图
-
 | 模块 | 职责 | 主要路径 |
-|---|---|---|
-| 应用 shell 与路由 | 根组件、页面切换、延迟视图创建、`ProgressHud` + 状态栏、托盘动作/扫描分发、清理完成通知 | `crates/clv-app/src/app/mod.rs`、`hud.rs`、`shell.rs`、`tray.rs` |
-| 全局状态 | `AppStore`（扫描/清理进度 + 取消、`CleanupHistory`/`TrashedEntry` 恢复、`pending_cleanup_notification`、`status_message`、磁盘总量）、页面状态、扫描/清理编排、文件夹选择器 | `crates/clv-app/src/app/state.rs`、`services/scan.rs`、`services/cleanup.rs` |
-| 扫描器 | 基于规则的可清理项发现 + 全局缓存（含 Bun/Homebrew/Docker/浏览器缓存，非 Windows）+ 代理会话；locale 感知扫描阶段；可取消扫描（`should_skip_dir`）；内联大文件通道；消费 `project_rules` / `global_rules` | `crates/clv-core/src/scanner.rs`、`large_files.rs`、`settings/global_rules.rs`、`settings/project_rules.rs`、`locale.rs` |
-| 清理引擎 | 通过健壮 `move_entry` 移入回收区（readonly 清除、跨设备复制回退），逐项 `CleanupProgress` 回调，`TrashedEntry` 追踪，`restore_trashed` / `purge_old_trash`，增强的 `CleanupReport`，`CleanupHistory` JSON 持久化（90 天修剪） | `crates/clv-core/src/cleanup.rs` |
-| 代理检测 | AI 代理实验项目启发式 + 会话目标发现；结构化 `reason_parts`；跳过仅含活跃标记的仓库 | `crates/clv-core/src/agent.rs`、`agent_sessions.rs`、`messages/agent_reason.rs` |
-| 本地化消息 | 类型化规则描述（`RuleDescription` R001–R140）+ 代理原因部分；翻译表 + 代码生成 | `crates/clv-core/src/messages/rule_description.rs`、`messages/agent_reason.rs`、`scripts/generate-rule-descriptions.py`、`scripts/rule-description-translations.json` |
-| 模型 | `TechStack`（13+ 技术栈）、`RiskLevel`、`CleanupCategory`、`ScanReport` 类型（含 `large_files`、`cancelled`、`sizes_truncated`）；`ScanItem.description` 为 `RuleDescription` | `crates/clv-core/src/models.rs`、`category.rs` |
-| 设置与路径 | 持久化、规则表（类型化描述）、标记定义、环境变量展开、受保护路径守卫、`soft_delete_days`、上次扫描 JSON | `crates/clv-core/src/settings/mod.rs`、`global_rules.rs`、`project_rules.rs`、`rule.rs`、`markers.rs`、`paths.rs` |
-| 主题与 locale | `ThemePreference`（Defender/Blossom/Neon/Aurora）、`LanguagePreference`、`resolve_language`、扫描阶段文案 | `crates/clv-core/src/locale.rs` |
-| 平台适配 | 磁盘用量 + 卷列表、原生文件夹选择器、进程枚举/终止、启动项 | `crates/clv-platform/src/disk.rs`、`dialog.rs`、`process.rs` |
-| 页面视图 | Dashboard（健康评分、按需磁盘卷对话框、大文件磁贴、历史/恢复）、Cleanup、Agent、Large Files、Startup、Process（可见性感知轮询）、Settings、Onboarding | `crates/clv-app/src/views/*.rs` |
-| i18n | 三语标签目录；解析 `RuleDescription` + `AgentReasonPart`；清理进度/状态/摘要/历史/通知/恢复、托盘、大文件、文件夹选择器文案 | `crates/clv-app/src/i18n/labels.rs`、`mod.rs` |
-| UI 工具与资产 | 可复用控件、健康评分 `hero_banner` / `compute_health`、扫描/清理进度条（`ui/security.rs`）、列表组件、主题主题、图标、嵌入资产 | `crates/clv-app/src/ui/`、`theme.rs`、`assets.rs`、`build.rs` |
+|------|------|----------|
+| 应用入口与外壳 | 启动、主窗口、菜单、托盘、窗口生命周期 | `crates/clv-app/src/main.rs`, `crates/clv-app/src/app/shell.rs`, `crates/clv-app/src/tray.rs`, `crates/clv-app/src/platform.rs` |
+| 应用状态 | 跨页面状态、选中标识、扫描会话状态 | `crates/clv-app/src/app/state.rs`, `crates/clv-app/src/app/mod.rs`, `crates/clv-app/src/actions.rs` |
+| 视图层 | 仪表盘、清理、Agent、大文件、进程、设置、新手引导 | `crates/clv-app/src/views/`, `crates/clv-app/src/ui/` |
+| 服务编排 | 扫描与清理后台任务调度 | `crates/clv-app/src/services/scan.rs`, `crates/clv-app/src/services/cleanup.rs` |
+| 国际化与主题 | 三语文案、规则描述标签、主题色板与按钮令牌 | `crates/clv-app/src/i18n/labels.rs`, `crates/clv-app/src/theme.rs`, `crates/clv-app/src/prelude.rs` |
+| 扫描引擎 | 遍历扫描根、应用规则、生成可清理项 | `crates/clv-core/src/scanner.rs`, `crates/clv-core/src/models.rs`, `crates/clv-core/src/paths.rs` |
+| 清理与分类 | 风险分级、分桶、回收区清理 | `crates/clv-core/src/cleanup.rs`, `crates/clv-core/src/category.rs` |
+| 清理规则 | 项目级与全局级规则表、规则标记 | `crates/clv-core/src/settings/project_rules.rs`, `crates/clv-core/src/settings/global_rules.rs`, `crates/clv-core/src/settings/rule.rs`, `crates/clv-core/src/settings/markers.rs` |
+| Agent 识别 | AI 工具项目与会话缓存识别、原因结构化 | `crates/clv-core/src/agent.rs`, `crates/clv-core/src/agent_sessions.rs`, `crates/clv-core/src/messages/agent_reason.rs` |
+| 描述与消息 | 规则描述枚举、三语文案生成 | `crates/clv-core/src/messages/rule_description.rs`, `crates/clv-core/src/messages/mod.rs`, `scripts/rule-description-translations.json`, `scripts/generate-rule-descriptions.py` |
+| 平台抽象 | 磁盘用量、进程、原生对话框 | `crates/clv-platform/src/disk.rs`, `crates/clv-platform/src/process.rs`, `crates/clv-platform/src/dialog.rs`, `crates/clv-platform/src/lib.rs` |
+| 大文件与语言 | 大文件分析、语言环境 | `crates/clv-core/src/large_files.rs`, `crates/clv-core/src/locale.rs` |
 
 ## 核心流程
+1. **启动、设置与扫描**
+   - 首次启动进入新手引导，配置扫描根目录；主窗口常驻托盘与主窗口双入口。
+   
 
-1. **启动**：`main.rs` → 安装系统托盘（`TrayController`）→ 加载持久化设置 → 创建 `AppStore`（通过 `load_last_scan` 加载 `last_report`，后台 `purge_old_trash`）→ 若 `onboarding_done` 为 false 显示 Onboarding 页，否则显示 Dashboard → 启动异步磁盘刷新（`primary_disk_usage`）→ 更新托盘 tooltip；`ClvApp` 轮询 `take_scan_request` 处理托盘触发的扫描。
-2. **扫描**：用户触发扫描 → `spawn_scan`（带取消标志）运行 `Scanner::scan_cancellable` 遍历配置根目录（剪枝嵌套匹配），解析全局缓存规则，发现代理会话目标 → 在 `scan_tree` 中收集大文件 → 发射节流的本地化 `ScanProgress` → `poll_scan` 将 `ScanReport`（items、`large_files`、`cancelled`、`sizes_truncated`）交付 `AppStore`；取消设置 `scan_restart_pending` 以便立即重新扫描；完成时 `save_last_scan` 持久化。
-3. **清理**：CleanupView 按 bucket/risk 筛选分组列出报告项 → 用户选择 → `run_cleanup` → `spawn_cleanup`（带取消标志）运行清理引擎，逐项 `CleanupProgress` 回调，通过健壮 `move_entry` 移入回收区（跳过受保护路径）→ `poll_cleanup` 将进度交付 `ProgressHud` 然后 `CleanupPoll::Done`；报告追踪 `freed_bytes`、`success_count`、`failed`、`trashed_entries`；store 移除已清理路径，重新检测代理项目，刷新磁盘用量；追加 `CleanupHistoryRecord`（含 `TrashedEntry` 列表），设置 `pending_cleanup_notification`；Dashboard `history_card` 展示趋势并通过 `restore_trashed_entry` 支持恢复。
-4. **代理项目**：AgentView 读取 `report.agent_projects`，应用搜索筛选（name/`reason_parts`/path/stack）；来自 Claude/Cursor/Codex/Trae/OpenCode 等的会话以结构化 `AgentReasonPart` 原因呈现，清理前按语言格式化。
-5. **进程管理**：ProcessView 在页面显示/刷新触发时轮询 `clv-platform` 枚举器（可见性感知）→ 内存中搜索/排序进程列表 → 终止选中 PID。
+- `services/scan.rs` 启动后台扫描，调用 `clv-core::Scanner` 遍历各根目录并命中 `settings/*_rules` 规则。
+   - 结果按 `CleanupCategory` 与 `RiskLevel` 分桶送入 `AppStore`，视图层展示仪表盘与清理列表。
+
+2. **安全清理**
+   - 用户在清理视图勾选条目，选中标识维护于 `AppStore.selected_item_ids`。
+   
+
+- `services/cleanup.rs` 调用 `cleanup.rs` 校验风险分级后移入回收区，不做永久删除。
+   - 清理结果回写状态，磁盘用量经 `clv-platform::disk` 刷新；需二次确认时经 `open_alert_dialog` 呈现确定与取消按钮。
+
+3. **AI 代理残留检测**
+   - 扫描过程同步调用 `agent.rs` 识别编码工具项目，命中 `agent_sessions.rs` 预定义 Agent 路径。
+   - 识别原因以 `AgentReasonPart` 结构化保存，`agent_reason.rs` 按当前语言格式化展示来源。
+   - 残留项目作为独立分桶进入清理视图，支持按 Agent 来源筛选与批量清理。
+
+4. **大文件与进程辅助分析**
+   
+
+- `large_files.rs` 对扫描根做大文件聚合，视图层呈现大文件榜单，供用户定位非规则占用。
+   
+
+- `clv-platform::process` 辅助展示占用进程上下文，用于排查构建产物被占用的场景。
 
 ## 技术选型
-
-- 语言：Rust（edition 2024），工作区 resolver 2，release profile 含 thin LTO + strip
-- UI：`gpui-kit` 0.6（Longbridge GPUI 工具箱）— 统一入口，含样式化组件、行为层、默认图标资源；所有 GPUI 基础类型（`div`/`px`/`Window`/`App`…）经 `gpui_kit::{…}` 访问
-- 文件系统遍历：`walkdir`；进程/系统信息：`sysinfo`
-- 持久化/配置：`serde`/`serde_json`、`directories`（XDG/home 布局）
-- 工具库：`anyhow`、`thiserror`、`chrono`、`uuid`、`open`（Finder/Explorer 中显示）、`sys-locale`
-- 原生对话框与托盘：`rfd`（文件夹选择器）、`tray-icon` + `muda`（系统托盘菜单）
-- i18n 代码生成：`scripts/generate-rule-descriptions.py` 从 `scripts/rule-description-translations.json` 生成 `RuleDescription` 枚举
-- 日志：`tracing` + `tracing-subscriber`（release 级别 warn）
-- 打包：`scripts/bundle-macos.sh`；图标位于 `assets/icons/`
+- **语言与工作区**：Rust Workspace，`Cargo.toml` 统一管理 `clv-app`、`clv-core`、`clv-platform` 三个 crate。
+- **桌面框架**：`gpui-kit 0.6` 提供 GPUI 本体、样式组件与行为层，自定义 action 经 `gpui_kit::actions`，图标经 `gpui_kit::assets::Assets`。
+- **规则与国际化**：`RuleDescription` 枚举加三语翻译表 `scripts/rule-description-translations.json`，经 `scripts/generate-rule-descriptions.py` 生成；中文为源语言，英文与日文为人工维护翻译。
+- **跨平台**：macOS 与 Windows 双目标，全局规则通过条件编译分平台；构建打包经 `scripts/bundle-macos.sh`。
+- **安全删除**：移入系统回收区而非永久删除；风险分级控制清理入口。
 
 ## 系统边界
-
-- **纯本地文件系统** — 无网络调用、无遥测、无外部 API。
-- **读侧**：主目录、配置扫描根目录（默认 `~/Projects`、Documents、Desktop…）、全局工具缓存（`~/.cargo`、npm/pip/Bun/Homebrew/Docker/Xcode derived data、浏览器缓存、Trae/OpenCode 应用缓存等）、代理 CLI 会话目录（`~/.trae/cli`、OpenCode data dirs；可通过 `TRAE_DIR`/`TRAEX_SESSIONS_DIR`/`OPENCODE_DIR` 覆盖）。
-- **写侧**：应用管理的回收区目录（清理引擎）；配置目录中的 settings JSON、`cleanup_history.json` 和上次扫描 JSON。其他均为只读。
-- **信任边界 — 受保护路径**：`paths.rs` 硬阻系统位置（Unix root/system 目录、Windows %SystemRoot% 变体）禁止任何删除操作；风险等级（`Safe`/`Caution`/`Protected`）门控 UI 操作；活跃项目可将 `Safe` 提升为 `Caution`。
-- **OS 集成**：系统托盘图标（Open/Scan/Quit）；原生文件夹选择器用于扫描路径配置；通过 `sysinfo` 枚举/终止进程；通过 `open` crate 打开文件夹；StartupView 中展示登录/启动项。
-- **第三方风险面**：`scanner.rs` 中的规则表决定可删除内容；嵌套匹配剪枝防止在匹配的父目录内删除项目源码。
+- **本地文件系统**：读开发目录与全局缓存，写回收区；唯一外部副作用。无网络、无服务端、无数据库、无遥测。
+- **操作系统集成**：主窗口、系统菜单、托盘菜单与重开行为、原生文件对话框、进程与磁盘信息查询。
+- **信任边界**：扫描根与已选清理路径均为用户配置；清理范围限定在规则命中目录，不跨根递归删除。无第三方云端 API 依赖，离线可用。
+- **维护边界**：规则描述枚举为自动生成，禁止手改；新增清理规则须先改规则源与翻译表，再运行生成脚本。
 
 ## 代码映射索引
-
 | 概念 | 位置 | 备注 |
-|---|---|---|
-| 入口 / 窗口引导 | `crates/clv-app/src/main.rs` | GPUI 应用启动；托盘安装；`TrayPending` 插槽 |
-| 根组件与页面路由 | `crates/clv-app/src/app/mod.rs` | 延迟视图 entity；`ProgressHud` + 状态栏；托盘动作/扫描轮询；清理完成通知 |
-| 进度 HUD | `crates/clv-app/src/app/hud.rs` | 扫描/清理进度条 + 取消；观察 `AppStore` |
-| 中央状态 store | `crates/clv-app/src/app/state.rs` | `AppStore`、取消标志、清理进度/历史/恢复、`status_message`、`run_cleanup_safe`、`pick_scan_folders` |
-| 系统托盘 | `crates/clv-app/src/tray.rs` | `TrayController`、`TrayAction`（Open/Scan/Quit）、`request_scan`/`take_scan_request`、tooltip 更新 |
-| 异步扫描编排 | `crates/clv-app/src/services/scan.rs` | `spawn_scan` / `poll_scan`（取消 `AtomicBool`） |
-| 异步清理编排 | `crates/clv-app/src/services/cleanup.rs` | `CleanupEvent`/`CleanupPoll`（含 `Progress`）+ 取消 |
-| 扫描编排与规则 | `crates/clv-core/src/scanner.rs` | `scan_cancellable`、`ProgressThrottle`、`should_skip_dir`；内联大文件；规则在 `settings/` |
-| 大文件发现 | `crates/clv-core/src/large_files.rs` | `finalize_large_files`、`LargeFileEntry`；在 `scan_tree` 中收集 |
-| 删除引擎 | `crates/clv-core/src/cleanup.rs` | `CleanupProgress`、`TrashedEntry`、`restore_trashed`、`purge_old_trash`、健壮 `move_entry`、`CleanupHistory` |
-| 代理项目/会话检测 | `crates/clv-core/src/agent.rs`、`agent_sessions.rs` | Trae/Trae CN/SOLO、TraeX、OpenCode 会话目标 |
-| 类型化 i18n 消息 | `crates/clv-core/src/messages/`、`scripts/generate-rule-descriptions.py` | `RuleDescription` R001–R140、`AgentReasonPart`；JSON → codegen |
-| 领域模型 | `crates/clv-core/src/models.rs`、`category.rs` | `TechStack`、`RiskLevel`、`CleanupCategory`、`ScanReport`（+ `large_files`、`cancelled`、`sizes_truncated`） |
-| Locale 与扫描阶段 | `crates/clv-core/src/locale.rs` | `Language`、`LanguagePreference`、`ThemePreference`、`scan_phase_*` 辅助 |
-| 路径安全与默认值 | `crates/clv-core/src/paths.rs` | 受保护路径守卫 |
-| 设置持久化与规则 | `crates/clv-core/src/settings/mod.rs` | `AppSettings`、`soft_delete_days`、`load_last_scan`/`save_last_scan`、规则 |
-| 主题系统 | `crates/clv-app/src/theme.rs` | `AppColors`、`ThemePreference` → 4 主题（Defender/Blossom/Neon/Aurora）、`apply_theme` |
-| 平台磁盘用量 | `crates/clv-platform/src/disk.rs` | `primary_disk_usage`、`list_disk_volumes`、`DiskVolume`；macOS 挂载感知；Windows 多驱动器求和 |
-| 平台文件夹选择器 | `crates/clv-platform/src/dialog.rs` | `pick_folders`（`rfd`） |
-| 进程枚举 | `crates/clv-platform/src/process.rs` | sysinfo 封装；`ProcessCategory`、`ProcessEnumerator` |
-| 功能页面 | `crates/clv-app/src/views/` | dashboard（健康评分、磁盘卷对话框、大文件磁贴、历史/恢复）/ cleanup / agent / large_files / process / startup / settings / onboarding |
-| 标签翻译 | `crates/clv-app/src/i18n/labels.rs`、`mod.rs` | zh/en/ja；托盘、大文件、恢复/取消、文件夹选择器、健康评分辅助 |
-| 样式与控件 | `crates/clv-app/src/ui/`、`theme.rs` | `compute_health`、`hero_banner`；`scan_progress_bar` / `cleanup_progress_bar` 在 `security.rs` |
-| macOS 打包 | `scripts/bundle-macos.sh` | App bundle 构建 |
-| 单元测试（规则、安全） | `crates/clv-core/src/lib.rs` | 扫描器/清理/路径/i18n 测试套件；`scan_cancellable` 和清理 `move_entry` 跨设备测试 |
-
-*实现细节见 `.terrain/agent/repomix.md` — grep/read 获取签名和源码。*
+|------|------|------|
+| 扫描引擎与扫描项 | `crates/clv-core/src/scanner.rs`, `crates/clv-core/src/models.rs` | `ScanItem.description` 为枚举而非字符串 |
+| 清理分桶与类别 | `crates/clv-core/src/cleanup.rs`, `crates/clv-core/src/category.rs` | `CleanupBucket` 按类别驱动 |
+| 项目级清理规则 | `crates/clv-core/src/settings/project_rules.rs` | 项目内构建产物与依赖 |
+| 全局清理规则 | `crates/clv-core/src/settings/global_rules.rs` | 工具缓存，分平台条件编译 |
+| Agent 会话路径 | `crates/clv-core/src/agent_sessions.rs` | Agent 工具会话与缓存目录 |
+| Agent 识别与原因 | `crates/clv-core/src/agent.rs`, `crates/clv-core/src/messages/agent_reason.rs` | 结构化原因，UI 层按语言格式化 |
+| 规则描述枚举 | `crates/clv-core/src/messages/rule_description.rs` | 自动生成，禁止手改 |
+| 翻译表与生成脚本 | `scripts/rule-description-translations.json`, `scripts/generate-rule-descriptions.py` | 键顺序决定枚举编号，新增条目追加末尾 |
+| UI 文案 | `crates/clv-app/src/i18n/labels.rs` | 分类与描述标签解析 |
+| 扫描与清理服务 | `crates/clv-app/src/services/scan.rs`, `crates/clv-app/src/services/cleanup.rs` | 后台任务编排 |
+| 主题与按钮令牌 | `crates/clv-app/src/theme.rs` | 令牌须跟随调色板回算 |
+| 平台磁盘与进程 | `crates/clv-platform/src/disk.rs`, `crates/clv-platform/src/process.rs` | 仅供用量与进程上下文 |
+| 原生对话框 | `crates/clv-platform/src/dialog.rs` | 确认框须用告警对话框形态 |
+| 入口与托盘 | `crates/clv-app/src/main.rs`, `crates/clv-app/src/tray.rs` | 主窗口句柄与生命周期 |
