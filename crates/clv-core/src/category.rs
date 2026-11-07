@@ -33,6 +33,23 @@ pub enum CleanupCategory {
     TypeCheckCache,
     VirtualEnv,
     XcodeCache,
+    AppBinary,
+    AppSupport,
+    AppCache,
+    AppPreference,
+    AppContainer,
+    AppGroupContainer,
+    AppSavedState,
+    AppWebData,
+    AppLaunchItem,
+    AppLog,
+    StrayExecutable,
+    OrphanResidue,
+    /// Windows: `HKCU\Software\<vendor>` keys left behind (M2). Removed only
+    /// after a `reg export` backup; `HKLM` counterparts are `Protected`.
+    RegistryLeftover,
+    /// Windows: Start Menu / Desktop `.lnk` shortcuts (M2).
+    AppShortcut,
 }
 
 impl CleanupCategory {
@@ -64,6 +81,22 @@ impl CleanupCategory {
             | Self::EditorCache
             | Self::TempFiles
             | Self::Logs => CleanupBucket::ProjectBuildCache,
+            // App-uninstaller categories never appear in the rule-driven scan;
+            // they only materialize inside the apps view's own report.
+            Self::AppBinary
+            | Self::AppSupport
+            | Self::AppCache
+            | Self::AppPreference
+            | Self::AppContainer
+            | Self::AppGroupContainer
+            | Self::AppSavedState
+            | Self::AppWebData
+            | Self::AppLaunchItem
+            | Self::AppLog
+            | Self::StrayExecutable
+            | Self::OrphanResidue
+            | Self::RegistryLeftover
+            | Self::AppShortcut => CleanupBucket::AppResidue,
         }
     }
 }

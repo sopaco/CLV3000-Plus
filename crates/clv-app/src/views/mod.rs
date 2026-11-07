@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod apps;
 pub mod cleanup;
 pub mod dashboard;
 pub mod large_files;

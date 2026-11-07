@@ -1,5 +1,5 @@
 use crate::models::{RiskLevel, ScanItem};
-use crate::settings::{trash_dir, AppSettings};
+use crate::settings::{AppSettings, trash_dir};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -33,6 +33,22 @@ pub struct TrashedEntry {
     pub trash_path: PathBuf,
     pub size_bytes: u64,
     pub name: String,
+    /// What was moved. Registry keys are backed up to a `.reg` file instead
+    /// of being moved to the recycle area (M2).
+    #[serde(default)]
+    pub kind: TrashedEntryKind,
+}
+
+/// Kind of a trashed entry, so restore knows whether to move a file back or
+/// to re-import a registry backup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrashedEntryKind {
+    #[default]
+    File,
+    /// `original` is a registry key path (`HKCU\Software\Vendor`) and
+    /// `trash_path` is the `.reg` export used to restore it.
+    RegistryKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,7 +134,10 @@ impl CleanupHistory {
 
     pub fn cleanup_count_in_days(&self, days: i64) -> usize {
         let cutoff = Utc::now() - Duration::days(days);
-        self.records.iter().filter(|r| r.timestamp >= cutoff).count()
+        self.records
+            .iter()
+            .filter(|r| r.timestamp >= cutoff)
+            .count()
     }
 
     pub fn restorable_entries(&self) -> Vec<TrashedEntry> {
@@ -206,9 +225,7 @@ impl CleanupExecutor {
 
         let runnable: Vec<&ScanItem> = items
             .iter()
-            .filter(|item| {
-                !(item.risk == RiskLevel::Protected && !self.settings.expert_mode)
-            })
+            .filter(|item| !(item.risk == RiskLevel::Protected && !self.settings.expert_mode))
             .collect();
         let total = runnable.len();
 
@@ -236,6 +253,7 @@ impl CleanupExecutor {
                             trash_path: p,
                             size_bytes: size,
                             name: item.name.clone(),
+                            kind: TrashedEntryKind::File,
                         });
                     }
                 }
@@ -534,6 +552,9 @@ fn purge_trash_dir(trash: &Path) -> anyhow::Result<(u64, usize, usize)> {
 }
 
 pub fn restore_trashed(entry: &TrashedEntry) -> anyhow::Result<()> {
+    if entry.kind != TrashedEntryKind::File {
+        anyhow::bail!("registry backups are restored by the platform layer");
+    }
     if !entry.trash_path.exists() {
         anyhow::bail!("trash item is gone");
     }
@@ -626,8 +647,7 @@ mod tests {
 
         let mut settings = AppSettings::default();
         settings.soft_delete = false;
-        let report =
-            CleanupExecutor::new(settings).execute(&[scan_item(src.clone())], |_| {});
+        let report = CleanupExecutor::new(settings).execute(&[scan_item(src.clone())], |_| {});
 
         assert_eq!(report.success_count, 1);
         assert!(!src.exists());
@@ -657,8 +677,7 @@ mod tests {
         let mut settings = AppSettings::default();
         settings.soft_delete = false;
 
-        let report =
-            CleanupExecutor::new(settings).execute(&[scan_item(missing.clone())], |_| {});
+        let report = CleanupExecutor::new(settings).execute(&[scan_item(missing.clone())], |_| {});
 
         assert_eq!(report.success_count, 1);
         assert_eq!(report.successful_paths, vec![missing]);
@@ -721,6 +740,7 @@ mod tests {
                 trash_path: path.to_path_buf(),
                 size_bytes: 1024,
                 name: "item".into(),
+                kind: crate::cleanup::TrashedEntryKind::File,
             }],
         });
         history
@@ -806,8 +826,8 @@ mod tests {
         fs::write(dir.join("pkg.js"), "x".repeat(1024)).unwrap();
         fs::write(trash.join("loose.log"), "x".repeat(512)).unwrap();
 
-        let expected = dir_size_on_disk(&dir)
-            + on_disk_size(&fs::metadata(trash.join("loose.log")).unwrap());
+        let expected =
+            dir_size_on_disk(&dir) + on_disk_size(&fs::metadata(trash.join("loose.log")).unwrap());
         let (freed, removed, remaining) = purge_trash_dir(&trash).unwrap();
 
         assert_eq!(removed, 2);

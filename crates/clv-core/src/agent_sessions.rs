@@ -370,12 +370,7 @@ fn trae_app_data_roots(home: &Path) -> Vec<PathBuf> {
     if !roots.is_empty() {
         return roots
             .into_iter()
-            .map(|user_dir| {
-                user_dir
-                    .parent()
-                    .map(Path::to_path_buf)
-                    .unwrap_or(user_dir)
-            })
+            .map(|user_dir| user_dir.parent().map(Path::to_path_buf).unwrap_or(user_dir))
             .collect();
     }
 
@@ -409,9 +404,7 @@ fn traex_session_roots(home: &Path) -> Vec<PathBuf> {
             .into_iter()
             .map(|path| {
                 if path.ends_with("sessions") || path.ends_with("archived_sessions") {
-                    path.parent()
-                        .map(Path::to_path_buf)
-                        .unwrap_or(path)
+                    path.parent().map(Path::to_path_buf).unwrap_or(path)
                 } else {
                     path
                 }

@@ -6,10 +6,12 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+clv-core = { path = "../clv-core" }
 directories.workspace = true
 serde.workspace = true
 sysinfo.workspace = true
 tracing.workspace = true
+walkdir.workspace = true
 rfd.workspace = true
 
 [target.'cfg(unix)'.dependencies]

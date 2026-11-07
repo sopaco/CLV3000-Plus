@@ -115,6 +115,29 @@ pub fn save_last_scan(report: &crate::models::ScanReport) -> anyhow::Result<()> 
     Ok(())
 }
 
+fn last_app_scan_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "clv3000", "plus")
+        .map(|d| d.config_dir().join("last_app_scan.json"))
+}
+
+pub fn load_last_app_scan() -> Option<crate::apps::AppScanReport> {
+    let path = last_app_scan_path()?;
+    let json = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+pub fn save_last_app_scan(report: &crate::apps::AppScanReport) -> anyhow::Result<()> {
+    let Some(path) = last_app_scan_path() else {
+        anyhow::bail!("cannot resolve last app scan path");
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string(&report)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
 /// System paths that must never be scanned or deleted.
 pub fn is_protected_system_path(path: &Path) -> bool {
     crate::paths::is_protected_system_path(path)

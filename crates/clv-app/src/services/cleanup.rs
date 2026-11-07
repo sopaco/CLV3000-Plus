@@ -1,9 +1,13 @@
 use clv_core::{
+    AppSettings, CleanupCategory, ScanItem, TrashedEntry, TrashedEntryKind,
     cleanup::{CleanupExecutor, CleanupProgress, CleanupReport},
-    AppSettings, ScanItem,
 };
 use std::path::PathBuf;
-use std::sync::{atomic::AtomicBool, mpsc, Arc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
 
 pub enum CleanupEvent {
     Progress(CleanupProgress),
@@ -29,10 +33,39 @@ pub fn spawn_cleanup(
     let (tx, rx) = mpsc::sync_channel::<CleanupEvent>(64);
 
     std::thread::spawn(move || {
+        // Registry keys cannot go through the recycle-area file pipeline:
+        // they are exported with `reg export` first (M2 safety rule). Split
+        // them out; everything else keeps the normal executor path.
+        let (registry_items, file_items): (Vec<ScanItem>, Vec<ScanItem>) = items
+            .into_iter()
+            .partition(|item| item.category == CleanupCategory::RegistryLeftover);
+
         let executor = CleanupExecutor::new(settings);
-        let result = executor.execute_cancellable(&items, &cancel, |progress| {
+        let mut result = executor.execute_cancellable(&file_items, &cancel, |progress| {
             let _ = tx.try_send(CleanupEvent::Progress(progress));
         });
+
+        if !registry_items.is_empty() && !cancel.load(Ordering::Relaxed) {
+            let registry = clv_platform::clean_registry_keys(&registry_items);
+            for backup in registry.succeeded {
+                result.success_count += 1;
+                result
+                    .successful_paths
+                    .push(PathBuf::from(&backup.key_path));
+                result.trashed.push(backup.backup_path.clone());
+                result.trashed_entries.push(TrashedEntry {
+                    original: PathBuf::from(&backup.key_path),
+                    trash_path: backup.backup_path,
+                    size_bytes: 0,
+                    name: backup.name,
+                    kind: TrashedEntryKind::RegistryKey,
+                });
+            }
+            for (path, error) in registry.failed {
+                result.failed.push((PathBuf::from(path), error));
+            }
+        }
+
         let cleaned_paths = result.successful_paths.clone();
         let _ = tx.send(CleanupEvent::Done(result, cleaned_paths));
     });

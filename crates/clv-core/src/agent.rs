@@ -9,7 +9,10 @@ const MARKER_INACTIVE_DAYS: i64 = 14;
 
 /// Group cleanup items and known agent roots. Marker-only projects surface
 /// when inactive; name-pattern hits always surface. Does not walk the disk.
-pub fn detect_agent_projects(items: &[ScanItem], known_agent_roots: &[PathBuf]) -> Vec<AgentProject> {
+pub fn detect_agent_projects(
+    items: &[ScanItem],
+    known_agent_roots: &[PathBuf],
+) -> Vec<AgentProject> {
     let mut by_root: HashMap<PathBuf, Vec<ScanItem>> = HashMap::new();
 
     for item in items {
@@ -55,10 +58,12 @@ pub fn detect_agent_projects(items: &[ScanItem], known_agent_roots: &[PathBuf]) 
             reason_parts = vec![AgentReasonPart::LongUnusedProject];
         }
         if is_zombie || long_inactive {
-            if !reason_parts
-                .iter()
-                .any(|p| matches!(p, AgentReasonPart::InactiveOver30Days | AgentReasonPart::LongUnusedProject))
-            {
+            if !reason_parts.iter().any(|p| {
+                matches!(
+                    p,
+                    AgentReasonPart::InactiveOver30Days | AgentReasonPart::LongUnusedProject
+                )
+            }) {
                 reason_parts.push(if is_zombie {
                     AgentReasonPart::InactiveOver30Days
                 } else {

@@ -1,22 +1,24 @@
 use crate::i18n::I18n;
 use crate::prelude::*;
+use crate::services::apps::{AppScanPoll, poll_app_scan, spawn_app_scan};
 use crate::services::{
-    cleanup::{poll_cleanup, spawn_cleanup, CleanupPoll},
-    scan::{poll_scan, spawn_scan, ScanPoll},
+    cleanup::{CleanupPoll, poll_cleanup, spawn_cleanup},
+    scan::{ScanPoll, poll_scan, spawn_scan},
 };
 use chrono::Utc;
 use clv_core::{
-    cross_volume_bytes, default_selected_item_ids, detect_agent_projects, format_bytes,
-    item_cleanup_bucket, load_last_scan, purge_all_trash, purge_old_trash, resolve_language,
-    restore_trashed, rule_description_matches_query, save_last_scan, save_settings,
-    scan_phase_preparing, scan_reminder_days, trash_dir, trash_usage, AppSettings, CleanupBucket,
-    CleanupHistory, CleanupHistoryRecord, Language, RiskLevel, ScanItem, ScanReport, TrashedEntry,
+    AppEntry, AppScanReport, AppSettings, CleanupBucket, CleanupHistory, CleanupHistoryRecord,
+    Language, RiskLevel, ScanItem, ScanReport, TrashedEntry, TrashedEntryKind, cross_volume_bytes,
+    default_selected_item_ids, detect_agent_projects, format_bytes, item_cleanup_bucket,
+    load_last_app_scan, load_last_scan, purge_all_trash, purge_old_trash, resolve_language,
+    restore_trashed, rule_description_matches_query, save_last_app_scan, save_last_scan,
+    save_settings, scan_phase_preparing, scan_reminder_days, trash_dir, trash_usage,
 };
-use clv_platform::{pick_folders, primary_disk_usage, MountTable};
+use clv_platform::{MountTable, pick_folders, primary_disk_usage};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +29,7 @@ pub enum AppPage {
     Startup,
     Process,
     LargeFiles,
+    Apps,
     Settings,
     Onboarding,
 }
@@ -45,6 +48,7 @@ impl AppPage {
             Self::Startup => "page-startup",
             Self::Process => "page-process",
             Self::LargeFiles => "page-large-files",
+            Self::Apps => "page-apps",
             Self::Settings => "page-settings",
             Self::Onboarding => "page-onboarding",
         }
@@ -91,8 +95,23 @@ pub struct AppStore {
     pub purging_trash: bool,
     /// Days since the last scan when the weekly checkup reminder should show.
     pub scan_reminder_days: Option<i64>,
+    // ── App uninstaller (apps view) state ─────────────────────────────────
+    /// On-demand app scan report; separate from `last_report` so dashboard
+    /// figures never absorb app-residue bytes.
+    pub app_report: Option<AppScanReport>,
+    pub app_scanning: bool,
+    pub app_scan_current_path: Option<String>,
+    pub app_scan_apps_found: usize,
+    /// App id shown in the detail pane.
+    pub selected_app_id: Option<String>,
+    /// Detail pane shows the broken-links pseudo-entry instead of an app.
+    pub show_stray_links: bool,
+    /// Checked related-item / stray-link ids within the apps view. Separate
+    /// namespace from the cleanup view's `selected_item_ids`.
+    pub app_selected_item_ids: HashSet<String>,
     scan_cancel: Option<Arc<AtomicBool>>,
     cleanup_cancel: Option<Arc<AtomicBool>>,
+    app_scan_cancel: Option<Arc<AtomicBool>>,
     scan_restart_pending: bool,
     progress_hud: Option<Entity<super::hud::ProgressHud>>,
 }
@@ -151,8 +170,16 @@ impl AppStore {
             pending_trash_count: 0,
             purging_trash: false,
             scan_reminder_days: scan_reminder,
+            app_report: load_last_app_scan(),
+            app_scanning: false,
+            app_scan_current_path: None,
+            app_scan_apps_found: 0,
+            selected_app_id: None,
+            show_stray_links: false,
+            app_selected_item_ids: HashSet::new(),
             scan_cancel: None,
             cleanup_cancel: None,
+            app_scan_cancel: None,
             scan_restart_pending: false,
             progress_hud: None,
         };
@@ -199,7 +226,9 @@ impl AppStore {
         let _ = save_settings(&self.settings);
         self.scan_reminder_days = if enabled {
             scan_reminder_days(
-                self.last_report.as_ref().and_then(|report| report.scanned_at),
+                self.last_report
+                    .as_ref()
+                    .and_then(|report| report.scanned_at),
                 Utc::now(),
             )
         } else {
@@ -226,9 +255,7 @@ impl AppStore {
         cx.notify();
 
         cx.spawn(async move |weak, cx| {
-            let result = cx
-                .background_spawn(async move { purge_all_trash() })
-                .await;
+            let result = cx.background_spawn(async move { purge_all_trash() }).await;
             weak.update(cx, |store, cx| {
                 store.purging_trash = false;
                 let i18n = store.i18n();
@@ -340,6 +367,11 @@ impl AppStore {
             return;
         }
         self.page = page;
+        if page == AppPage::Apps {
+            // Entering the apps view refreshes a stale (≥24h) or missing
+            // report; a fresh one is reused (PRD §5.2).
+            self.ensure_app_scan(cx);
+        }
         cx.notify();
     }
 
@@ -375,6 +407,9 @@ impl AppStore {
                 CleanupBucket::SharedToolCache => counts[3] += 1,
                 CleanupBucket::DevEnvironment => counts[4] += 1,
                 CleanupBucket::AiGenerated => counts[5] += 1,
+                // App-residue items live in the apps view's own report and
+                // never appear in `last_report.items`.
+                CleanupBucket::AppResidue => {}
             }
         }
         counts
@@ -530,6 +565,218 @@ impl AppStore {
         }
         self.status_message = Some(self.i18n().cleanup_cancelling().into());
         cx.notify();
+    }
+
+    // ── App uninstaller (apps view) ────────────────────────────────────────
+
+    /// Scan on entry only when the cached report is missing or older than
+    /// 24 hours.
+    fn ensure_app_scan(&mut self, cx: &mut Context<Self>) {
+        if self.app_scanning {
+            return;
+        }
+        if self
+            .app_report
+            .as_ref()
+            .is_some_and(|r| r.is_fresh_within(24))
+        {
+            return;
+        }
+        self.start_app_scan(cx);
+    }
+
+    pub fn start_app_scan(&mut self, cx: &mut Context<Self>) {
+        if self.app_scanning {
+            return;
+        }
+        self.app_scanning = true;
+        self.app_scan_current_path = None;
+        self.app_scan_apps_found = 0;
+        self.status_message = Some(self.i18n().app_scan_start_message().into());
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.app_scan_cancel = Some(cancel.clone());
+        cx.notify();
+        self.notify_progress_only(cx);
+
+        let job = spawn_app_scan(cancel);
+
+        cx.spawn(async move |weak, cx| {
+            let mut finished = false;
+            while !finished {
+                match poll_app_scan(&job.rx) {
+                    AppScanPoll::Done(report) => {
+                        weak.update(cx, |store, cx| {
+                            store.app_scanning = false;
+                            store.app_scan_cancel = None;
+                            store.app_scan_current_path = None;
+                            store.app_scan_apps_found = 0;
+                            store.app_report = Some(report.clone());
+                            let _ = save_last_app_scan(&report);
+                            // Default checks: precise Safe residue plus every
+                            // broken link; the bundle joins via the CTA.
+                            let mut selected: HashSet<String> = report
+                                .apps
+                                .iter()
+                                .flat_map(|a| a.default_selected_related_ids())
+                                .collect();
+                            selected.extend(report.stray_executables.iter().map(|i| i.id.clone()));
+                            store.app_selected_item_ids = selected;
+                            if let Some(current) = &store.app_report {
+                                if store
+                                    .selected_app_id
+                                    .as_ref()
+                                    .is_none_or(|id| !current.apps.iter().any(|a| &a.id == id))
+                                {
+                                    store.selected_app_id =
+                                        current.apps.first().map(|a| a.id.clone());
+                                }
+                            }
+                            store.status_message = Some(if report.cancelled {
+                                store.i18n().app_scan_cancelled().into()
+                            } else {
+                                store.i18n().app_scan_complete().into()
+                            });
+                            cx.notify();
+                        })
+                        .ok();
+                        finished = true;
+                    }
+                    AppScanPoll::Progress(progress) => {
+                        weak.update(cx, |store, cx| {
+                            store.app_scan_apps_found = progress.apps_found;
+                            store.app_scan_current_path =
+                                progress.current_path.map(|p| truncate_path_display(&p, 96));
+                            store.notify_progress_only(cx);
+                        })
+                        .ok();
+                    }
+                    AppScanPoll::Disconnected => {
+                        weak.update(cx, |store, cx| {
+                            store.app_scanning = false;
+                            store.app_scan_cancel = None;
+                            store.app_scan_current_path = None;
+                            store.app_scan_apps_found = 0;
+                            store.status_message = Some(store.i18n().app_scan_interrupted().into());
+                            cx.notify();
+                        })
+                        .ok();
+                        finished = true;
+                    }
+                    AppScanPoll::Idle => {}
+                }
+
+                if finished {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+            }
+        })
+        .detach();
+    }
+
+    pub fn cancel_app_scan(&mut self, cx: &mut Context<Self>) {
+        if let Some(flag) = &self.app_scan_cancel {
+            flag.store(true, Ordering::Relaxed);
+        }
+        self.status_message = Some(self.i18n().app_scan_cancelling().into());
+        cx.notify();
+    }
+
+    /// The app currently shown in the detail pane.
+    pub fn selected_app(&self) -> Option<&AppEntry> {
+        let report = self.app_report.as_ref()?;
+        let id = self.selected_app_id.as_ref()?;
+        report.apps.iter().find(|a| &a.id == id)
+    }
+
+    pub fn is_app_item_selected(&self, id: &str) -> bool {
+        self.app_selected_item_ids.contains(id)
+    }
+
+    pub fn set_app_item_selected(&mut self, id: &str, selected: bool) {
+        if selected {
+            self.app_selected_item_ids.insert(id.to_string());
+        } else {
+            self.app_selected_item_ids.remove(id);
+        }
+    }
+
+    pub fn toggle_app_item(&mut self, id: &str) {
+        if self.app_selected_item_ids.contains(id) {
+            self.app_selected_item_ids.remove(id);
+        } else {
+            self.app_selected_item_ids.insert(id.to_string());
+        }
+    }
+
+    /// Check / uncheck every non-protected related item of one category group.
+    pub fn set_app_group_selected(
+        &mut self,
+        app: &AppEntry,
+        category: clv_core::CleanupCategory,
+        selected: bool,
+    ) {
+        for related in &app.related_items {
+            if related.item.category == category && related.item.risk != RiskLevel::Protected {
+                let id = related.item.id.clone();
+                self.set_app_item_selected(&id, selected);
+            }
+        }
+    }
+
+    /// Checked related items of `app` (used by the uninstall CTA).
+    pub fn selected_app_items(&self, app: &AppEntry) -> Vec<ScanItem> {
+        app.related_items
+            .iter()
+            .filter(|r| self.is_app_item_selected(&r.item.id))
+            .map(|r| r.item.clone())
+            .collect()
+    }
+
+    /// Checked broken CLI links.
+    pub fn selected_stray_executables(&self) -> Vec<ScanItem> {
+        self.app_report
+            .as_ref()
+            .map(|r| {
+                r.stray_executables
+                    .iter()
+                    .filter(|i| self.is_app_item_selected(&i.id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Items checked inside the apps view, regardless of the shown app.
+    fn all_app_selected_items(&self) -> Vec<ScanItem> {
+        let mut items = self
+            .app_report
+            .as_ref()
+            .map(|r| {
+                r.apps
+                    .iter()
+                    .flat_map(|a| a.related_items.iter().map(|r| &r.item))
+                    .chain(r.stray_executables.iter())
+                    .filter(|i| self.is_app_item_selected(&i.id))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        items.sort_by(|a, b| a.path.cmp(&b.path));
+        items
+    }
+
+    pub fn app_selected_bytes(&self) -> u64 {
+        self.all_app_selected_items()
+            .iter()
+            .map(|i| i.size_bytes)
+            .sum()
+    }
+
+    pub fn app_selected_count(&self) -> usize {
+        self.all_app_selected_items().len()
     }
 
     pub fn start_scan(&mut self, cx: &mut Context<Self>) {
@@ -703,11 +950,11 @@ impl AppStore {
                                     .i18n()
                                     .cleanup_summary(&result, store.settings.soft_delete),
                             );
-                            store.pending_cleanup_notification = Some(
-                                store
-                                    .i18n()
-                                    .cleanup_complete_notification(&result, store.settings.soft_delete),
-                            );
+                            store.pending_cleanup_notification =
+                                Some(store.i18n().cleanup_complete_notification(
+                                    &result,
+                                    store.settings.soft_delete,
+                                ));
 
                             let record = CleanupHistoryRecord {
                                 timestamp: Utc::now(),
@@ -721,7 +968,7 @@ impl AppStore {
                             store.refresh_pending_trash(cx);
 
                             if let Some(current) = &mut store.last_report {
-                                let removed: HashSet<_> = removed_paths.into_iter().collect();
+                                let removed: HashSet<&PathBuf> = removed_paths.iter().collect();
                                 current.items.retain(|i| !removed.contains(&i.path));
                                 current.large_files.retain(|f| !removed.contains(&f.path));
                                 let roots: Vec<PathBuf> = current
@@ -735,6 +982,53 @@ impl AppStore {
                                     .selected_item_ids
                                     .retain(|id| current.items.iter().any(|i| &i.id == id));
                                 let _ = save_last_scan(current);
+                            }
+
+                            // Mirror the retention onto the apps view report:
+                            // drop cleaned residue / links, drop fully
+                            // uninstalled apps, and recompute totals.
+                            if let Some(app_report) = &mut store.app_report {
+                                let removed: HashSet<_> = removed_paths.iter().collect();
+                                app_report
+                                    .stray_executables
+                                    .retain(|i| !removed.contains(&i.path));
+                                for app in &mut app_report.apps {
+                                    app.related_items
+                                        .retain(|r| !removed.contains(&r.item.path));
+                                }
+                                app_report.apps.retain(|app| {
+                                    let binary_removed =
+                                        app.app_path.as_ref().is_some_and(|p| removed.contains(p));
+                                    let cleaned_out = app.related_items.is_empty();
+                                    // Fully uninstalled apps and fully
+                                    // cleaned orphan entities drop off the
+                                    // list.
+                                    !(binary_removed && cleaned_out
+                                        || app.app_path.is_none() && cleaned_out)
+                                });
+                                for app in &mut app_report.apps {
+                                    app.size_bytes = app.binary_size_bytes + app.residue_bytes();
+                                }
+                                let live_ids: HashSet<String> = app_report
+                                    .apps
+                                    .iter()
+                                    .flat_map(|a| a.related_items.iter().map(|r| r.item.id.clone()))
+                                    .chain(
+                                        app_report.stray_executables.iter().map(|i| i.id.clone()),
+                                    )
+                                    .collect();
+                                store
+                                    .app_selected_item_ids
+                                    .retain(|id| live_ids.contains(id));
+                                if store
+                                    .selected_app_id
+                                    .as_ref()
+                                    .is_some_and(|id| !app_report.apps.iter().any(|a| &a.id == id))
+                                {
+                                    store.selected_app_id =
+                                        app_report.apps.first().map(|a| a.id.clone());
+                                }
+                                let _ = save_last_app_scan(app_report);
                             }
 
                             store.refresh_disk_usage_async(cx);
@@ -776,7 +1070,13 @@ impl AppStore {
             let restore_result = cx
                 .background_spawn({
                     let entry = entry.clone();
-                    async move { restore_trashed(&entry) }
+                    async move {
+                        if entry.kind == TrashedEntryKind::RegistryKey {
+                            clv_platform::restore_registry_backup(&entry)
+                        } else {
+                            restore_trashed(&entry)
+                        }
+                    }
                 })
                 .await;
             weak.update(cx, |store, cx| {
@@ -788,8 +1088,7 @@ impl AppStore {
                         store.status_message = Some(store.i18n().restore_ok(&entry.name));
                     }
                     Err(e) => {
-                        store.status_message =
-                            Some(store.i18n().restore_failed(&e.to_string()));
+                        store.status_message = Some(store.i18n().restore_failed(&e.to_string()));
                     }
                 }
                 cx.notify();
@@ -802,6 +1101,39 @@ impl AppStore {
     /// Delete only these items. Does not merge with Cleanup page selection.
     pub fn cleanup_paths(&mut self, items: Vec<ScanItem>, cx: &mut Context<Self>) -> bool {
         self.start_cleanup(items, cx)
+    }
+
+    /// Windows uninstall orchestration (Revo-style three stages): run the
+    /// official uninstaller, wait for it to exit, then rescan residue so the
+    /// user can clean what the uninstaller left behind. The button is only
+    /// rendered when `uninstall_string` is present.
+    pub fn run_app_uninstaller(&mut self, app: AppEntry, cx: &mut Context<Self>) {
+        let Some(command) = app.uninstall_string.clone() else {
+            return;
+        };
+        self.status_message = Some(self.i18n().app_uninstaller_running(&app.name));
+        cx.notify();
+        cx.spawn(async move |weak, cx| {
+            let result = cx
+                .background_spawn(async move { clv_platform::run_uninstaller(&command) })
+                .await;
+            weak.update(cx, |store, cx| {
+                match result {
+                    Ok(code) => {
+                        store.status_message = Some(store.i18n().app_uninstaller_finished(code));
+                        // Stage 3: rescan residue after the uninstaller exits.
+                        store.start_app_scan(cx);
+                    }
+                    Err(error) => {
+                        store.status_message =
+                            Some(store.i18n().app_uninstaller_failed(&error.to_string()));
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub fn finish_onboarding(

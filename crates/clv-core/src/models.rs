@@ -44,6 +44,9 @@ pub enum CleanupBucket {
     DevEnvironment,
     /// Cursor / Claude 等 AI 工具的会话、缓存与试验项目相关文件。
     AiGenerated,
+    /// 应用清理页专属：以应用为中心识别的本体与 Library 关联残留。
+    /// 不进入主清理视图的过滤器，只在应用清理页展示。
+    AppResidue,
 }
 
 pub fn item_cleanup_bucket(item: &ScanItem) -> CleanupBucket {
@@ -155,7 +158,10 @@ impl ScanReport {
     }
 
     pub fn safe_item_count(&self) -> usize {
-        self.items.iter().filter(|i| i.risk == RiskLevel::Safe).count()
+        self.items
+            .iter()
+            .filter(|i| i.risk == RiskLevel::Safe)
+            .count()
     }
 }
 

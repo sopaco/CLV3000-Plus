@@ -8,8 +8,9 @@ use crate::theme::apply_theme;
 use crate::theme::colors;
 use crate::tray::take_scan_request;
 use crate::views::{
-    agent::AgentView, cleanup::CleanupView, dashboard::DashboardView, large_files::LargeFilesView,
-    onboarding::OnboardingView, process::ProcessView, settings::SettingsView, startup::StartupView,
+    agent::AgentView, apps::AppsView, cleanup::CleanupView, dashboard::DashboardView,
+    large_files::LargeFilesView, onboarding::OnboardingView, process::ProcessView,
+    settings::SettingsView, startup::StartupView,
 };
 use clv_core::{ThemePreference, load_settings};
 use gpui_kit::Subscription;
@@ -26,6 +27,7 @@ pub struct ClvApp {
     startup: Option<Entity<StartupView>>,
     process: Option<Entity<ProcessView>>,
     large_files: Option<Entity<LargeFilesView>>,
+    apps: Option<Entity<AppsView>>,
     settings: Option<Entity<SettingsView>>,
     onboarding: Option<Entity<OnboardingView>>,
     /// Keeps the OS appearance watcher alive for the app's lifetime.
@@ -85,6 +87,7 @@ impl ClvApp {
             startup: None,
             process: None,
             large_files: None,
+            apps: None,
             settings: None,
             onboarding: None,
             _theme_subscription: theme_subscription,
@@ -145,6 +148,15 @@ impl ClvApp {
         view
     }
 
+    fn apps(&mut self, cx: &mut Context<Self>) -> Entity<AppsView> {
+        if let Some(view) = &self.apps {
+            return view.clone();
+        }
+        let view = cx.new(|cx| AppsView::new(self.store.clone(), cx));
+        self.apps = Some(view.clone());
+        view
+    }
+
     fn settings_view(&mut self, cx: &mut Context<Self>) -> Entity<SettingsView> {
         if let Some(view) = &self.settings {
             return view.clone();
@@ -197,6 +209,7 @@ impl ClvApp {
             AppPage::Startup => self.startup(cx).into_any_element(),
             AppPage::Process => self.process(cx).into_any_element(),
             AppPage::LargeFiles => self.large_files(cx).into_any_element(),
+            AppPage::Apps => self.apps(cx).into_any_element(),
             AppPage::Settings => self.settings_view(cx).into_any_element(),
             AppPage::Onboarding => self.onboarding(cx).into_any_element(),
         }
@@ -296,6 +309,14 @@ impl Render for ClvApp {
                                 ui::NAV_LARGE_FILES,
                                 i18n.nav_large_files(),
                                 AppPage::LargeFiles,
+                                window,
+                                cx,
+                            ))
+                            .child(self.nav_icon(
+                                "nav-apps",
+                                ui::NAV_APPS,
+                                i18n.nav_apps(),
+                                AppPage::Apps,
                                 window,
                                 cx,
                             )),

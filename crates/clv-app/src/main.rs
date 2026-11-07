@@ -128,10 +128,15 @@ fn main() {
 
 fn window_options(cx: &App) -> WindowOptions {
     WindowOptions {
-        window_bounds: Some(WindowBounds::centered(size(px(1280.), px(720.)), cx)),
+        // The sidebar needs ~852px unshrunk (title bar 34 + logo 88 + seven
+        // 86px nav items + gaps + settings 98); 920 keeps a comfortable
+        // margin and clamps gracefully to shorter displays (Bounds::centered
+        // caps the request at the visible bounds).
+        window_bounds: Some(WindowBounds::centered(size(px(1280.), px(920.)), cx)),
         // Keep the three-column shell usable: below this the sidebar and the
-        // detail pane start overlapping.
-        window_min_size: Some(size(px(1024.), px(640.))),
+        // detail pane start overlapping. The nav column compresses its items
+        // to the 72px minimum at ~738px, so 800 is a safe floor.
+        window_min_size: Some(size(px(1024.), px(800.))),
         titlebar: Some(TitleBar::title_bar_options()),
         ..WindowOptions::default()
     }

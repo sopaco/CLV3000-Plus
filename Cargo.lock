@@ -1019,6 +1019,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "directories",
+ "plist",
  "serde",
  "serde_json",
  "sys-locale",
@@ -1033,6 +1034,7 @@ name = "clv-platform"
 version = "1.2.5"
 dependencies = [
  "anyhow",
+ "clv-core",
  "directories",
  "libc",
  "plist",
@@ -1040,6 +1042,7 @@ dependencies = [
  "serde",
  "sysinfo 0.39.6",
  "tracing",
+ "walkdir",
  "windows-sys 0.59.0",
  "winreg",
 ]

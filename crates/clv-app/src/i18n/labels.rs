@@ -1,6 +1,6 @@
 use clv_core::{
-    localized_text_matches_query, tr, CleanupBucket, CleanupCategory, Language, RiskLevel,
-    RuleDescription, TechStack,
+    CleanupBucket, CleanupCategory, Language, RiskLevel, RuleDescription, TechStack,
+    localized_text_matches_query, tr,
 };
 use clv_platform::{ProcessCategory, StartupImpact, StartupKind};
 
@@ -128,6 +128,20 @@ pub fn scan_category_label(lang: Language, category: CleanupCategory) -> &'stati
             "Provider Cache",
             "Provider キャッシュ",
         ),
+        AppBinary => tr(lang, "应用本体", "App Bundle", "アプリ本体"),
+        AppSupport => tr(lang, "配置与数据", "App Data", "設定とデータ"),
+        AppCache => tr(lang, "应用缓存", "App Cache", "アプリキャッシュ"),
+        AppPreference => tr(lang, "偏好设置", "App Preferences", "環境設定"),
+        AppContainer => tr(lang, "应用容器", "App Container", "アプリコンテナ"),
+        AppGroupContainer => tr(lang, "组容器", "Group Container", "グループコンテナ"),
+        AppSavedState => tr(lang, "窗口状态", "Saved State", "ウィンドウ状態"),
+        AppWebData => tr(lang, "网页数据", "App Web Data", "ウェブデータ"),
+        AppLaunchItem => tr(lang, "启动项", "Launch Item", "起動項目"),
+        AppLog => tr(lang, "应用日志", "App Logs", "アプリログ"),
+        StrayExecutable => tr(lang, "失效链接", "Broken Link", "無効リンク"),
+        OrphanResidue => tr(lang, "游离残留", "Orphan Residue", "孤立残留"),
+        RegistryLeftover => tr(lang, "注册表残留", "Registry Residue", "レジストリ残留"),
+        AppShortcut => tr(lang, "快捷方式", "Shortcut", "ショートカット"),
     }
 }
 
@@ -151,5 +165,6 @@ pub fn cleanup_bucket_label(lang: Language, bucket: CleanupBucket) -> &'static s
         ),
         CleanupBucket::DevEnvironment => tr(lang, "环境与依赖", "Dev Environment", "環境と依存"),
         CleanupBucket::AiGenerated => tr(lang, "AI 工具数据", "AI Tool Data", "AI ツールデータ"),
+        CleanupBucket::AppResidue => tr(lang, "应用残留", "App Residue", "アプリ残留"),
     }
 }

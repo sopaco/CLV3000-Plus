@@ -94,6 +94,17 @@ pub fn kill_process(pid: u32) -> anyhow::Result<()> {
     }
 }
 
+/// Executable paths of all live processes. The app-uninstaller scanner uses
+/// these to flag running applications (bundle-path prefix match).
+pub fn running_executable_paths() -> Vec<std::path::PathBuf> {
+    let sys = System::new_all();
+    sys.processes()
+        .values()
+        .filter(|p| is_listable_process(p.status()))
+        .filter_map(|p| p.exe().map(std::path::PathBuf::from))
+        .collect()
+}
+
 #[cfg(unix)]
 fn kill_process_unix(pid: u32) -> anyhow::Result<()> {
     let pid_s = pid.to_string();

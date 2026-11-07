@@ -60,6 +60,7 @@ impl I18n {
             AppPage::Startup => self.t("启动项管理", "Startup Items", "起動項目"),
             AppPage::Process => self.t("进程管理", "Processes", "プロセス管理"),
             AppPage::LargeFiles => self.t("大文件", "Large Files", "大容量ファイル"),
+            AppPage::Apps => self.t("应用清理", "App Cleanup", "アプリクリーンアップ"),
             AppPage::Settings => self.t("设置", "Settings", "設定"),
             AppPage::Onboarding => self.t("欢迎", "Welcome", "ようこそ"),
         }
@@ -1708,5 +1709,291 @@ impl I18n {
 
     pub fn filter_with_count(&self, label: &str, count: usize) -> String {
         format!("{label} ({count})")
+    }
+
+    // ── App uninstaller (apps view) ──────────────────────────────────────
+
+    pub fn nav_apps(&self) -> &'static str {
+        self.t("应用", "Apps", "アプリ")
+    }
+
+    pub fn apps_title(&self) -> &'static str {
+        self.t("应用清理", "App Cleanup", "アプリクリーンアップ")
+    }
+
+    pub fn apps_subtitle(&self) -> &'static str {
+        self.t(
+            "以应用为中心识别本体与关联残留，打包移入回收区",
+            "App-centric detection of bundles and related residue, moved to the recycle area in one pass",
+            "アプリ単位で本体と関連残留を検出し、ゴミ箱へまとめて移動します",
+        )
+    }
+
+    pub fn apps_scan_button(&self) -> &'static str {
+        self.t("扫描应用", "Scan Apps", "アプリをスキャン")
+    }
+
+    pub fn apps_rescan(&self) -> &'static str {
+        self.t("重新扫描", "Rescan", "再スキャン")
+    }
+
+    pub fn apps_search_placeholder(&self) -> &'static str {
+        self.t("搜索应用", "Search apps", "アプリを検索")
+    }
+
+    pub fn app_scan_start_message(&self) -> &'static str {
+        self.t(
+            "正在扫描应用…",
+            "Scanning applications…",
+            "アプリをスキャンしています…",
+        )
+    }
+
+    pub fn app_scan_complete(&self) -> &'static str {
+        self.t(
+            "应用扫描完成",
+            "App scan complete",
+            "アプリスキャンが完了しました",
+        )
+    }
+
+    pub fn app_scan_cancelled(&self) -> &'static str {
+        self.t(
+            "应用扫描已停止",
+            "App scan stopped",
+            "アプリスキャンを停止しました",
+        )
+    }
+
+    pub fn app_scan_cancelling(&self) -> &'static str {
+        self.t(
+            "正在停止应用扫描…",
+            "Stopping app scan…",
+            "アプリスキャンを停止しています…",
+        )
+    }
+
+    pub fn app_scan_interrupted(&self) -> &'static str {
+        self.t(
+            "应用扫描中断",
+            "App scan interrupted",
+            "アプリスキャンが中断されました",
+        )
+    }
+
+    pub fn app_scanning_status(&self, found: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("正在扫描应用… 已发现 {found} 个"),
+            Language::En => format!("Scanning apps… {found} found"),
+            Language::Ja => format!("アプリをスキャン中… {found} 件検出"),
+        }
+    }
+
+    pub fn apps_last_scanned(&self, when: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("上次扫描：{when}"),
+            Language::En => format!("Last scanned: {when}"),
+            Language::Ja => format!("最終スキャン：{when}"),
+        }
+    }
+
+    pub fn apps_empty_title(&self) -> &'static str {
+        self.t("未发现应用", "No apps found", "アプリが見つかりません")
+    }
+
+    pub fn apps_empty_hint(&self) -> &'static str {
+        self.t(
+            "重新扫描以枚举已安装与游离应用",
+            "Rescan to enumerate installed and stray apps",
+            "再スキャンでインストール済みと散在アプリを列挙します",
+        )
+    }
+
+    pub fn apps_count(&self, count: usize) -> String {
+        match self.lang {
+            Language::Zh => format!("{count} 个应用"),
+            Language::En => format!("{count} apps"),
+            Language::Ja => format!("{count} 個のアプリ"),
+        }
+    }
+
+    pub fn apps_reclaimable(&self, bytes: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("可回收 {bytes}"),
+            Language::En => format!("{bytes} reclaimable"),
+            Language::Ja => format!("回収可能 {bytes}"),
+        }
+    }
+
+    pub fn app_source_installed(&self) -> &'static str {
+        self.t("已安装", "Installed", "インストール済み")
+    }
+
+    pub fn app_source_stray(&self) -> &'static str {
+        self.t("游离应用", "Stray app", "散在アプリ")
+    }
+
+    pub fn app_source_orphan(&self) -> &'static str {
+        self.t("游离残留", "Orphan residue", "孤立残留")
+    }
+
+    pub fn app_stray_link(&self) -> &'static str {
+        self.t("失效链接", "Broken link", "無効リンク")
+    }
+
+    pub fn app_running_badge(&self) -> &'static str {
+        self.t("运行中", "Running", "実行中")
+    }
+
+    pub fn app_running_hint(&self) -> &'static str {
+        self.t(
+            "应用正在运行，请退出后再卸载；关联项仍可清理",
+            "The app is running — quit it before uninstalling; related items can still be cleaned",
+            "アプリが実行中です。終了してからアンインストールしてください。関連項目は削除できます",
+        )
+    }
+
+    pub fn app_related_header(&self) -> &'static str {
+        self.t(
+            "关联清理项",
+            "Related Cleanup Items",
+            "関連クリーンアップ項目",
+        )
+    }
+
+    pub fn app_related_empty(&self) -> &'static str {
+        self.t(
+            "未发现关联残留",
+            "No related residue found",
+            "関連残留は見つかりません",
+        )
+    }
+
+    pub fn app_version_label(&self) -> &'static str {
+        self.t("版本", "Version", "バージョン")
+    }
+
+    pub fn app_publisher_label(&self) -> &'static str {
+        self.t("发布者", "Publisher", "発行者")
+    }
+
+    pub fn app_path_label(&self) -> &'static str {
+        self.t("路径", "Path", "パス")
+    }
+
+    pub fn app_total_size_label(&self) -> &'static str {
+        self.t("总体积", "Total Size", "合計サイズ")
+    }
+
+    pub fn app_bundle_size_label(&self) -> &'static str {
+        self.t("应用本体", "App Bundle", "アプリ本体")
+    }
+
+    pub fn app_residue_size_label(&self) -> &'static str {
+        self.t("关联残留", "Related Residue", "関連残留")
+    }
+
+    pub fn app_fuzzy_badge(&self) -> &'static str {
+        self.t("模糊匹配", "Fuzzy match", "あいまい一致")
+    }
+
+    pub fn app_selected_summary(&self, count: usize, bytes: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("已选 {count} 项 · {bytes}"),
+            Language::En => format!("{count} selected · {bytes}"),
+            Language::Ja => format!("{count} 件選択 · {bytes}"),
+        }
+    }
+
+    pub fn app_uninstall_cta(&self) -> &'static str {
+        self.t(
+            "卸载并清理",
+            "Uninstall & Clean",
+            "アンインストールして削除",
+        )
+    }
+
+    pub fn app_clean_residue_cta(&self) -> &'static str {
+        self.t(
+            "清理所选残留",
+            "Clean Selected Residue",
+            "選択した残留を削除",
+        )
+    }
+
+    pub fn app_run_uninstaller_cta(&self) -> &'static str {
+        self.t("运行卸载器", "Run Uninstaller", "アンインストーラーを実行")
+    }
+
+    pub fn app_uninstaller_running(&self, name: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("正在运行 {name} 的卸载器…"),
+            Language::En => format!("Running the uninstaller for {name}…"),
+            Language::Ja => format!("{name} のアンインストーラーを実行しています…"),
+        }
+    }
+
+    pub fn app_uninstaller_finished(&self, code: i32) -> String {
+        match self.lang {
+            Language::Zh => format!("卸载器已退出（代码 {code}），正在重新扫描残留…"),
+            Language::En => format!("Uninstaller exited (code {code}); rescanning residue…"),
+            Language::Ja => format!(
+                "アンインストーラーが終了しました（コード {code}）。残留を再スキャンしています…"
+            ),
+        }
+    }
+
+    pub fn app_uninstaller_failed(&self, error: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("无法启动卸载器：{error}"),
+            Language::En => format!("Could not launch the uninstaller: {error}"),
+            Language::Ja => format!("アンインストーラーを起動できませんでした：{error}"),
+        }
+    }
+
+    pub fn app_clean_links_cta(&self) -> &'static str {
+        self.t("清理失效链接", "Clean Broken Links", "無効リンクを削除")
+    }
+
+    pub fn app_confirm_uninstall_title(&self) -> &'static str {
+        self.t(
+            "卸载应用？",
+            "Uninstall app?",
+            "アプリをアンインストールしますか？",
+        )
+    }
+
+    pub fn app_confirm_cleanup_title(&self) -> &'static str {
+        self.t(
+            "清理所选项目？",
+            "Clean selected items?",
+            "選択した項目を削除しますか？",
+        )
+    }
+
+    pub fn app_confirm_uninstall_body(&self, name: &str, count: usize, bytes: &str) -> String {
+        match self.lang {
+            Language::Zh => format!(
+                "将把「{name}」的本体与 {count} 项关联内容（共 {bytes}）移入回收区，可在设置中恢复。"
+            ),
+            Language::En => format!(
+                "Move the bundle of “{name}” plus {count} related items ({bytes} total) to the recycle area. You can restore them in Settings."
+            ),
+            Language::Ja => format!(
+                "「{name}」の本体と関連項目 {count} 件（合計 {bytes}）をゴミ箱へ移動します。設定から復元できます。"
+            ),
+        }
+    }
+
+    pub fn app_confirm_cleanup_body(&self, count: usize, bytes: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("将把 {count} 项（{bytes}）移入回收区，可在设置中恢复。"),
+            Language::En => format!(
+                "Move {count} items ({bytes}) to the recycle area. You can restore them in Settings."
+            ),
+            Language::Ja => {
+                format!("{count} 件（{bytes}）をゴミ箱へ移動します。設定から復元できます。")
+            }
+        }
     }
 }

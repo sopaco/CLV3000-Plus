@@ -5,17 +5,17 @@ use crate::locale::{
 use crate::messages::AgentReasonPart;
 use crate::models::{RiskLevel, ScanItem, ScanProgress, ScanReport, TechStack};
 use crate::settings::{
-    agent_marker_files, agent_name_patterns, global_cache_rules, is_protected_system_path,
-    project_marker_files, project_rules, resolve_global_path, AppSettings, CleanupRule,
+    AppSettings, CleanupRule, agent_marker_files, agent_name_patterns, global_cache_rules,
+    is_protected_system_path, project_marker_files, project_rules, resolve_global_path,
 };
 use chrono::{DateTime, Utc};
-use walkdir::WalkDir;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+use walkdir::WalkDir;
 
 /// Ignore scan hits smaller than this threshold to reduce list noise.
 pub const MIN_SCAN_ITEM_BYTES: u64 = 1024 * 1024;
@@ -181,8 +181,7 @@ impl Scanner {
 
         if self.settings.include_agent_heuristics {
             let extra: Vec<PathBuf> = agent_roots.into_iter().collect();
-            report.agent_projects =
-                crate::agent::detect_agent_projects(&report.items, &extra);
+            report.agent_projects = crate::agent::detect_agent_projects(&report.items, &extra);
             self.tag_agent_items(&mut report);
         }
 
@@ -446,7 +445,7 @@ fn is_inaccessible_path(path: &Path) -> bool {
     false
 }
 
-fn dir_size(path: &Path, cancel: &AtomicBool) -> (u64, bool) {
+pub(crate) fn dir_size(path: &Path, cancel: &AtomicBool) -> (u64, bool) {
     if path.is_file() {
         return (path.metadata().map(|m| m.len()).unwrap_or(0), false);
     }
@@ -665,7 +664,11 @@ fn has_glob(dir: &Path, pattern: &str) -> bool {
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
-        .any(|e| e.path().extension().is_some_and(|x| ext.trim_start_matches('.') == x.to_string_lossy()))
+        .any(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|x| ext.trim_start_matches('.') == x.to_string_lossy())
+        })
 }
 
 #[cfg(test)]
@@ -697,10 +700,16 @@ mod tests {
             item("/other/node_modules"),
             item("/other/node_modules/.cache"),
         ]);
-        let paths: Vec<_> = kept.iter().map(|i| i.path.to_string_lossy().to_string()).collect();
+        let paths: Vec<_> = kept
+            .iter()
+            .map(|i| i.path.to_string_lossy().to_string())
+            .collect();
         assert_eq!(
             paths,
-            vec!["/other/node_modules".to_string(), "/proj/target".to_string()]
+            vec![
+                "/other/node_modules".to_string(),
+                "/proj/target".to_string()
+            ]
         );
     }
 }

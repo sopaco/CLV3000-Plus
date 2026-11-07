@@ -138,5 +138,19 @@
   "Safari 浏览器缓存（macOS），可安全清理": ["Safari browser cache (macOS); safe to clean", "Safari ブラウザキャッシュ（macOS）。安全に削除できます"],
   "Chrome 浏览器缓存，可安全清理": ["Chrome browser cache; safe to clean", "Chrome ブラウザキャッシュ。安全に削除できます"],
   "Edge 浏览器缓存，可安全清理": ["Microsoft Edge browser cache; safe to clean", "Microsoft Edge ブラウザキャッシュ。安全に削除できます"],
-  "Firefox 浏览器缓存，可安全清理": ["Firefox browser cache; safe to clean", "Firefox ブラウザキャッシュ。安全に削除できます"]
+  "Firefox 浏览器缓存，可安全清理": ["Firefox browser cache; safe to clean", "Firefox ブラウザキャッシュ。安全に削除できます"],
+  "应用本体，移除后应用无法使用，可从回收区恢复": ["Application bundle; the app stops working after removal and can be restored from the recycle area", "アプリ本体。削除後はアプリを使用できませんが、ゴミ箱から復元できます"],
+  "应用配置与数据目录，删除后应用内数据与设置丢失": ["App configuration and data directory; in-app data and settings are lost after deletion", "アプリの設定とデータディレクトリ。削除後はアプリ内データと設定が失われます"],
+  "应用缓存，可安全清理，应用会自动重建": ["App cache; safe to clean, the app rebuilds it automatically", "アプリキャッシュ。安全に削除でき、アプリが自動的に再構築します"],
+  "应用偏好设置，删除后应用恢复默认设置": ["App preferences; the app falls back to default settings after deletion", "アプリの環境設定。削除後はデフォルト設定に戻ります"],
+  "应用沙箱容器数据，删除后应用内数据丢失": ["App sandbox container data; in-app data is lost after deletion", "アプリのサンドボックスコンテナデータ。削除後はアプリ内データが失われます"],
+  "应用组容器，可能被多个应用共享，建议确认后清理": ["App group container; may be shared by several apps, review before cleaning", "アプリグループコンテナ。複数アプリで共有される場合があります。確認してから削除してください"],
+  "应用窗口保存状态，删除后恢复默认窗口布局": ["Saved app window state; the app reopens with the default window layout after deletion", "アプリのウィンドウ状態。削除後はデフォルトのレイアウトで開きます"],
+  "应用网页数据（WebKit/存储/Cookie），删除后需重新登录网站": ["App web data (WebKit storage/cookies); websites require re-login after deletion", "アプリのウェブデータ（WebKit ストレージ/Cookie）。削除後はサイトへの再ログインが必要です"],
+  "应用登录启动项，删除后不再随登录自动启动": ["App login launch item; the app no longer starts automatically at login after deletion", "アプリのログイン起動項目。削除後はログイン時に自動起動しなくなります"],
+  "应用日志，可安全清理": ["App logs; safe to clean", "アプリログ。安全に削除できます"],
+  "失效的命令行链接，目标文件已不存在，可安全清理": ["Broken command-line symlink; its target no longer exists, safe to clean", "無効なコマンドラインシンボリックリンク。リンク先が存在せず、安全に削除できます"],
+  "无主应用残留数据，未匹配到任何已安装应用": ["Orphaned app residue; matched no installed application", "孤立したアプリ残留データ。対応するインストール済みアプリがありません"],
+  "应用注册表残留项，删除前会自动导出备份，可从清理历史还原": ["App registry residue; a backup is exported before deletion and can be restored from cleanup history", "アプリのレジストリ残留項目。削除前にバックアップへエクスポートされ、クリーンアップ履歴から復元できます"],
+  "应用快捷方式（开始菜单/桌面），删除后可由应用重新创建": ["App shortcut (Start Menu/Desktop); the app can recreate it after deletion", "アプリのショートカット（スタートメニュー/デスクトップ）。削除後もアプリが再作成できます"]
 }

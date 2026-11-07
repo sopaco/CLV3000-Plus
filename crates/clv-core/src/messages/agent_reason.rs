@@ -1,4 +1,4 @@
-use crate::locale::{localized_text_matches_query, Language, tr};
+use crate::locale::{Language, localized_text_matches_query, tr};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

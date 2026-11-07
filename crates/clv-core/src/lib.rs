@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod agent_sessions;
+pub mod apps;
 pub mod category;
 pub mod cleanup;
 pub mod large_files;
@@ -11,11 +12,16 @@ pub mod scanner;
 pub mod settings;
 
 pub use agent::detect_agent_projects;
+pub use apps::{
+    AppEntry, AppScanOptions, AppScanProgress, AppScanReport, AppSource, MatchQuality,
+    RegistryAppRecord, RegistryHive, RegistryResidueCandidate, RelatedItem, ResidueRoot,
+    ShortcutCandidate, WindowsScanInputs, scan_apps,
+};
 pub use category::CleanupCategory;
 pub use cleanup::{
     CleanupExecutor, CleanupHistory, CleanupHistoryRecord, CleanupProgress, CleanupReport,
-    TrashedEntry, cross_volume_bytes, purge_all_trash, purge_old_trash, restore_trashed,
-    trash_usage,
+    TrashedEntry, TrashedEntryKind, cross_volume_bytes, purge_all_trash, purge_old_trash,
+    restore_trashed, trash_usage,
 };
 pub use large_files::{LARGE_FILE_THRESHOLD_BYTES, LargeFileEntry};
 pub use locale::{
@@ -29,8 +35,9 @@ pub use messages::{
 pub use models::*;
 pub use scanner::Scanner;
 pub use settings::{
-    AppSettings, format_scan_paths, load_last_scan, load_settings, parse_scan_paths,
-    save_last_scan, save_settings, scan_reminder_days, trash_dir,
+    AppSettings, format_scan_paths, load_last_app_scan, load_last_scan, load_settings,
+    parse_scan_paths, save_last_app_scan, save_last_scan, save_settings, scan_reminder_days,
+    trash_dir,
 };
 
 #[cfg(test)]

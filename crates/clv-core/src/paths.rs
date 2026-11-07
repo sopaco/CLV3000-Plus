@@ -106,9 +106,7 @@ pub fn env_temp_dir() -> Option<PathBuf> {
         .or_else(|_| env::var("TMP"))
         .ok()
         .map(PathBuf::from)
-        .or_else(|| {
-            user_home_dir().map(|home| home.join("AppData").join("Local").join("Temp"))
-        })
+        .or_else(|| user_home_dir().map(|home| home.join("AppData").join("Local").join("Temp")))
 }
 
 pub fn expand_scan_path(line: &str) -> PathBuf {
@@ -259,13 +257,21 @@ mod tests {
 
         #[cfg(target_os = "windows")]
         {
-            assert!(joined.iter().any(|p| p.ends_with("source\\repos") || p.ends_with("source/repos")));
+            assert!(
+                joined
+                    .iter()
+                    .any(|p| p.ends_with("source\\repos") || p.ends_with("source/repos"))
+            );
             assert!(joined.iter().any(|p| p.contains("GitHub")));
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            assert!(joined.iter().any(|p| p.ends_with("Developer") || p.ends_with("developer")));
+            assert!(
+                joined
+                    .iter()
+                    .any(|p| p.ends_with("Developer") || p.ends_with("developer"))
+            );
         }
     }
 
