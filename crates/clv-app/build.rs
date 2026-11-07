@@ -51,14 +51,11 @@ fn embed_windows_resources() {
     let mut rc = fs::File::create(&rc_path).expect("create app-icon.rc");
     writeln!(rc, r#"1 ICON "assets/icons/icon_app.ico""#).expect("write icon resource");
 
-    let app_manifest = manifest_dir.join("app.manifest");
-    if app_manifest.exists() {
-        println!("cargo:rerun-if-changed={}", app_manifest.display());
-        // Resource type 24 (RT_MANIFEST), id 1 (CREATEPROCESS_MANIFEST_RESOURCE_ID).
-        writeln!(rc, r#"1 24 "app.manifest""#).expect("write manifest resource");
-    } else {
-        println!("cargo:warning=app.manifest missing; Windows resources skipped");
-    }
+    // Deliberately no RT_MANIFEST here: gpui-pre's default `windows-manifest`
+    // feature already embeds an id-1 manifest (PerMonitorV2 DPI, Common-Controls
+    // v6, SegmentHeap) into gpui.lib, and that feature cannot be disabled
+    // through gpui-kit's dependency graph. Embedding a second id-1 manifest
+    // makes MSVC fail with CVT1100 (duplicate resource MANIFEST) / LNK1123.
 
     // `manifest_optional` tolerates a missing resource compiler (cross builds),
     // which keeps `cargo check --target …-windows-msvc` working on macOS/Linux.
