@@ -145,6 +145,31 @@ impl AppScanReport {
         self.scanned_at
             .is_some_and(|at| Utc::now() - at < chrono::Duration::hours(hours))
     }
+
+    /// Reconciles a cached report with the filesystem after a cleanup.
+    ///
+    /// A successfully removed bundle leaves its entry behind when residue is
+    /// still pending (residue items are `Caution` and not pre-checked). Left
+    /// alone the row keeps claiming to be an installed app and keeps summing
+    /// the deleted bundle into `size_bytes`, which reads as "the app was not
+    /// deleted". Demoting such entries to residue-only (`AppSource::Orphan`,
+    /// no `app_path`, no bundle bytes) makes the list reflect reality while
+    /// keeping the leftover data reachable for cleanup.
+    pub fn normalize_install_state(&mut self) {
+        for app in &mut self.apps {
+            if app.app_path.as_ref().is_some_and(|path| !path.exists()) {
+                app.app_path = None;
+                app.binary_size_bytes = 0;
+                app.is_running = false;
+                app.uninstall_string = None;
+                app.source = AppSource::Orphan;
+            }
+            app.size_bytes = app.binary_size_bytes + app.residue_bytes();
+        }
+        // Drop entries that no longer represent anything on disk.
+        self.apps
+            .retain(|app| app.app_path.is_some() || !app.related_items.is_empty());
+    }
 }
 
 impl AppEntry {
@@ -2058,5 +2083,55 @@ mod tests {
         assert_eq!(items.len(), 1, "only the matching vendor directory");
         assert_eq!(items[0].item.name, "DemoApp");
         assert_eq!(items[0].item.risk, RiskLevel::Caution);
+    }
+
+    // ── Install-state reconciliation after cleanup ──────────────────────
+
+    #[test]
+    fn removed_bundle_demotes_entry_to_residue_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let apps = temp.path().join("Applications");
+        let library = temp.path().join("Library");
+        let bundle = write_bundle(&apps, Some("com.example.demo"), Some("Demo App"));
+        std::fs::create_dir_all(library.join("Application Support/com.example.demo")).unwrap();
+
+        let mut report = scan_apps(
+            &scan_opts(&[apps], &library),
+            &AtomicBool::new(false),
+            |_| {},
+        );
+        assert_eq!(report.apps[0].source, AppSource::Applications);
+        assert!(report.apps[0].binary_size_bytes > 0);
+
+        // Simulate the executor removing the bundle (residue untouched).
+        std::fs::remove_dir_all(&bundle).unwrap();
+        report.normalize_install_state();
+
+        let app = &report.apps[0];
+        assert!(app.app_path.is_none(), "bundle is gone");
+        assert_eq!(app.binary_size_bytes, 0, "no phantom bundle bytes");
+        assert_eq!(app.source, AppSource::Orphan, "no longer an installed app");
+        assert_eq!(app.size_bytes, app.residue_bytes());
+        assert!(!app.related_items.is_empty(), "residue stays reachable");
+    }
+
+    #[test]
+    fn normalize_drops_entries_with_neither_bundle_nor_residue() {
+        let temp = tempfile::tempdir().unwrap();
+        let apps = temp.path().join("Applications");
+        let library = temp.path().join("Library");
+        let bundle = write_bundle(&apps, Some("com.example.demo"), Some("Demo App"));
+
+        let mut report = scan_apps(
+            &scan_opts(&[apps], &library),
+            &AtomicBool::new(false),
+            |_| {},
+        );
+        assert_eq!(report.apps.len(), 1);
+
+        std::fs::remove_dir_all(&bundle).unwrap();
+        report.normalize_install_state();
+
+        assert!(report.apps.is_empty(), "fully removed apps disappear");
     }
 }

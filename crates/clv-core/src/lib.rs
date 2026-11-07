@@ -20,8 +20,8 @@ pub use apps::{
 pub use category::CleanupCategory;
 pub use cleanup::{
     CleanupExecutor, CleanupHistory, CleanupHistoryRecord, CleanupProgress, CleanupReport,
-    TrashedEntry, TrashedEntryKind, cross_volume_bytes, purge_all_trash, purge_old_trash,
-    restore_trashed, trash_usage,
+    FailedCleanupItem, TrashedEntry, TrashedEntryKind, cross_volume_bytes, purge_all_trash,
+    purge_old_trash, restore_trashed, trash_usage,
 };
 pub use large_files::{LARGE_FILE_THRESHOLD_BYTES, LargeFileEntry};
 pub use locale::{

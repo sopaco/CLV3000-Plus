@@ -957,6 +957,14 @@ fn render_group(
                         .child(format!("{} · {}", items.len(), format_bytes(group_bytes))),
                 ),
         )
+        .when(category == CleanupCategory::AppContainer, |this| {
+            this.child(
+                div()
+                    .text_sm()
+                    .text_color(colors::warn_orange())
+                    .child(i18n.app_container_protected_hint()),
+            )
+        })
         .children(
             items
                 .iter()

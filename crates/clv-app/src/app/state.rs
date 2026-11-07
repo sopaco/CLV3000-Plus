@@ -8,11 +8,12 @@ use crate::services::{
 use chrono::Utc;
 use clv_core::{
     AppEntry, AppScanReport, AppSettings, CleanupBucket, CleanupHistory, CleanupHistoryRecord,
-    Language, RiskLevel, ScanItem, ScanReport, TrashedEntry, TrashedEntryKind, cross_volume_bytes,
-    default_selected_item_ids, detect_agent_projects, format_bytes, item_cleanup_bucket,
-    load_last_app_scan, load_last_scan, purge_all_trash, purge_old_trash, resolve_language,
-    restore_trashed, rule_description_matches_query, save_last_app_scan, save_last_scan,
-    save_settings, scan_phase_preparing, scan_reminder_days, trash_dir, trash_usage,
+    FailedCleanupItem, Language, RiskLevel, ScanItem, ScanReport, TrashedEntry, TrashedEntryKind,
+    cross_volume_bytes, default_selected_item_ids, detect_agent_projects, format_bytes,
+    item_cleanup_bucket, load_last_app_scan, load_last_scan, purge_all_trash, purge_old_trash,
+    resolve_language, restore_trashed, rule_description_matches_query, save_last_app_scan,
+    save_last_scan, save_settings, scan_phase_preparing, scan_reminder_days, trash_dir,
+    trash_usage,
 };
 use clv_platform::{MountTable, pick_folders, primary_disk_usage};
 use std::collections::HashSet;
@@ -141,6 +142,13 @@ impl AppStore {
             None
         };
         let trash_days = settings.soft_delete_days;
+        // A cached app report may predate a cleanup (or a manual delete in
+        // Finder): demote entries whose bundle is gone before the first
+        // render, so rows never claim a deleted app is still installed.
+        let app_report = load_last_app_scan().map(|mut report| {
+            report.normalize_install_state();
+            report
+        });
 
         let mut store = Self {
             settings,
@@ -170,7 +178,7 @@ impl AppStore {
             pending_trash_count: 0,
             purging_trash: false,
             scan_reminder_days: scan_reminder,
-            app_report: load_last_app_scan(),
+            app_report,
             app_scanning: false,
             app_scan_current_path: None,
             app_scan_apps_found: 0,
@@ -184,6 +192,11 @@ impl AppStore {
             progress_hud: None,
         };
         store.purge_expired_trash(trash_days, cx);
+        // Persist the reconciliation so the cached report stops claiming that
+        // a vanished bundle is installed even if the app is closed right away.
+        if let Some(report) = &store.app_report {
+            let _ = save_last_app_scan(report);
+        }
         store.refresh_disk_usage_async(cx);
         store
     }
@@ -962,6 +975,15 @@ impl AppStore {
                                 success_count: result.success_count,
                                 failed_count: result.failed.len(),
                                 trashed: result.trashed_entries.clone(),
+                                failed: result
+                                    .failed
+                                    .iter()
+                                    .map(|(path, reason)| FailedCleanupItem {
+                                        path: path.clone(),
+                                        reason: reason.clone(),
+                                    })
+                                    .collect(),
+                                protected_count: result.protected.len(),
                             };
                             store.cleanup_history.append(record);
                             let _ = store.cleanup_history.save();
@@ -985,8 +1007,10 @@ impl AppStore {
                             }
 
                             // Mirror the retention onto the apps view report:
-                            // drop cleaned residue / links, drop fully
-                            // uninstalled apps, and recompute totals.
+                            // drop cleaned residue / links, then reconcile the
+                            // installed list with the filesystem. A removed
+                            // bundle demotes its entry to residue-only, so a
+                            // deleted app never keeps showing up as installed.
                             if let Some(app_report) = &mut store.app_report {
                                 let removed: HashSet<_> = removed_paths.iter().collect();
                                 app_report
@@ -996,19 +1020,7 @@ impl AppStore {
                                     app.related_items
                                         .retain(|r| !removed.contains(&r.item.path));
                                 }
-                                app_report.apps.retain(|app| {
-                                    let binary_removed =
-                                        app.app_path.as_ref().is_some_and(|p| removed.contains(p));
-                                    let cleaned_out = app.related_items.is_empty();
-                                    // Fully uninstalled apps and fully
-                                    // cleaned orphan entities drop off the
-                                    // list.
-                                    !(binary_removed && cleaned_out
-                                        || app.app_path.is_none() && cleaned_out)
-                                });
-                                for app in &mut app_report.apps {
-                                    app.size_bytes = app.binary_size_bytes + app.residue_bytes();
-                                }
+                                app_report.normalize_install_state();
                                 let live_ids: HashSet<String> = app_report
                                     .apps
                                     .iter()

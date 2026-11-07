@@ -23,6 +23,12 @@ pub struct CleanupReport {
     pub success_count: usize,
     pub successful_paths: Vec<PathBuf>,
     pub failed: Vec<(PathBuf, String)>,
+    /// Items the OS refuses to remove even though the user owns them. Today
+    /// this is macOS 26's sandbox containers (`~/Library/Containers/<bundle>`),
+    /// which `containermanagerd` protects against unlink/rename by unprivileged
+    /// processes. Reported separately from `failed` because the app cannot fix
+    /// it: the user must delete them in Finder or with admin rights.
+    pub protected: Vec<(PathBuf, String)>,
     pub trashed: Vec<PathBuf>,
     pub trashed_entries: Vec<TrashedEntry>,
 }
@@ -59,6 +65,21 @@ pub struct CleanupHistoryRecord {
     pub failed_count: usize,
     #[serde(default)]
     pub trashed: Vec<TrashedEntry>,
+    /// Path + reason for every item that could not be removed. Persisted so a
+    /// "1 failed" summary can be diagnosed after the fact (older records
+    /// deserialize to an empty list).
+    #[serde(default)]
+    pub failed: Vec<FailedCleanupItem>,
+    /// Items skipped because the OS protects them (macOS sandbox containers).
+    #[serde(default)]
+    pub protected_count: usize,
+}
+
+/// One failed cleanup item, persisted in the cleanup history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedCleanupItem {
+    pub path: PathBuf,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +240,7 @@ impl CleanupExecutor {
             success_count: 0,
             successful_paths: Vec::new(),
             failed: Vec::new(),
+            protected: Vec::new(),
             trashed: Vec::new(),
             trashed_entries: Vec::new(),
         };
@@ -241,6 +263,21 @@ impl CleanupExecutor {
             });
 
             let size = item.size_bytes;
+
+            // The path may have disappeared since the scan (typically the app
+            // bundle, deleted in an earlier pass). Counting its stale size as
+            // "freed" would overstate the result, so only drop it from the UI.
+            if !item.path.exists() {
+                report.successful_paths.push(item.path.clone());
+                on_progress(CleanupProgress {
+                    completed: index + 1,
+                    total,
+                    current_path: item.path.clone(),
+                    freed_bytes: report.freed_bytes,
+                });
+                continue;
+            }
+
             match self.remove_path(&item.path) {
                 Ok(trash_path) => {
                     report.freed_bytes += size;
@@ -258,7 +295,20 @@ impl CleanupExecutor {
                     }
                 }
                 Err(e) => {
-                    report.failed.push((item.path.clone(), e.to_string()));
+                    let message = e.to_string();
+                    if is_os_protected_path(&item.path) && is_permission_denied(&e) {
+                        tracing::warn!(
+                            "cleanup: OS-protected item kept {}: {message}",
+                            item.path.display()
+                        );
+                        report.protected.push((item.path.clone(), message));
+                    } else {
+                        tracing::warn!(
+                            "cleanup: failed to remove {}: {message}",
+                            item.path.display()
+                        );
+                        report.failed.push((item.path.clone(), message));
+                    }
                 }
             }
 
@@ -341,6 +391,24 @@ fn force_remove(path: &Path) -> io::Result<()> {
         clear_readonly(path)?;
         fs::remove_file(path)
     }
+}
+
+/// macOS 15+/26 protects every directory under `~/Library/Containers`: once
+/// `containermanagerd` has stamped it, `unlink` and `rename` fail with
+/// `EPERM` for unprivileged processes regardless of Unix permissions. The app
+/// cannot work around this without a privileged helper, so these are reported
+/// as OS-protected instead of failed.
+fn is_os_protected_path(path: &Path) -> bool {
+    path.to_string_lossy().contains("/Library/Containers/")
+}
+
+fn is_permission_denied(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<io::Error>()
+        .and_then(|e| e.raw_os_error())
+        // EPERM (1), EACCES (13) on Unix, ERROR_ACCESS_DENIED (5) on Windows.
+        .is_some_and(|code| matches!(code, 1 | 5 | 13))
+        || error.to_string().contains("Operation not permitted")
 }
 
 fn clear_readonly_tree(root: &Path) -> io::Result<()> {
@@ -672,16 +740,53 @@ mod tests {
     }
 
     #[test]
-    fn missing_paths_count_as_success_without_failure() {
+    fn missing_paths_are_dropped_without_inflating_freed_bytes() {
         let missing = PathBuf::from("/definitely/missing/path/for/clv-test");
         let mut settings = AppSettings::default();
         settings.soft_delete = false;
 
         let report = CleanupExecutor::new(settings).execute(&[scan_item(missing.clone())], |_| {});
 
-        assert_eq!(report.success_count, 1);
+        // Vanished entries leave the UI, but claiming their stale scan-time
+        // size as "freed" would be a lie.
+        assert_eq!(report.success_count, 0);
+        assert_eq!(report.freed_bytes, 0);
         assert_eq!(report.successful_paths, vec![missing]);
         assert!(report.failed.is_empty());
+    }
+
+    #[test]
+    fn sandbox_container_denials_are_classified_as_protected() {
+        // macOS 26 protects every `~/Library/Containers/<bundle>` entry; the
+        // OS refuses unlink/rename with EPERM even for the owner.
+        assert!(is_os_protected_path(Path::new(
+            "/Users/x/Library/Containers/com.example.app"
+        )));
+        assert!(!is_os_protected_path(Path::new(
+            "/Users/x/Library/Group Containers/TEAM.com.example.app"
+        )));
+        assert!(!is_os_protected_path(Path::new(
+            "/Users/x/Library/Caches/com.example.app"
+        )));
+
+        let denied = anyhow::Error::new(io::Error::from_raw_os_error(1));
+        assert!(is_permission_denied(&denied));
+        assert!(!is_permission_denied(&anyhow::anyhow!("disk full")));
+    }
+
+    #[test]
+    fn history_records_without_failure_details_still_load() {
+        // Older `cleanup_history.json` files predate `failed` /
+        // `protected_count`; they must keep deserializing.
+        let json = r#"{
+            "timestamp": "2026-01-01T00:00:00Z",
+            "freed_bytes": 1024,
+            "success_count": 1,
+            "failed_count": 0
+        }"#;
+        let record: CleanupHistoryRecord = serde_json::from_str(json).unwrap();
+        assert!(record.failed.is_empty());
+        assert_eq!(record.protected_count, 0);
     }
 
     #[test]
@@ -742,6 +847,8 @@ mod tests {
                 name: "item".into(),
                 kind: crate::cleanup::TrashedEntryKind::File,
             }],
+            failed: Vec::new(),
+            protected_count: 0,
         });
         history
     }

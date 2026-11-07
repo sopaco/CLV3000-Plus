@@ -1368,15 +1368,34 @@ impl I18n {
         notification: bool,
     ) -> String {
         let size = format_bytes(report.freed_bytes);
-        let failed_suffix = if report.failed.is_empty() {
-            String::new()
-        } else {
-            match self.lang {
-                Language::Zh => format!("，{} 项失败", report.failed.len()),
-                Language::En => format!(", {} failed", report.failed.len()),
-                Language::Ja => format!("、{} 件失敗", report.failed.len()),
-            }
-        };
+        let mut failed_suffix = String::new();
+        if let Some((path, reason)) = report.failed.first() {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.display().to_string());
+            let reason: String = reason.chars().take(60).collect();
+            failed_suffix.push_str(&match self.lang {
+                Language::Zh => format!("，{} 项失败（{}：{}）", report.failed.len(), name, reason),
+                Language::En => format!(", {} failed ({}: {})", report.failed.len(), name, reason),
+                Language::Ja => format!("、{} 件失敗（{}：{}）", report.failed.len(), name, reason),
+            });
+        }
+        if !report.protected.is_empty() {
+            let kept = report.protected.len();
+            failed_suffix.push_str(&match self.lang {
+                Language::Zh => format!(
+                    "，{kept} 项沙盒容器受 macOS 保护未能删除（可在访达中手动删除）"
+                ),
+                Language::En => format!(
+                    ", {kept} sandbox container(s) protected by macOS were kept (delete them in Finder)"
+                ),
+                Language::Ja => format!(
+                    "、{kept} 件のサンドボックスコンテナは macOS に保護され削除できません（Finder で削除してください）"
+                ),
+            });
+        }
+        let failed_suffix = failed_suffix.as_str();
         let count = report.success_count;
         match (self.lang, pending, notification) {
             (Language::Zh, true, _) => {
@@ -1866,6 +1885,16 @@ impl I18n {
             "未发现关联残留",
             "No related residue found",
             "関連残留は見つかりません",
+        )
+    }
+
+    /// Shown under the sandbox-container group: macOS 26 protects these
+    /// directories, so the app cannot remove them even as the file owner.
+    pub fn app_container_protected_hint(&self) -> &'static str {
+        self.t(
+            "沙盒容器由 macOS 保护，本应用无法删除；如需释放空间，请在访达中手动删除",
+            "Sandbox containers are protected by macOS and cannot be removed by this app; delete them in Finder to reclaim the space",
+            "サンドボックスコンテナは macOS に保護されているため、このアプリでは削除できません。容量を解放するには Finder で削除してください",
         )
     }
 
