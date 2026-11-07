@@ -1,15 +1,15 @@
 //! CLV3000 Plus design tokens and multi-theme skin system.
 
 use clv_core::ThemePreference;
-use gpui_kit::{px, rgb, App, Hsla, Pixels};
-use gpui_kit::component::{scroll::ScrollbarMode, Theme, ThemeColor, ThemeMode, ThemeTokens};
+use gpui_kit::component::{Theme, ThemeColor, ThemeMode, ThemeTokens, scroll::ScrollbarMode};
+use gpui_kit::{App, Hsla, Pixels, WindowAppearance, px, rgb};
 use std::sync::{LazyLock, RwLock};
 
 /// Active palette — updated when the user switches themes.
 static PALETTE: LazyLock<RwLock<ThemePalette>> =
     LazyLock::new(|| RwLock::new(ThemePalette::defender()));
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ThemePalette {
     pub accent: u32,
     pub accent_bg: u32,
@@ -237,12 +237,67 @@ impl ThemePalette {
         }
     }
 
+    /// Neutral grays with the Windows system blue — calm, office-friendly
+    /// light skin. Field values are pinned to the product spec
+    /// `docs/design/fluent-theme-spec.md` §3 (Win11 Fluent tokens: Mica base,
+    /// default accent, notification colors); acceptance runs against that
+    /// table, so keep this in sync rather than redesigning.
+    fn fluent() -> Self {
+        Self {
+            accent: 0x0067c0,
+            accent_bg: 0xe5f1fb,
+            accent_bg_hover: 0xd5e8f8,
+            accent_bg_pressed: 0xc2ddf4,
+            accent_active: 0x1975c5,
+            accent_pressed: 0x005ba1,
+            accent_secondary: 0x8a8886,
+            bg_app: 0xf3f3f3,
+            bg_sidebar: 0xf9f9f9,
+            bg_titlebar: 0xf9f9f9,
+            bg_card: 0xffffff,
+            border: 0xe5e5e5,
+            panel_divider: 0xededed,
+            safe_green: 0x0f7b0f,
+            green: 0x107c10,
+            warn_orange: 0x9d5d00,
+            red: 0xc42b1c,
+            red_bg: 0xfdf3f4,
+            red_border: 0xf5c6c4,
+            text_primary: 0x1b1b1b,
+            text_secondary: 0x616161,
+            text_muted: 0x9e9e9e,
+            gradient_hero_start: 0xd5e8f8,
+            gradient_hero_alt_start: 0xf3f9fd,
+            gradient_sidebar_start: 0xf9f9f9,
+            gradient_sidebar_end: 0xf3f3f3,
+            gradient_content_start: 0xf3f3f3,
+            gradient_content_end: 0xffffff,
+            gradient_titlebar_end: 0xededed,
+            gradient_warm_start: 0x7fba00,
+            status_bar_bg: 0xf3f3f3,
+            risk_safe_bg: 0xe6f2e6,
+            risk_safe_border: 0xc3dcc3,
+            risk_caution_bg: 0xfdf6ec,
+            risk_caution_border: 0xf0d9b5,
+            risk_caution_fg: 0x8a5a00,
+            corner_control: 4.,
+            corner_md: 8.,
+            is_light: true,
+            ring_center_bg: 0xffffff,
+        }
+    }
+
+    /// Map a **concrete** preference to its palette. `System` must be resolved
+    /// through [`clv_core::resolve_theme`] first (see [`apply_theme`]); if it
+    /// slips through anyway, the dark default is the safe fallback.
     pub fn for_preference(pref: ThemePreference) -> Self {
         match pref {
             ThemePreference::Defender => Self::defender(),
             ThemePreference::Blossom => Self::blossom(),
             ThemePreference::Neon => Self::neon(),
             ThemePreference::Aurora => Self::aurora(),
+            ThemePreference::Fluent => Self::fluent(),
+            ThemePreference::System => Self::defender(),
         }
     }
 
@@ -580,7 +635,13 @@ fn build_gpui_palette(p: ThemePalette) -> ThemeColor {
 }
 
 /// Apply the selected visual theme to gpui-kit and internal tokens.
+///
+/// `ThemePreference::System` is resolved against the current OS appearance
+/// (dark → Defender, light → Fluent); every caller funnels through here, so
+/// startup, manual switching, and OS appearance flips share one code path.
 pub fn apply_theme(preference: ThemePreference, cx: &mut App) {
+    let preference =
+        clv_core::resolve_theme(preference, appearance_is_dark(cx.window_appearance()));
     let palette = ThemePalette::for_preference(preference);
     if let Ok(mut guard) = PALETTE.write() {
         *guard = palette;
@@ -613,15 +674,25 @@ pub fn apply_clv_theme(cx: &mut App) {
     apply_theme(ThemePreference::Defender, cx);
 }
 
+/// Whether a GPUI window appearance reports a dark system style. gpui-pre
+/// 0.3.4 has no `WindowAppearance::is_dark`, so cover its four variants here.
+pub fn appearance_is_dark(appearance: WindowAppearance) -> bool {
+    matches!(
+        appearance,
+        WindowAppearance::Dark | WindowAppearance::VibrantDark
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const ALL: [ThemePreference; 4] = [
+    const ALL: [ThemePreference; 5] = [
         ThemePreference::Defender,
         ThemePreference::Blossom,
         ThemePreference::Neon,
         ThemePreference::Aurora,
+        ThemePreference::Fluent,
     ];
 
     /// gpui-kit 的内置按钮变体只读 `theme.tokens`，而 tokens 是 `ThemeColor`
@@ -670,5 +741,90 @@ mod tests {
                 "{pref:?}: 主按钮文字色必须完全不透明"
             );
         }
+    }
+
+    /// Fluent 是"跟随系统"在浅色下的目标皮肤：必须是浅色模式，否则系统浅色
+    /// 会切到暗色调色板。Defender 是深色侧的目标，同样锁住。
+    #[test]
+    fn system_resolution_targets_have_matching_modes() {
+        assert!(
+            ThemePalette::for_preference(ThemePreference::Fluent).is_light,
+            "Fluent 必须是浅色皮肤（系统浅色的映射目标）"
+        );
+        assert!(
+            !ThemePalette::for_preference(ThemePreference::Defender).is_light,
+            "Defender 必须是深色皮肤（系统深色的映射目标）"
+        );
+        assert_eq!(
+            clv_core::resolve_theme(ThemePreference::System, true),
+            ThemePreference::Defender
+        );
+        assert_eq!(
+            clv_core::resolve_theme(ThemePreference::System, false),
+            ThemePreference::Fluent
+        );
+    }
+
+    /// gpui-pre 0.3.4 没有 `WindowAppearance::is_dark`，本地实现必须覆盖
+    /// 全部四个变体，否则系统浅色（含 VibrantLight）会被误判为深色。
+    #[test]
+    fn appearance_is_dark_covers_all_variants() {
+        assert!(!appearance_is_dark(WindowAppearance::Light));
+        assert!(!appearance_is_dark(WindowAppearance::VibrantLight));
+        assert!(appearance_is_dark(WindowAppearance::Dark));
+        assert!(appearance_is_dark(WindowAppearance::VibrantDark));
+    }
+
+    /// Fluent 色板逐字段锁定产品规格 `docs/design/fluent-theme-spec.md` §3
+    /// （Win11 Fluent tokens）。验收以该表为准，任何漂移都是缺陷。
+    #[test]
+    fn fluent_palette_matches_product_spec() {
+        let spec = ThemePalette {
+            accent: 0x0067c0,
+            accent_bg: 0xe5f1fb,
+            accent_bg_hover: 0xd5e8f8,
+            accent_bg_pressed: 0xc2ddf4,
+            accent_active: 0x1975c5,
+            accent_pressed: 0x005ba1,
+            accent_secondary: 0x8a8886,
+            bg_app: 0xf3f3f3,
+            bg_sidebar: 0xf9f9f9,
+            bg_titlebar: 0xf9f9f9,
+            bg_card: 0xffffff,
+            border: 0xe5e5e5,
+            panel_divider: 0xededed,
+            safe_green: 0x0f7b0f,
+            green: 0x107c10,
+            warn_orange: 0x9d5d00,
+            red: 0xc42b1c,
+            red_bg: 0xfdf3f4,
+            red_border: 0xf5c6c4,
+            text_primary: 0x1b1b1b,
+            text_secondary: 0x616161,
+            text_muted: 0x9e9e9e,
+            gradient_hero_start: 0xd5e8f8,
+            gradient_hero_alt_start: 0xf3f9fd,
+            gradient_sidebar_start: 0xf9f9f9,
+            gradient_sidebar_end: 0xf3f3f3,
+            gradient_content_start: 0xf3f3f3,
+            gradient_content_end: 0xffffff,
+            gradient_titlebar_end: 0xededed,
+            gradient_warm_start: 0x7fba00,
+            status_bar_bg: 0xf3f3f3,
+            risk_safe_bg: 0xe6f2e6,
+            risk_safe_border: 0xc3dcc3,
+            risk_caution_bg: 0xfdf6ec,
+            risk_caution_border: 0xf0d9b5,
+            risk_caution_fg: 0x8a5a00,
+            corner_control: 4.,
+            corner_md: 8.,
+            is_light: true,
+            ring_center_bg: 0xffffff,
+        };
+        assert_eq!(
+            ThemePalette::fluent(),
+            spec,
+            "Fluent 色板必须与产品规格 docs/design/fluent-theme-spec.md §3 一致"
+        );
     }
 }

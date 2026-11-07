@@ -78,6 +78,46 @@ pub fn set_startup_enabled(id: &str, enabled: bool) -> anyhow::Result<()> {
     }
 }
 
+/// 应用自身开机自启的注册标识：Windows 为 HKCU Run 值名，macOS 为 LaunchAgent Label。
+pub const SELF_STARTUP_NAME: &str = "CLV3000Plus";
+
+/// 注册/注销应用自身的开机自启（登录后以 `--minimized` 启动并常驻托盘）。
+///
+/// 与 [`set_startup_enabled`] 不同：那只能启停**已存在**的启动项（翻
+/// StartupApproved 批准标志），本 API 负责创建/删除应用自己的注册条目。
+pub fn set_self_startup(enabled: bool) -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        return macos::set_self_startup(enabled);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::set_self_startup(enabled);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = enabled;
+        anyhow::bail!("unsupported platform")
+    }
+}
+
+/// 应用自身的开机自启当前是否已注册。以系统真实状态为准（设置页回显用），
+/// 不落在 settings.json 里，避免与任务管理器等外部改动产生漂移。
+pub fn self_startup_enabled() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return macos::self_startup_enabled();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::self_startup_enabled();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        false
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
@@ -296,6 +336,148 @@ mod macos {
             "无法禁用登录项「{name}」：{stderr}。请在系统设置 → 隐私与安全性 → 自动化 中授权本应用控制「System Events」，或在系统设置 → 通用 → 登录项中手动管理"
         )
     }
+
+    /// 应用自身 LaunchAgent 的 Label（`~/Library/LaunchAgents/<label>.plist`）。
+    pub const SELF_AGENT_LABEL: &str = "com.clv3000.plus";
+
+    fn self_agent_path() -> Option<PathBuf> {
+        directories::UserDirs::new().map(|u| {
+            u.home_dir()
+                .join(format!("Library/LaunchAgents/{SELF_AGENT_LABEL}.plist"))
+        })
+    }
+
+    pub fn self_startup_enabled() -> bool {
+        self_agent_path().map(|p| p.exists()).unwrap_or(false)
+    }
+
+    /// 自启 plist 内容。每次注册都重写：安装路径可能因更新而变化。
+    fn self_plist_content(exe: &Path) -> String {
+        let exe = exe.display().to_string();
+        let exe = exe
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+             <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+             <plist version=\"1.0\">\n\
+             <dict>\n\
+             \t<key>Label</key>\n\
+             \t<string>{SELF_AGENT_LABEL}</string>\n\
+             \t<key>ProgramArguments</key>\n\
+             \t<array>\n\
+             \t\t<string>{exe}</string>\n\
+             \t\t<string>--minimized</string>\n\
+             \t</array>\n\
+             \t<key>RunAtLoad</key>\n\
+             \t<true/>\n\
+             </dict>\n\
+             </plist>\n"
+        )
+    }
+
+    pub fn set_self_startup(enabled: bool) -> anyhow::Result<()> {
+        let Some(path) = self_agent_path() else {
+            anyhow::bail!("无法定位用户 LaunchAgents 目录");
+        };
+        let disabled = disabled_agent_path(&path);
+        let domain = gui_domain();
+        let service = format!("{domain}/{SELF_AGENT_LABEL}");
+
+        if enabled {
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir)?;
+            }
+            if disabled.exists() {
+                fs::rename(&disabled, &path)?;
+            }
+            let exe = std::env::current_exe()?;
+            fs::write(&path, self_plist_content(&exe))?;
+            let enable = launchctl(&["enable", &service])?;
+            if !enable.status.success() {
+                let stderr = String::from_utf8_lossy(&enable.stderr);
+                anyhow::bail!("无法启用开机自启：{stderr}");
+            }
+            return Ok(());
+        }
+
+        if path.exists() {
+            let _ = launchctl(&["disable", &service]);
+            let bootout = launchctl(&["bootout", &domain, &path.to_string_lossy()]);
+            if let Ok(out) = bootout {
+                if !launchctl_stderr_ok(&out) {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    tracing::warn!("launchctl bootout: {stderr}");
+                }
+            }
+            fs::rename(&path, &disabled)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// plist 必须带稳定 Label 与 `--minimized`（启动到托盘），且路径中的
+        /// XML 特殊字符必须转义，否则登录时 launchd 会静默加载失败。
+        #[test]
+        fn self_plist_content_is_valid_and_minimized() {
+            let content = self_plist_content(Path::new("/opt/A&B/tool"));
+            assert!(content.contains("<string>com.clv3000.plus</string>"));
+            assert!(content.contains("<string>--minimized</string>"));
+            assert!(content.contains("/opt/A&amp;B/tool"), "路径须做 XML 转义");
+            assert!(!content.contains("/opt/A&B/tool"), "未转义的 & 不应出现");
+
+            let content = self_plist_content(Path::new("/Applications/normal.app/clv"));
+            assert!(content.contains("<string>/Applications/normal.app/clv</string>"));
+        }
+
+        #[test]
+        fn self_agent_path_points_at_user_launch_agents() {
+            let path = self_agent_path().expect("UserDirs 应可用");
+            assert!(path.ends_with("Library/LaunchAgents/com.clv3000.plus.plist"));
+            assert_eq!(
+                path.file_name().and_then(|n| n.to_str()),
+                Some("com.clv3000.plus.plist")
+            );
+        }
+
+        /// 真实文件往返：注册 → plist 落盘 → 注销 → 沿用 .disabled 约定。
+        /// launchctl enable/disable 对未加载服务是幂等的标志位操作，不会拉起进程。
+        #[test]
+        fn self_startup_file_roundtrip() {
+            let path = self_agent_path().expect("UserDirs 应可用");
+            let disabled = disabled_agent_path(&path);
+            // 保存现场：测试机可能已有本应用的自启配置（含禁用态）
+            let original = fs::read_to_string(&path)
+                .ok()
+                .or_else(|| fs::read_to_string(&disabled).ok());
+
+            set_self_startup(true).expect("注册自启");
+            assert!(self_startup_enabled(), "注册后 plist 应存在");
+            let content = fs::read_to_string(&path).unwrap();
+            assert!(content.contains(SELF_AGENT_LABEL), "须带稳定 Label");
+            assert!(
+                content.contains("--minimized"),
+                "须以 --minimized 启动到托盘"
+            );
+
+            set_self_startup(false).expect("注销自启");
+            assert!(!self_startup_enabled(), "注销后原路径不应存在");
+            assert!(
+                disabled.exists(),
+                "注销应沿用 .plist.disabled 约定（启动项视图可枚举）"
+            );
+
+            // 清理现场：移除测试产物，恢复原有配置
+            let _ = fs::remove_file(&disabled);
+            if let Some(content) = original {
+                fs::write(&path, content).unwrap();
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -499,6 +681,38 @@ mod windows {
         }
     }
 
+    /// 应用自注册使用的 HKCU Run 子键（与 RUN_SOURCES 中 hkcu-run 同一位置，
+    /// 这样注册后 `list_startup_items` 能直接枚举到它）。
+    const SELF_RUN_PATH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+    pub fn self_startup_enabled() -> bool {
+        let Ok(run) =
+            RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(SELF_RUN_PATH, KEY_READ)
+        else {
+            return false;
+        };
+        run.get_value::<String, _>(super::SELF_STARTUP_NAME).is_ok()
+    }
+
+    pub fn set_self_startup(enabled: bool) -> anyhow::Result<()> {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        // create_subkey：键不存在时创建（全新 profile / 清理过的注册表），已存在则打开。
+        let (run, _) = hkcu
+            .create_subkey(SELF_RUN_PATH)
+            .map_err(|e| anyhow::anyhow!("打开 HKCU Run 注册表键失败：{e}"))?;
+        if enabled {
+            let exe = std::env::current_exe()?;
+            // 路径含空格时必须加引号，否则 explorer 会把它按空格切开解析。
+            let command = format!("\"{}\" --minimized", exe.display());
+            run.set_value(super::SELF_STARTUP_NAME, &command)
+                .map_err(|e| anyhow::anyhow!("写入开机自启注册表值失败：{e}"))?;
+        } else if run.get_value::<String, _>(super::SELF_STARTUP_NAME).is_ok() {
+            run.delete_value(super::SELF_STARTUP_NAME)
+                .map_err(|e| anyhow::anyhow!("删除开机自启注册表值失败：{e}"))?;
+        }
+        Ok(())
+    }
+
     /// 当前时间对应的 FILETIME（1601-01-01 起的 100ns 计数），小端字节序
     fn filetime_now_bytes() -> [u8; 8] {
         const UNIX_TO_FILETIME_SECS: u64 = 11_644_473_600;
@@ -537,6 +751,38 @@ mod windows {
                 .open_subkey_with_flags(format!("{APPROVED_BASE}\\Run"), KEY_SET_VALUE)
             {
                 let _ = key.delete_value(NAME);
+            }
+        }
+
+        #[test]
+        fn self_startup_registry_roundtrip() {
+            // 保留现场：测试机可能已开启本应用自启（如开发者日常机器）
+            let original = RegKey::predef(HKEY_CURRENT_USER)
+                .open_subkey_with_flags(SELF_RUN_PATH, KEY_READ)
+                .ok()
+                .and_then(|run| run.get_value::<String, _>(super::SELF_STARTUP_NAME).ok());
+
+            set_self_startup(true).expect("注册自启");
+            assert!(self_startup_enabled(), "注册后应能读回");
+            // 命令行必须带引号包裹的路径 + --minimized，否则含空格路径会被截断
+            let run = RegKey::predef(HKEY_CURRENT_USER)
+                .open_subkey_with_flags(SELF_RUN_PATH, KEY_READ)
+                .unwrap();
+            let cmd: String = run.get_value(super::SELF_STARTUP_NAME).unwrap();
+            assert!(cmd.starts_with('"'), "路径须用引号包裹：{cmd}");
+            assert!(
+                cmd.ends_with("--minimized"),
+                "须以 --minimized 启动到托盘：{cmd}"
+            );
+
+            set_self_startup(false).expect("注销自启");
+            assert!(!self_startup_enabled(), "注销后不应残留");
+
+            if let Some(cmd) = original {
+                let run = RegKey::predef(HKEY_CURRENT_USER)
+                    .open_subkey_with_flags(SELF_RUN_PATH, KEY_SET_VALUE)
+                    .unwrap();
+                run.set_value(super::SELF_STARTUP_NAME, &cmd).unwrap();
             }
         }
     }

@@ -2,10 +2,10 @@ use crate::app::state::{AppPage, AppStore};
 use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::colors;
-use clv_core::{agent_reason_matches_query, format_agent_reason, AgentProject, RiskLevel};
-use gpui_kit::{ScrollStrategy, Subscription, UniformListScrollHandle};
+use clv_core::{AgentProject, RiskLevel, agent_reason_matches_query, format_agent_reason};
 use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::{ScrollStrategy, Subscription, UniformListScrollHandle};
 use std::sync::Arc;
 
 /// Virtualized row slot — card body + gap between rows.
@@ -52,7 +52,11 @@ impl AgentView {
             .filter(|project| {
                 project.name.to_lowercase().contains(&query)
                     || agent_reason_matches_query(&project.reason_parts, &query)
-                    || project.path.to_string_lossy().to_lowercase().contains(&query)
+                    || project
+                        .path
+                        .to_string_lossy()
+                        .to_lowercase()
+                        .contains(&query)
                     || project
                         .stacks
                         .iter()
@@ -108,16 +112,22 @@ impl AgentView {
         let store_clean = store.clone();
         let clean_id = eid(format!("agent-clean-{}", project.name));
         let open_id = eid(format!("agent-open-{}", project.name));
+        let row_id = eid(format!("agent-row-{}", project.path.display()));
 
         div()
             .w_full()
             .h(px(AGENT_ROW_H))
             .pb_3()
             .child(
-                ui::soft_card()
-                    .w_full()
-                    .h(px(AGENT_CARD_H))
-                    .px_4()
+                ui::ctx_menu(
+                    ui::soft_card()
+                        .id(row_id)
+                        .w_full()
+                        .h(px(AGENT_CARD_H))
+                        .px_4(),
+                    &path,
+                    i18n,
+                )
                     .child(
                         h_flex()
                             .size_full()
@@ -309,7 +319,11 @@ impl Render for AgentView {
                             .child(
                                 ui::action_button(
                                     "agent-scan",
-                                    if scanning { i18n.scanning_ellipsis() } else { i18n.scan_agent_projects() },
+                                    if scanning {
+                                        i18n.scanning_ellipsis()
+                                    } else {
+                                        i18n.scan_agent_projects()
+                                    },
                                     Some(ui::ACTION_SCAN),
                                     true,
                                     cx,
@@ -324,54 +338,59 @@ impl Render for AgentView {
                             ),
                     ),
             )
-            .child(
-                ui::list_body(
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .w_full()
-                        .flex()
-                        .flex_col()
-                        .px_6()
-                        .pb_6()
-                        .when(total == 0, |this| {
-                            this.flex()
-                                .items_center()
-                                .justify_center()
-                                .child(ui::empty_state(
-                                    ui::EMPTY_AGENT,
-                                    i18n.agent_empty_title(),
-                                    i18n.agent_empty_hint(),
-                                ))
-                        })
-                        .when(total > 0 && count == 0, |this| {
-                            this.flex().items_center().justify_center().child(
-                                div()
-                                    .text_base()
-                                    .text_color(colors::text_muted())
-                                    .child(i18n.no_matching_projects()),
-                            )
-                        })
-                        .when(count > 0, |this| {
-                            let projects = projects.clone();
-                            let i18n = i18n;
-                            this.child(ui::uniform_list_pane(
-                                "agent-rows",
-                                count,
-                                scroll_handle,
-                                cx,
-                                move |this, visible_range, _window, cx| {
-                                    visible_range
-                                        .filter_map(|ix| {
-                                            projects.get(ix).map(|project| {
-                                                this.render_row(project, &i18n, lang, store.clone(), scanning, cx)
-                                            })
-                                        })
-                                        .collect()
-                                },
+            .child(ui::list_body(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .px_6()
+                    .pb_6()
+                    .when(total == 0, |this| {
+                        this.flex()
+                            .items_center()
+                            .justify_center()
+                            .child(ui::empty_state(
+                                ui::EMPTY_AGENT,
+                                i18n.agent_empty_title(),
+                                i18n.agent_empty_hint(),
                             ))
-                        }),
-                ),
-            )
+                    })
+                    .when(total > 0 && count == 0, |this| {
+                        this.flex().items_center().justify_center().child(
+                            div()
+                                .text_base()
+                                .text_color(colors::text_muted())
+                                .child(i18n.no_matching_projects()),
+                        )
+                    })
+                    .when(count > 0, |this| {
+                        let projects = projects.clone();
+                        let i18n = i18n;
+                        this.child(ui::uniform_list_pane(
+                            "agent-rows",
+                            count,
+                            scroll_handle,
+                            cx,
+                            move |this, visible_range, _window, cx| {
+                                visible_range
+                                    .filter_map(|ix| {
+                                        projects.get(ix).map(|project| {
+                                            this.render_row(
+                                                project,
+                                                &i18n,
+                                                lang,
+                                                store.clone(),
+                                                scanning,
+                                                cx,
+                                            )
+                                        })
+                                    })
+                                    .collect()
+                            },
+                        ))
+                    }),
+            ))
     }
 }

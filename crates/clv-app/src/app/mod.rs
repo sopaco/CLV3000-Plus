@@ -4,17 +4,18 @@ pub mod state;
 
 use crate::i18n::I18n;
 use crate::prelude::*;
+use crate::theme::apply_theme;
 use crate::theme::colors;
+use crate::tray::take_scan_request;
 use crate::views::{
-    agent::AgentView, cleanup::CleanupView, dashboard::DashboardView,
-    large_files::LargeFilesView, onboarding::OnboardingView, process::ProcessView,
-    settings::SettingsView, startup::StartupView,
+    agent::AgentView, cleanup::CleanupView, dashboard::DashboardView, large_files::LargeFilesView,
+    onboarding::OnboardingView, process::ProcessView, settings::SettingsView, startup::StartupView,
 };
-use clv_core::load_settings;
-use gpui_kit::component::{notification::Notification, WindowExt};
+use clv_core::{ThemePreference, load_settings};
+use gpui_kit::Subscription;
+use gpui_kit::component::{WindowExt, notification::Notification};
 use hud::ProgressHud;
 use state::{AppPage, AppStore};
-use crate::tray::take_scan_request;
 
 pub struct ClvApp {
     store: Entity<AppStore>,
@@ -27,10 +28,12 @@ pub struct ClvApp {
     large_files: Option<Entity<LargeFilesView>>,
     settings: Option<Entity<SettingsView>>,
     onboarding: Option<Entity<OnboardingView>>,
+    /// Keeps the OS appearance watcher alive for the app's lifetime.
+    _theme_subscription: Subscription,
 }
 
 impl ClvApp {
-    pub fn new(window: &Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = load_settings();
         let store = cx.new(|cx| AppStore::new(settings, cx));
         let progress_hud = cx.new(|_| ProgressHud::new(store.clone()));
@@ -58,7 +61,21 @@ impl ClvApp {
         })
         .detach();
 
-        let _ = window;
+        // OS appearance flips (Windows: WM_SETTINGCHANGE/ImmersiveColorSet,
+        // macOS: effectiveAppearance change) land here. Only "follow system"
+        // re-resolves; explicit skins stay untouched. apply_theme reads the
+        // appearance live, and notifying the store re-renders every view that
+        // observes it — the same propagation the settings toggle relies on.
+        let theme_subscription = cx.observe_window_appearance(window, {
+            let store = store.clone();
+            move |_, _, cx| {
+                if store.read(cx).settings.theme == ThemePreference::System {
+                    apply_theme(ThemePreference::System, cx);
+                    store.update(cx, |_, cx| cx.notify());
+                }
+            }
+        });
+
         Self {
             store,
             progress_hud,
@@ -70,6 +87,7 @@ impl ClvApp {
             large_files: None,
             settings: None,
             onboarding: None,
+            _theme_subscription: theme_subscription,
         }
     }
 
@@ -193,10 +211,7 @@ impl Render for ClvApp {
             self.store.update(cx, |store, _| {
                 store.pending_cleanup_notification = None;
             });
-            window.push_notification(
-                Notification::success(msg).title(title),
-                cx,
-            );
+            window.push_notification(Notification::success(msg).title(title), cx);
         }
 
         let page = self.store.read(cx).page;
@@ -364,4 +379,3 @@ impl ClvApp {
             )
     }
 }
-

@@ -5,7 +5,7 @@ mod labels;
 pub use labels::*;
 
 use clv_core::{
-    format_bytes, resolve_language, tr, AppSettings, CleanupBucket, CleanupReport, Language,
+    AppSettings, CleanupBucket, CleanupReport, Language, format_bytes, resolve_language, tr,
 };
 
 use crate::app::state::AppPage;
@@ -69,6 +69,10 @@ impl I18n {
 
     pub fn open_location(&self) -> &'static str {
         self.t("打开位置", "Open Location", "場所を開く")
+    }
+
+    pub fn copy_path(&self) -> &'static str {
+        self.t("复制路径", "Copy Path", "パスをコピー")
     }
 
     pub fn details(&self) -> &'static str {
@@ -209,21 +213,58 @@ impl I18n {
         )
     }
 
+    pub fn theme_fluent_name(&self) -> &'static str {
+        self.t("Fluent 蓝", "Fluent Blue", "Fluentブルー")
+    }
+
+    pub fn theme_fluent_desc(&self) -> &'static str {
+        self.t(
+            "中性灰与 Windows 系统蓝，办公场景沉稳不花哨",
+            "Neutral grays with the Windows system blue — calm for the office",
+            "ニュートラルグレーと Windows のシステムブルー — オフィス向きの落ち着き",
+        )
+    }
+
+    pub fn theme_system_name(&self) -> &'static str {
+        self.t("跟随系统", "Follow system", "システムに従う")
+    }
+
+    pub fn theme_system_desc(&self) -> &'static str {
+        self.t(
+            "自动匹配系统的深浅色设置",
+            "Match the system light/dark setting automatically",
+            "システムのライト/ダーク設定に自動で合わせる",
+        )
+    }
+
+    /// "跟随系统"选项当前解析到的皮肤名，例如"当前：守护蓝"。
+    pub fn theme_system_effective(&self, skin_label: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("当前：{skin_label}"),
+            Language::En => format!("Current: {skin_label}"),
+            Language::Ja => format!("現在：{skin_label}"),
+        }
+    }
+
     pub fn theme_label(&self, theme: clv_core::ThemePreference) -> &'static str {
         match theme {
+            clv_core::ThemePreference::System => self.theme_system_name(),
             clv_core::ThemePreference::Defender => self.theme_defender_name(),
             clv_core::ThemePreference::Blossom => self.theme_blossom_name(),
             clv_core::ThemePreference::Neon => self.theme_neon_name(),
             clv_core::ThemePreference::Aurora => self.theme_aurora_name(),
+            clv_core::ThemePreference::Fluent => self.theme_fluent_name(),
         }
     }
 
     pub fn theme_desc(&self, theme: clv_core::ThemePreference) -> &'static str {
         match theme {
+            clv_core::ThemePreference::System => self.theme_system_desc(),
             clv_core::ThemePreference::Defender => self.theme_defender_desc(),
             clv_core::ThemePreference::Blossom => self.theme_blossom_desc(),
             clv_core::ThemePreference::Neon => self.theme_neon_desc(),
             clv_core::ThemePreference::Aurora => self.theme_aurora_desc(),
+            clv_core::ThemePreference::Fluent => self.theme_fluent_desc(),
         }
     }
 
@@ -250,8 +291,8 @@ impl I18n {
     pub fn soft_delete_desc(&self) -> &'static str {
         self.t(
             "清理的文件移入回收区，7 天后自动清除",
-            "Moved to trash and auto-purged after 7 days",
-            "ゴミ箱に移動し、7 日後に自動削除",
+            "Moved to the recovery area and auto-purged after 7 days",
+            "復元エリアに移動し、7 日後に自動削除",
         )
     }
 
@@ -471,7 +512,12 @@ impl I18n {
         }
     }
 
-    pub fn history_summary(&self, freed_7d: &str, pending: Option<&str>, cleanups: usize) -> String {
+    pub fn history_summary(
+        &self,
+        freed_7d: &str,
+        pending: Option<&str>,
+        cleanups: usize,
+    ) -> String {
         match (self.lang, pending) {
             (Language::Zh, Some(pending)) => {
                 format!("过去 7 天已清理 {freed_7d}（待释放 {pending}），共 {cleanups} 次")
@@ -502,10 +548,10 @@ impl I18n {
                 "回收区仍有 {size}（{count} 项）。永久删除后，这部分空间才会真正归还给系统。"
             ),
             Language::En => format!(
-                "{size} ({count} item(s)) is still in the recycle area. The space returns to the system only after a permanent delete."
+                "{size} ({count} item(s)) is still in the recovery area. The space returns to the system only after a permanent delete."
             ),
             Language::Ja => format!(
-                "ごみ箱に {size}（{count} 件）残っています。完全削除して初めて容量がシステムに戻ります。"
+                "復元エリアに {size}（{count} 件）残っています。完全削除して初めて容量がシステムに戻ります。"
             ),
         }
     }
@@ -513,9 +559,19 @@ impl I18n {
     pub fn pending_release_path(&self, path: &str) -> String {
         match self.lang {
             Language::Zh => format!("回收区位置：{path}"),
-            Language::En => format!("Recycle area: {path}"),
-            Language::Ja => format!("ごみ箱の場所：{path}"),
+            Language::En => format!("Recovery area: {path}"),
+            Language::Ja => format!("復元エリアの場所：{path}"),
         }
+    }
+
+    /// 回收区的心智说明：强调这是应用自管的独立区域，不是系统回收站。
+    /// 只在回收区卡片里展示一次，不散落到各处按钮/通知。
+    pub fn recycle_area_explainer(&self) -> &'static str {
+        self.t(
+            "已清理的项目会移入应用管理的回收区（独立于 Windows 回收站），可随时恢复或彻底清除。",
+            "Cleaned items move into the app-managed recovery area (separate from the Windows Recycle Bin). Restore or purge them anytime.",
+            "クリーンアップした項目はアプリ管理の復元エリア（Windows のごみ箱とは別）に移動されます。いつでも復元または完全に削除できます。",
+        )
     }
 
     pub fn purge_now(&self) -> &'static str {
@@ -523,28 +579,28 @@ impl I18n {
     }
 
     pub fn open_trash_folder(&self) -> &'static str {
-        self.t("打开回收区", "Open Recycle Area", "ごみ箱を開く")
+        self.t("打开回收区", "Open Recovery Area", "復元エリアを開く")
     }
 
     pub fn purge_confirm_title(&self) -> &'static str {
         self.t(
             "永久删除回收区内容？",
-            "Delete the recycle area permanently?",
-            "ごみ箱の内容を完全削除しますか？",
+            "Delete the recovery area permanently?",
+            "復元エリアの内容を完全削除しますか？",
         )
     }
 
     pub fn purge_confirm_body(&self, size: &str, count: usize) -> String {
         match self.lang {
-            Language::Zh => format!(
-                "将永久删除 {count} 项（{size}），删除后无法恢复。确定继续吗？"
-            ),
+            Language::Zh => {
+                format!("将永久删除 {count} 项（{size}），删除后无法恢复。确定继续吗？")
+            }
             Language::En => format!(
                 "This permanently deletes {count} item(s) ({size}) and cannot be undone. Continue?"
             ),
-            Language::Ja => format!(
-                "{count} 件（{size}）を完全削除します。元に戻せません。続行しますか？"
-            ),
+            Language::Ja => {
+                format!("{count} 件（{size}）を完全削除します。元に戻せません。続行しますか？")
+            }
         }
     }
 
@@ -564,17 +620,17 @@ impl I18n {
         match (self.lang, remaining) {
             (_, 0) => match self.lang {
                 Language::Zh => format!("回收区已清空，实际释放 {size}"),
-                Language::En => format!("Recycle area emptied, {size} actually freed"),
-                Language::Ja => format!("ごみ箱を空にしました。{size} を実際に解放"),
+                Language::En => format!("Recovery area emptied, {size} actually freed"),
+                Language::Ja => format!("復元エリアを空にしました。{size} を実際に解放"),
             },
             (_, count) => match self.lang {
                 Language::Zh => format!("已释放 {size}，另有 {count} 项因权限未能删除"),
                 Language::En => {
                     format!("Freed {size}; {count} item(s) could not be deleted due to permissions")
                 }
-                Language::Ja => format!(
-                    "{size} を解放しました。{count} 件は権限の問題で削除できませんでした"
-                ),
+                Language::Ja => {
+                    format!("{size} を解放しました。{count} 件は権限の問題で削除できませんでした")
+                }
             },
         }
     }
@@ -590,7 +646,11 @@ impl I18n {
     // ── Weekly checkup reminder ──────────────────────────────────────────
 
     pub fn weekly_checkup_label(&self) -> &'static str {
-        self.t("每周体检提醒", "Weekly checkup reminder", "毎週の診断リマインダー")
+        self.t(
+            "每周体检提醒",
+            "Weekly checkup reminder",
+            "毎週の診断リマインダー",
+        )
     }
 
     pub fn weekly_checkup_desc(&self) -> &'static str {
@@ -601,15 +661,39 @@ impl I18n {
         )
     }
 
+    // ── Launch at startup ────────────────────────────────────────────────
+
+    pub fn self_startup_label(&self) -> &'static str {
+        self.t("开机自启动", "Launch at Startup", "起動時に自動起動")
+    }
+
+    pub fn self_startup_desc(&self) -> &'static str {
+        self.t(
+            "开机/登录后在后台启动，最小化到系统托盘。",
+            "Start in the background after boot/login and stay minimized in the system tray.",
+            "起動・ログイン後にバックグラウンドで起動し、システムトレイに最小化します。",
+        )
+    }
+
+    pub fn self_startup_failed(&self, detail: &str) -> String {
+        match self.lang {
+            Language::Zh => format!("设置开机自启失败：{detail}"),
+            Language::En => format!("Failed to set launch at startup: {detail}"),
+            Language::Ja => format!("自動起動の設定に失敗しました：{detail}"),
+        }
+    }
+
     pub fn weekly_checkup_reminder(&self, days: i64) -> String {
         match self.lang {
             Language::Zh => format!("距上次体检已 {days} 天，建议现在扫描一次。"),
             Language::En => {
-                format!("It has been {days} days since the last checkup. A quick scan is recommended.")
+                format!(
+                    "It has been {days} days since the last checkup. A quick scan is recommended."
+                )
             }
-            Language::Ja => format!(
-                "前回の診断から {days} 日経過しました。そろそろスキャンをおすすめします。"
-            ),
+            Language::Ja => {
+                format!("前回の診断から {days} 日経過しました。そろそろスキャンをおすすめします。")
+            }
         }
     }
 
@@ -623,10 +707,10 @@ impl I18n {
                 "所选项目中有 {cross} 位于其他磁盘，需先复制到系统盘回收区，但回收区所在磁盘仅剩 {free}。已取消本次清理：请先永久释放回收区，或只选择系统盘内的项目。"
             ),
             Language::En => format!(
-                "{cross} of the selection lives on another drive and must be copied into the system-drive recycle area first, but only {free} is free there. Cleanup cancelled: permanently delete the recycle area first, or select items on the system drive only."
+                "{cross} of the selection lives on another drive and must be copied into the system-drive recovery area first, but only {free} is free there. Cleanup cancelled: permanently delete the recovery area first, or select items on the system drive only."
             ),
             Language::Ja => format!(
-                "選択した項目のうち {cross} は別ドライブにあり、システムドライブのごみ箱へコピーする必要がありますが、空き容量は {free} しかありません。削除を中止しました。先にごみ箱を完全削除するか、システムドライブ内の項目のみを選択してください。"
+                "選択した項目のうち {cross} は別ドライブにあり、システムドライブの復元エリアへコピーする必要がありますが、空き容量は {free} しかありません。削除を中止しました。先に復元エリアを完全削除するか、システムドライブ内の項目のみを選択してください。"
             ),
         }
     }
@@ -1294,19 +1378,23 @@ impl I18n {
         };
         let count = report.success_count;
         match (self.lang, pending, notification) {
-            (Language::Zh, true, _) => format!(
-                "已清理 {size}（已移入回收区，待永久释放），共 {count} 项{failed_suffix}"
-            ),
-            (Language::Zh, false, true) => format!("成功释放 {size}，共清理 {count} 项{failed_suffix}"),
-            (Language::Zh, false, false) => format!("已释放 {size}，成功 {count} 项{failed_suffix}"),
+            (Language::Zh, true, _) => {
+                format!("已清理 {size}（已移入回收区，待永久释放），共 {count} 项{failed_suffix}")
+            }
+            (Language::Zh, false, true) => {
+                format!("成功释放 {size}，共清理 {count} 项{failed_suffix}")
+            }
+            (Language::Zh, false, false) => {
+                format!("已释放 {size}，成功 {count} 项{failed_suffix}")
+            }
             (Language::En, true, _) => format!(
-                "Cleaned {size} (moved to the recycle area, pending permanent delete), {count} item(s){failed_suffix}"
+                "Cleaned {size} (moved to the recovery area, pending permanent delete), {count} item(s){failed_suffix}"
             ),
             (Language::En, false, _) => {
                 format!("Freed {size}, {count} item(s) cleaned{failed_suffix}")
             }
             (Language::Ja, true, _) => format!(
-                "{size} を削除しました（ごみ箱へ移動、完全削除待ち）、{count} 件{failed_suffix}"
+                "{size} を削除しました（復元エリアへ移動、完全削除待ち）、{count} 件{failed_suffix}"
             ),
             (Language::Ja, false, _) => {
                 format!("{size} を解放、{count} 件を削除{failed_suffix}")
@@ -1522,12 +1610,14 @@ impl I18n {
 
     pub fn confirm_delete_file_body(&self, name: &str, size: &str) -> String {
         match self.lang {
-            Language::Zh => format!("即将删除 {name}（{size}）。默认移入应用回收站。"),
+            Language::Zh => format!("即将删除 {name}（{size}）。默认移入应用回收区。"),
             Language::En => {
-                format!("Delete {name} ({size}). It will move to the in-app trash by default.")
+                format!(
+                    "Delete {name} ({size}). It will move to the in-app recovery area by default."
+                )
             }
             Language::Ja => {
-                format!("{name}（{size}）を削除します。既定ではアプリ内ゴミ箱へ移動します。")
+                format!("{name}（{size}）を削除します。既定ではアプリ内復元エリアへ移動します。")
             }
         }
     }

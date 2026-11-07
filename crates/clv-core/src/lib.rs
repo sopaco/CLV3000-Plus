@@ -13,24 +13,24 @@ pub mod settings;
 pub use agent::detect_agent_projects;
 pub use category::CleanupCategory;
 pub use cleanup::{
-    cross_volume_bytes, purge_all_trash, purge_old_trash, restore_trashed, trash_usage,
     CleanupExecutor, CleanupHistory, CleanupHistoryRecord, CleanupProgress, CleanupReport,
-    TrashedEntry,
+    TrashedEntry, cross_volume_bytes, purge_all_trash, purge_old_trash, restore_trashed,
+    trash_usage,
+};
+pub use large_files::{LARGE_FILE_THRESHOLD_BYTES, LargeFileEntry};
+pub use locale::{
+    Language, LanguagePreference, ThemePreference, localized_text_matches_query, resolve_language,
+    resolve_theme, scan_phase_preparing, tr,
 };
 pub use messages::{
-    agent_reason_matches_query, format_agent_reason, rule_description_matches_query,
-    AgentReasonPart, RuleDescription,
+    AgentReasonPart, RuleDescription, agent_reason_matches_query, format_agent_reason,
+    rule_description_matches_query,
 };
-pub use large_files::{LargeFileEntry, LARGE_FILE_THRESHOLD_BYTES};
 pub use models::*;
 pub use scanner::Scanner;
-pub use locale::{
-    localized_text_matches_query, resolve_language, scan_phase_preparing, tr, Language,
-    LanguagePreference, ThemePreference,
-};
 pub use settings::{
-    format_scan_paths, load_last_scan, load_settings, parse_scan_paths, save_last_scan,
-    save_settings, scan_reminder_days, trash_dir, AppSettings,
+    AppSettings, format_scan_paths, load_last_scan, load_settings, parse_scan_paths,
+    save_last_scan, save_settings, scan_reminder_days, trash_dir,
 };
 
 #[cfg(test)]
@@ -96,7 +96,11 @@ mod tests {
             .iter()
             .filter(|i| i.path.starts_with(&project))
             .collect();
-        assert_eq!(project_items.len(), 1, "expected single item, got: {project_items:?}");
+        assert_eq!(
+            project_items.len(),
+            1,
+            "expected single item, got: {project_items:?}"
+        );
         assert_eq!(project_items[0].name, "node_modules");
     }
 
@@ -123,7 +127,10 @@ mod tests {
         let report = Scanner::new(settings).scan(|_| {});
 
         let names: Vec<_> = report.items.iter().map(|i| i.name.as_str()).collect();
-        assert!(names.contains(&"build"), "expected root build, got: {names:?}");
+        assert!(
+            names.contains(&"build"),
+            "expected root build, got: {names:?}"
+        );
         assert!(
             report.items.iter().any(|i| i.path.ends_with("app/build")),
             "expected app/build, got: {:?}",
@@ -218,10 +225,7 @@ mod tests {
             project_root: None,
             last_modified: None,
         };
-        assert_eq!(
-            item_cleanup_bucket(&rustup),
-            CleanupBucket::DevEnvironment
-        );
+        assert_eq!(item_cleanup_bucket(&rustup), CleanupBucket::DevEnvironment);
 
         let target = ScanItem {
             id: "3".into(),
@@ -319,7 +323,10 @@ mod tests {
     #[test]
     fn parse_scan_paths_skips_blank_lines() {
         let parsed = parse_scan_paths(" /tmp/a \n\n /tmp/b ");
-        assert_eq!(parsed, vec![PathBuf::from("/tmp/a"), PathBuf::from("/tmp/b")]);
+        assert_eq!(
+            parsed,
+            vec![PathBuf::from("/tmp/a"), PathBuf::from("/tmp/b")]
+        );
     }
 
     #[test]
@@ -334,7 +341,10 @@ mod tests {
         for desc in RuleDescription::ALL {
             let en = desc.text(Language::En);
             let ja = desc.text(Language::Ja);
-            assert!(!en.is_empty() && !ja.is_empty(), "empty translation for {desc:?}");
+            assert!(
+                !en.is_empty() && !ja.is_empty(),
+                "empty translation for {desc:?}"
+            );
             assert!(
                 !has_cjk(en),
                 "English text must not contain CJK characters: {en}"

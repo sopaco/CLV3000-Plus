@@ -1,10 +1,14 @@
 use crate::app::state::AppStore;
 use crate::i18n::I18n;
 use crate::prelude::*;
-use crate::theme::{colors, ThemePalette, apply_theme};
-use clv_core::{format_scan_paths, parse_scan_paths, save_settings, LanguagePreference, ThemePreference};
-use gpui_kit::{Subscription, Window};
+use crate::theme::{ThemePalette, appearance_is_dark, apply_theme, colors};
+use clv_core::{
+    LanguagePreference, ThemePreference, format_scan_paths, parse_scan_paths, resolve_theme,
+    save_settings,
+};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::notification::Notification;
+use gpui_kit::{Subscription, Window};
 
 pub struct SettingsView {
     store: Entity<AppStore>,
@@ -53,12 +57,8 @@ impl Render for SettingsView {
         let settings = self.store.read(cx).settings.clone();
         let i18n = I18n::from_settings(&settings);
         let paths_text = format_scan_paths(&settings.scan_paths);
-        let scan_paths_input = self.ensure_scan_paths_input(
-            window,
-            cx,
-            paths_text,
-            i18n.scan_paths_placeholder(),
-        );
+        let scan_paths_input =
+            self.ensure_scan_paths_input(window, cx, paths_text, i18n.scan_paths_placeholder());
         let store = self.store.clone();
 
         div()
@@ -72,9 +72,17 @@ impl Render for SettingsView {
                     .flex()
                     .flex_col()
                     .gap_5()
-                    .child(ui::page_header(i18n.settings_title(), i18n.settings_subtitle()))
+                    .child(ui::page_header(
+                        i18n.settings_title(),
+                        i18n.settings_subtitle(),
+                    ))
                     .child(theme_selector(&i18n, settings.theme, store.clone(), cx))
-                    .child(language_selector(&i18n, settings.language, store.clone(), cx))
+                    .child(language_selector(
+                        &i18n,
+                        settings.language,
+                        store.clone(),
+                        cx,
+                    ))
                     .child(ui::setting_row(
                         i18n.expert_mode_label(),
                         i18n.expert_mode_desc(),
@@ -141,6 +149,31 @@ impl Render for SettingsView {
                                 }
                             }),
                     ))
+                    .child(ui::setting_row(
+                        i18n.self_startup_label(),
+                        i18n.self_startup_desc(),
+                        Switch::new("self-startup")
+                            .checked(clv_platform::self_startup_enabled())
+                            .cursor_pointer()
+                            .on_click({
+                                let store = store.clone();
+                                let i18n_error = i18n;
+                                move |checked, window, cx| {
+                                    // 注册表/LaunchAgent 是唯一事实来源：
+                                    // 开关状态每次渲染时回读系统真实状态。
+                                    if let Err(e) = clv_platform::set_self_startup(*checked) {
+                                        tracing::warn!("self startup toggle: {e}");
+                                        window.push_notification(
+                                            Notification::error(
+                                                i18n_error.self_startup_failed(&e.to_string()),
+                                            ),
+                                            cx,
+                                        );
+                                    }
+                                    store.update(cx, |_, cx| cx.notify());
+                                }
+                            }),
+                    ))
                     .child(
                         ui::card()
                             .p_5()
@@ -172,45 +205,40 @@ impl Render for SettingsView {
                                 h_flex()
                                     .gap_2()
                                     .flex_wrap()
-                                    .child(
-                                        ui::std_button(
-                                            Button::new("save-scan-paths")
-                                                .label(i18n.save_scan_paths())
-                                                .on_click({
-                                                    let store = store.clone();
-                                                    let scan_paths_input =
-                                                        scan_paths_input.clone();
-                                                    move |_, _, cx| {
-                                                        let text = scan_paths_input
-                                                            .read(cx)
-                                                            .value()
-                                                            .to_string();
-                                                        let paths = parse_scan_paths(&text);
-                                                        store.update(cx, |s, cx| {
-                                                            if !paths.is_empty() {
-                                                                s.settings.scan_paths = paths;
-                                                            }
-                                                            let _ = save_settings(&s.settings);
-                                                            cx.notify();
-                                                        });
-                                                    }
-                                                }),
-                                        ),
-                                    )
-                                    .child(
-                                        ui::std_button(
-                                            Button::new("browse-scan-paths")
-                                                .label(i18n.add_scan_folders())
-                                                .on_click({
-                                                    let store = store.clone();
-                                                    move |_, _, cx| {
-                                                        store.update(cx, |s, cx| {
-                                                            s.pick_scan_folders(cx);
-                                                        });
-                                                    }
-                                                }),
-                                        ),
-                                    )
+                                    .child(ui::std_button(
+                                        Button::new("save-scan-paths")
+                                            .label(i18n.save_scan_paths())
+                                            .on_click({
+                                                let store = store.clone();
+                                                let scan_paths_input = scan_paths_input.clone();
+                                                move |_, _, cx| {
+                                                    let text = scan_paths_input
+                                                        .read(cx)
+                                                        .value()
+                                                        .to_string();
+                                                    let paths = parse_scan_paths(&text);
+                                                    store.update(cx, |s, cx| {
+                                                        if !paths.is_empty() {
+                                                            s.settings.scan_paths = paths;
+                                                        }
+                                                        let _ = save_settings(&s.settings);
+                                                        cx.notify();
+                                                    });
+                                                }
+                                            }),
+                                    ))
+                                    .child(ui::std_button(
+                                        Button::new("browse-scan-paths")
+                                            .label(i18n.add_scan_folders())
+                                            .on_click({
+                                                let store = store.clone();
+                                                move |_, _, cx| {
+                                                    store.update(cx, |s, cx| {
+                                                        s.pick_scan_folders(cx);
+                                                    });
+                                                }
+                                            }),
+                                    ))
                                     .child(
                                         div()
                                             .text_sm()
@@ -248,17 +276,14 @@ impl Render for SettingsView {
     }
 }
 
-fn theme_selector(
-    i18n: &I18n,
-    current: ThemePreference,
-    store: Entity<AppStore>,
-    cx: &App,
-) -> Div {
-    const THEMES: [ThemePreference; 4] = [
+fn theme_selector(i18n: &I18n, current: ThemePreference, store: Entity<AppStore>, cx: &App) -> Div {
+    const THEMES: [ThemePreference; 6] = [
+        ThemePreference::System,
         ThemePreference::Defender,
         ThemePreference::Blossom,
         ThemePreference::Neon,
         ThemePreference::Aurora,
+        ThemePreference::Fluent,
     ];
 
     ui::card()
@@ -279,19 +304,11 @@ fn theme_selector(
                 .child(i18n.theme_section_desc()),
         )
         .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .children(THEMES.into_iter().map(|theme| {
-                    theme_option(
-                        theme,
-                        current == theme,
-                        i18n,
-                        store.clone(),
-                        cx,
-                    )
-                })),
+            div().flex().flex_col().gap_2().children(
+                THEMES
+                    .into_iter()
+                    .map(|theme| theme_option(theme, current == theme, i18n, store.clone(), cx)),
+            ),
         )
 }
 
@@ -300,15 +317,29 @@ fn theme_option(
     active: bool,
     i18n: &I18n,
     store: Entity<AppStore>,
-    _cx: &App,
+    cx: &App,
 ) -> impl IntoElement {
     let id = match theme {
+        ThemePreference::System => "theme-system",
         ThemePreference::Defender => "theme-defender",
         ThemePreference::Blossom => "theme-blossom",
         ThemePreference::Neon => "theme-neon",
         ThemePreference::Aurora => "theme-aurora",
+        ThemePreference::Fluent => "theme-fluent",
     };
-    let swatches = ThemePalette::for_preference(theme).preview_swatches();
+    // "跟随系统"卡片的色板与说明要反映当前解析到的皮肤，让用户预览实际效果。
+    let system_dark = appearance_is_dark(cx.window_appearance());
+    let swatch_skin = resolve_theme(theme, system_dark);
+    let swatches = ThemePalette::for_preference(swatch_skin).preview_swatches();
+    let desc: String = if theme == ThemePreference::System {
+        format!(
+            "{} · {}",
+            i18n.theme_system_desc(),
+            i18n.theme_system_effective(i18n.theme_label(swatch_skin)),
+        )
+    } else {
+        i18n.theme_desc(theme).to_string()
+    };
     let border = if active {
         colors::accent_blue()
     } else {
@@ -346,16 +377,12 @@ fn theme_option(
             h_flex()
                 .gap_3()
                 .items_center()
-                .child(
-                    h_flex()
-                        .gap_1()
-                        .children(swatches.into_iter().map(|hex| {
-                            div()
-                                .size(px(18.))
-                                .rounded(px(4.))
-                                .bg(colors::from_hex(hex))
-                        })),
-                )
+                .child(h_flex().gap_1().children(swatches.into_iter().map(|hex| {
+                    div()
+                        .size(px(18.))
+                        .rounded(px(4.))
+                        .bg(colors::from_hex(hex))
+                })))
                 .child(
                     div()
                         .flex_1()
@@ -373,7 +400,7 @@ fn theme_option(
                             div()
                                 .text_sm()
                                 .text_color(colors::text_secondary())
-                                .child(i18n.theme_desc(theme)),
+                                .child(desc),
                         ),
                 )
                 .when(active, |this| {

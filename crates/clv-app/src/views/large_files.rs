@@ -3,8 +3,8 @@ use crate::i18n::I18n;
 use crate::prelude::*;
 use crate::theme::{colors, corner};
 use clv_core::{
-    format_bytes, CleanupCategory, LargeFileEntry, RiskLevel, RuleDescription, ScanItem, TechStack,
-    LARGE_FILE_THRESHOLD_BYTES,
+    CleanupCategory, LARGE_FILE_THRESHOLD_BYTES, LargeFileEntry, RiskLevel, RuleDescription,
+    ScanItem, TechStack, format_bytes,
 };
 use gpui_kit::component::dialog::DialogButtonProps;
 
@@ -57,100 +57,113 @@ impl Render for LargeFilesView {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .children(files.iter().map(|file| {
-                                file_row(file, &i18n, store_entity.clone(), cx)
-                            }))
+                            .children(
+                                files
+                                    .iter()
+                                    .map(|file| file_row(file, &i18n, store_entity.clone(), cx)),
+                            )
                             .into_any_element()
                     }),
             ))
     }
 }
 
-fn file_row(file: &LargeFileEntry, i18n: &I18n, store: Entity<AppStore>, _cx: &App) -> Div {
+fn file_row(
+    file: &LargeFileEntry,
+    i18n: &I18n,
+    store: Entity<AppStore>,
+    _cx: &App,
+) -> impl IntoElement {
     let path = file.path.clone();
     let entry = file.clone();
-    h_flex()
-        .w_full()
-        .p_3()
-        .rounded(corner())
-        .border_1()
-        .border_color(colors::glass_border())
-        .bg(colors::glass_bg_soft())
-        .justify_between()
-        .items_center()
-        .gap_4()
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .gap_1()
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(colors::text_primary())
-                        .child(file.name.clone()),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(colors::text_muted())
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(path.display().to_string()),
-                ),
-        )
-        .child(
-            div()
-                .text_base()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(colors::warn_orange())
-                .child(file.size_human()),
-        )
-        .child(ui::open_path_button(
-            SharedString::from(format!("open-{}", file.path.display())),
-            &path,
-            i18n,
-        ))
-        .child(
-            ui::std_button(
-                Button::new(SharedString::from(format!("del-{}", file.path.display())))
-                    .danger()
-                    .label(i18n.delete_file()),
+    let row_id = eid(format!("row-{}", file.path.display()));
+    ui::ctx_menu(
+        h_flex()
+            .id(row_id)
+            .w_full()
+            .p_3()
+            .rounded(corner())
+            .border_1()
+            .border_color(colors::glass_border())
+            .bg(colors::glass_bg_soft())
+            .justify_between()
+            .items_center()
+            .gap_4(),
+        &path,
+        i18n,
+    )
+    .child(
+        v_flex()
+            .flex_1()
+            .min_w_0()
+            .gap_1()
+            .child(
+                div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(colors::text_primary())
+                    .child(file.name.clone()),
             )
-            .on_click({
-                let store = store.clone();
-                let i18n_title = i18n.confirm_delete_file_title();
-                let i18n_ok = i18n.dialog_ok();
-                let i18n_cancel = i18n.dialog_cancel();
-                let body = i18n.confirm_delete_file_body(&entry.name, &entry.size_human());
-                move |_, window, cx| {
-                    let store_ok = store.clone();
-                    let item = large_file_as_item(&entry);
-                    let body = body.clone();
-                    window.open_alert_dialog(cx, move |alert, _, _| {
-                        alert
-                            .title(i18n_title)
-                            .child(body.clone())
-                            .button_props(
-                                DialogButtonProps::default()
-                                    .ok_text(i18n_ok)
-                                    .cancel_text(i18n_cancel)
-                                    .show_cancel(true),
-                            )
-                            .on_ok({
-                                let store = store_ok.clone();
-                                let item = item.clone();
-                                move |_, _, cx| {
-                                    store.update(cx, |s, cx| {
-                                        s.cleanup_paths(vec![item.clone()], cx);
-                                    });
-                                    true
-                                }
-                            })
-                    });
-                }
-            }),
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(colors::text_muted())
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(path.display().to_string()),
+            ),
+    )
+    .child(
+        div()
+            .text_base()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(colors::warn_orange())
+            .child(file.size_human()),
+    )
+    .child(ui::open_path_button(
+        SharedString::from(format!("open-{}", file.path.display())),
+        &path,
+        i18n,
+    ))
+    .child(
+        ui::std_button(
+            Button::new(SharedString::from(format!("del-{}", file.path.display())))
+                .danger()
+                .label(i18n.delete_file()),
         )
+        .on_click({
+            let store = store.clone();
+            let i18n_title = i18n.confirm_delete_file_title();
+            let i18n_ok = i18n.dialog_ok();
+            let i18n_cancel = i18n.dialog_cancel();
+            let body = i18n.confirm_delete_file_body(&entry.name, &entry.size_human());
+            move |_, window, cx| {
+                let store_ok = store.clone();
+                let item = large_file_as_item(&entry);
+                let body = body.clone();
+                window.open_alert_dialog(cx, move |alert, _, _| {
+                    alert
+                        .title(i18n_title)
+                        .child(body.clone())
+                        .button_props(
+                            DialogButtonProps::default()
+                                .ok_text(i18n_ok)
+                                .cancel_text(i18n_cancel)
+                                .show_cancel(true),
+                        )
+                        .on_ok({
+                            let store = store_ok.clone();
+                            let item = item.clone();
+                            move |_, _, cx| {
+                                store.update(cx, |s, cx| {
+                                    s.cleanup_paths(vec![item.clone()], cx);
+                                });
+                                true
+                            }
+                        })
+                });
+            }
+        }),
+    )
 }
 
 fn large_file_as_item(file: &LargeFileEntry) -> ScanItem {

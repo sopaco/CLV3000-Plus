@@ -15,16 +15,14 @@ pub mod ui;
 mod views;
 
 use actions::CloseWindow;
-use app::{shell::AppShell, ClvApp};
+use app::{ClvApp, shell::AppShell};
 use clv_core::{load_settings, resolve_language};
-use gpui_kit::*;
 use gpui_kit::component::*;
+use gpui_kit::*;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use theme::apply_theme;
-use tray::{
-    new_pending_slot, take_pending, TrayAction, TrayController, TrayPending,
-};
+use tray::{TrayAction, TrayController, TrayPending, new_pending_slot, take_pending};
 
 static TRAY_PENDING: OnceLock<TrayPending> = OnceLock::new();
 static MAIN_WINDOW: Mutex<Option<WindowHandle<Root>>> = Mutex::new(None);
@@ -80,6 +78,8 @@ fn main() {
 
     let settings = load_settings();
     let theme = settings.theme;
+    // 开机自启（LaunchAgent / HKCU Run）以该参数启动：常驻托盘、不开主窗口。
+    let minimized = std::env::args().any(|arg| arg == "--minimized");
     let application = gpui_kit::application().with_assets(assets::Assets);
     application.on_reopen(|app| {
         // Fired when the app is re-activated — typically by clicking the dock
@@ -116,8 +116,10 @@ fn main() {
         init_macos_menus(cx);
         let options = window_options(cx);
         cx.spawn(async move |cx| {
-            let handle = cx.open_window(options, build_root_view)?;
-            remember_window(handle);
+            if !minimized {
+                let handle = cx.open_window(options, build_root_view)?;
+                remember_window(handle);
+            }
             Ok::<_, anyhow::Error>(())
         })
         .detach();
@@ -214,7 +216,9 @@ fn init_tracing() {
     use tracing_subscriber::EnvFilter;
 
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("clv_app=info".parse().unwrap()))
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("clv_app=info".parse().unwrap()),
+        )
         .init();
 }
 

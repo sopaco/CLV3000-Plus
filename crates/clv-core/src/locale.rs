@@ -5,8 +5,11 @@ use std::path::Path;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemePreference {
-    /// Default security-software dark blue aesthetic.
+    /// Track the OS light/dark setting; resolves to a concrete skin via
+    /// [`resolve_theme`] before reaching the UI layer.
     #[default]
+    System,
+    /// Default security-software dark blue aesthetic.
     Defender,
     /// Soft rose & lavender — warm, feminine palette.
     Blossom,
@@ -14,6 +17,27 @@ pub enum ThemePreference {
     Neon,
     /// Fresh mint & sky — light, energetic feel.
     Aurora,
+    /// Neutral grays with the Windows system blue — light office style.
+    Fluent,
+}
+
+/// Resolve a [`ThemePreference`] into a concrete skin.
+///
+/// `System` maps to the dark skin when the OS appearance is dark and to the
+/// light skin otherwise; explicit preferences pass through untouched. Pure
+/// domain logic — the caller supplies the OS appearance so the core layer
+/// stays free of UI dependencies.
+pub fn resolve_theme(preference: ThemePreference, system_dark: bool) -> ThemePreference {
+    match preference {
+        ThemePreference::System => {
+            if system_dark {
+                ThemePreference::Defender
+            } else {
+                ThemePreference::Fluent
+            }
+        }
+        other => other,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -68,7 +92,13 @@ pub(crate) fn scan_phase_scanning_path(lang: Language, path: &Path) -> String {
 }
 
 pub(crate) fn scan_phase_scanning_projects(lang: Language) -> String {
-    tr(lang, "扫描项目目录", "Scanning project directories", "プロジェクトをスキャン中").to_string()
+    tr(
+        lang,
+        "扫描项目目录",
+        "Scanning project directories",
+        "プロジェクトをスキャン中",
+    )
+    .to_string()
 }
 
 pub(crate) fn scan_phase_agent_sessions(lang: Language) -> String {
@@ -82,8 +112,13 @@ pub(crate) fn scan_phase_agent_sessions(lang: Language) -> String {
 }
 
 pub(crate) fn scan_phase_discovering(lang: Language) -> String {
-    tr(lang, "发现可清理项", "Discovering cleanable items", "削除可能な項目を検出中")
-        .to_string()
+    tr(
+        lang,
+        "发现可清理项",
+        "Discovering cleanable items",
+        "削除可能な項目を検出中",
+    )
+    .to_string()
 }
 
 pub fn tr<'a>(lang: Language, zh: &'a str, en: &'a str, ja: &'a str) -> &'a str {
@@ -114,5 +149,81 @@ mod tests {
         assert_eq!(resolve_language(LanguagePreference::Zh), Language::Zh);
         assert_eq!(resolve_language(LanguagePreference::En), Language::En);
         assert_eq!(resolve_language(LanguagePreference::Ja), Language::Ja);
+    }
+
+    #[test]
+    fn resolve_theme_maps_system_to_concrete_skins() {
+        assert_eq!(
+            resolve_theme(ThemePreference::System, true),
+            ThemePreference::Defender,
+            "系统深色应映射到 Defender（暗色皮肤）"
+        );
+        assert_eq!(
+            resolve_theme(ThemePreference::System, false),
+            ThemePreference::Fluent,
+            "系统浅色应映射到 Fluent（亮色皮肤）"
+        );
+    }
+
+    #[test]
+    fn resolve_theme_passes_explicit_preferences_through() {
+        for pref in [
+            ThemePreference::Defender,
+            ThemePreference::Blossom,
+            ThemePreference::Neon,
+            ThemePreference::Aurora,
+            ThemePreference::Fluent,
+        ] {
+            assert_eq!(resolve_theme(pref, true), pref);
+            assert_eq!(resolve_theme(pref, false), pref);
+        }
+    }
+
+    #[test]
+    fn system_theme_is_the_default() {
+        assert_eq!(ThemePreference::default(), ThemePreference::System);
+    }
+
+    /// 老版本配置文件里存的是具体皮肤名；新增 `System` 变体后这些值必须照常
+    /// 反序列化，否则升级用户的主题选择会被静默重置。
+    #[test]
+    fn theme_preference_deserializes_legacy_values() {
+        assert_eq!(
+            serde_json::from_str::<ThemePreference>("\"defender\"").unwrap(),
+            ThemePreference::Defender
+        );
+        assert_eq!(
+            serde_json::from_str::<ThemePreference>("\"blossom\"").unwrap(),
+            ThemePreference::Blossom
+        );
+        assert_eq!(
+            serde_json::from_str::<ThemePreference>("\"neon\"").unwrap(),
+            ThemePreference::Neon
+        );
+        assert_eq!(
+            serde_json::from_str::<ThemePreference>("\"aurora\"").unwrap(),
+            ThemePreference::Aurora
+        );
+        assert_eq!(
+            serde_json::from_str::<ThemePreference>("\"system\"").unwrap(),
+            ThemePreference::System
+        );
+    }
+
+    /// `theme` 字段带 `#[serde(default)]`：全新配置或旧版缺省字段落到默认值。
+    #[test]
+    fn settings_deserialize_missing_theme_field_uses_default() {
+        let legacy = serde_json::json!({
+            "scan_paths": [],
+            "expert_mode": false,
+            "soft_delete": true,
+            "soft_delete_days": 7,
+            "include_agent_heuristics": true,
+            "auto_scan_weekly": false,
+            "onboarding_done": true
+        });
+        let settings: crate::AppSettings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(settings.theme, ThemePreference::System);
+        assert_eq!(settings.language, LanguagePreference::System);
     }
 }

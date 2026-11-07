@@ -16,9 +16,12 @@ use crate::i18n::{self, I18n};
 use crate::prelude::*;
 use crate::theme::{colors, corner_sm};
 use clv_core::RiskLevel;
-use gpui_kit::{Animation, AnimationExt, ease_in_out, ElementId, Stateful};
-use std::time::Duration;
+use gpui_kit::component::menu::{self, ContextMenuExt, PopupMenuItem};
 use gpui_kit::component::{Icon, IconName};
+use gpui_kit::{
+    Animation, AnimationExt, ClipboardItem, ElementId, InteractiveElement, Stateful, ease_in_out,
+};
+use std::time::Duration;
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
@@ -39,7 +42,10 @@ pub fn scroll_y(content: impl IntoElement) -> impl IntoElement {
 }
 
 /// Fade-in wrapper when switching main content pages.
-pub fn page_transition(page_key: impl Into<ElementId>, content: impl IntoElement) -> impl IntoElement {
+pub fn page_transition(
+    page_key: impl Into<ElementId>,
+    content: impl IntoElement,
+) -> impl IntoElement {
     div()
         .size_full()
         .min_h_0()
@@ -89,7 +95,11 @@ pub fn card() -> Div {
     glass_card()
 }
 
-pub fn empty_state(icon: IconName, title: impl Into<SharedString>, hint: impl Into<SharedString>) -> Div {
+pub fn empty_state(
+    icon: IconName,
+    title: impl Into<SharedString>,
+    hint: impl Into<SharedString>,
+) -> Div {
     security::empty_state(icon, title, hint)
 }
 
@@ -201,6 +211,40 @@ pub fn open_path_button(id: SharedString, path: &std::path::Path, i18n: &I18n) -
     })
 }
 
+/// Right-click context menu for path-bearing rows: Open Location / Copy Path.
+///
+/// `row` must already carry a stable element id (`.id(eid(..))`): the context
+/// menu keys its open state off that id, and rows sharing the call-site
+/// fallback id would each paint their own copy of the open menu.
+pub fn ctx_menu<E>(row: E, path: &std::path::Path, i18n: &I18n) -> menu::ContextMenu<E>
+where
+    E: InteractiveElement + ParentElement + Styled + IntoElement + 'static,
+{
+    let open_target = folder_open_target(path);
+    let path_text = path.display().to_string();
+    let open_label = i18n.open_location();
+    let copy_label = i18n.copy_path();
+    row.context_menu(move |menu, _, _| {
+        // The builder may run on every right-click; clone per invocation.
+        let open_target = open_target.clone();
+        let path_text = path_text.clone();
+        menu.item(
+            PopupMenuItem::new(open_label)
+                .icon(Icon::new(ACTION_OPEN_FOLDER))
+                .on_click(move |_, _, _| {
+                    open::that(&open_target).ok();
+                }),
+        )
+        .item(
+            PopupMenuItem::new(copy_label)
+                .icon(Icon::new(IconName::Copy))
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(path_text.clone()));
+                }),
+        )
+    })
+}
+
 /// Open a directory as-is; for a file, open its parent folder.
 pub fn folder_open_target(path: &std::path::Path) -> std::path::PathBuf {
     if path.is_dir() {
@@ -226,19 +270,19 @@ pub fn risk_badge(risk: RiskLevel, lang: clv_core::Language) -> Div {
             colors::risk_caution_border(),
             colors::risk_caution_fg(),
         ),
-        RiskLevel::Protected => (
-            colors::red_bg(),
-            colors::red_border(),
-            colors::red(),
-        ),
+        RiskLevel::Protected => (colors::red_bg(), colors::red_border(), colors::red()),
     };
     // Tinted background + 1px border already carry the risk level; the previous
     // 4px solid bar stacked a third redundant accent on top of it.
+    //
+    // Compact metrics mirror the startup-view impact chip (`px(8.) py(2.)`):
+    // the old 12/6 padding made the badge ~33px tall, crowding the fixed-height
+    // rows and reading as bloated next to 14px meta text.
     h_flex()
         .items_center()
         .gap_2()
-        .px(px(12.))
-        .py(px(6.))
+        .px(px(8.))
+        .py(px(2.))
         .rounded(corner_sm())
         .bg(bg)
         .border_1()
@@ -253,31 +297,29 @@ pub fn risk_badge(risk: RiskLevel, lang: clv_core::Language) -> Div {
 }
 
 pub fn setting_row(label: &str, desc: &str, control: Switch) -> Div {
-    card()
-        .p_4()
-        .child(
-            h_flex()
-                .justify_between()
-                .items_center()
-                .gap_4()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(colors::text_primary())
-                                .child(label.to_string()),
-                        )
-                        .child(
-                            div()
-                                .text_base()
-                                .text_color(colors::text_secondary())
-                                .child(desc.to_string()),
-                        ),
-                )
-                .child(control),
-        )
+    card().p_4().child(
+        h_flex()
+            .justify_between()
+            .items_center()
+            .gap_4()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(colors::text_primary())
+                            .child(label.to_string()),
+                    )
+                    .child(
+                        div()
+                            .text_base()
+                            .text_color(colors::text_secondary())
+                            .child(desc.to_string()),
+                    ),
+            )
+            .child(control),
+    )
 }

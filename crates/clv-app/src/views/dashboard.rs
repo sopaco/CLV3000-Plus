@@ -598,6 +598,12 @@ fn history_card(
                                         .text_color(colors::text_secondary())
                                         .child(i18n.pending_release_desc(&size, pending.count)),
                                 )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(colors::text_secondary())
+                                        .child(i18n.recycle_area_explainer()),
+                                )
                                 .when_some(pending.location.clone(), |this, path| {
                                     this.child(
                                         div()
